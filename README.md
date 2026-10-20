@@ -14,6 +14,10 @@ An Electron application with React and TypeScript
 $ pnpm install
 ```
 
+pnpm 11 及以上版本不再从 `.npmrc` 读取这些镜像和依赖提升配置。
+Electron 及 electron-builder 的下载镜像配置在 `package.json` 的 `config` 中，
+pnpm 的依赖提升和依赖构建许可配置在 `pnpm-workspace.yaml` 中。
+
 ### Development
 
 ```bash
