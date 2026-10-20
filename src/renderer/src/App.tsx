@@ -35,6 +35,7 @@ import {
 import { Trace, TraceIcon, TraceLine, TraceTitle } from '@renderer/components/ui/trace'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { ChatMessage } from '@renderer/components/ChatMessage'
+import { ModeToggle } from '@renderer/components/ModeToggle'
 import { usePi } from '@renderer/hooks/use-pi'
 import './assets/chat.css'
 
@@ -103,6 +104,7 @@ function App(): React.JSX.Element {
             <PlusIcon data-icon="inline-start" />
             新对话
           </Button>
+          <ModeToggle />
         </div>
       </header>
 
