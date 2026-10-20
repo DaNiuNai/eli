@@ -2,7 +2,7 @@
 
 ## 项目结构与模块职责
 
-ixov 使用 Electron、React、TypeScript 和 electron-vite，界面使用 Tailwind CSS 和 shadcn/ui。项目自带的示例页面已移除。
+eli 使用 Electron、React、TypeScript 和 electron-vite，界面使用 Tailwind CSS 和 shadcn/ui。项目自带的示例页面已移除。
 
 - `src/main/`：主进程，管理窗口、生命周期与 IPC。
 - `src/preload/`：通过 `contextBridge` 暴露接口；变更接口时同步更新 `index.d.ts`。

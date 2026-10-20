@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from 'react'
 import { isTheme, ThemeContext, type Theme } from '@renderer/hooks/use-theme'
 
-const storageKey = 'ixov-ui-theme'
+const storageKey = 'eli-ui-theme'
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [theme, setTheme] = useState<Theme>(() => {

@@ -15,7 +15,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 680,
     minHeight: 520,
-    title: 'ixov',
+    title: 'eli',
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'win32'
@@ -29,7 +29,7 @@ function createWindow(): void {
           backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff'
         }
       : {}),
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -81,7 +81,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.ixov.desktop')
+  electronApp.setAppUserModelId('com.eli.desktop')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: ixov
+appId: com.eli.desktop
+productName: eli
 directories:
   buildResources: build
 files:
@@ -13,7 +13,7 @@ asarUnpack:
   - node_modules/@earendil-works/**
   - node_modules/@silvia-odwyer/**
 win:
-  executableName: ixov
+  executableName: eli
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

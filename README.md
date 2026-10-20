@@ -1,4 +1,4 @@
-# ixov
+# eli
 
 基于 Electron、React 和 TypeScript 的 pi 桌面客户端，使用
 `@earendil-works/pi-coding-agent` 提供的 `RpcClient` 启动 RPC 子进程。

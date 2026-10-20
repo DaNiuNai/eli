@@ -6,3 +6,5 @@ out
 *.log*
 .agents/
 /claude
+.tmp/
+backup/
