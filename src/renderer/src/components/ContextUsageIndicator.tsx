@@ -87,8 +87,8 @@ export function ContextUsageIndicator({
         </dl>
         <p className="text-xs leading-relaxed text-muted-foreground">
           {tokens === null
-            ? 'pi 暂未提供估算；上下文压缩后，需要等待后续回复更新。'
-            : '由 pi 估算，生成中定期同步，回复结束后刷新。'}
+            ? '暂未提供估算；上下文压缩后，需要等待后续回复更新。'
+            : '用量为估算值，生成中定期同步，回复结束后刷新。'}
         </p>
       </PopoverContent>
     </Popover>

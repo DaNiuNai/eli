@@ -91,7 +91,7 @@ export function UsageDashboard({
       <div className="mb-5 flex flex-col gap-2">
         <h1 className="text-2xl font-medium tracking-tight">工作概览</h1>
         <p className="text-sm text-muted-foreground">
-          本机 pi 的使用记录
+          本机使用记录
           {library && ` · ${workspaceCount} 个工作目录 · ${library.sessions.length} 个已保存会话`}
         </p>
       </div>

@@ -75,9 +75,7 @@ export function ChatComposer({
       {ready && !hasModel && (
         <Alert>
           <AlertTitle>尚无可用模型</AlertTitle>
-          <AlertDescription>
-            请先在本机 pi 中登录或配置模型，再点击侧栏底部的重新连接。
-          </AlertDescription>
+          <AlertDescription>请先在本机登录或配置模型，再点击侧栏底部的重新连接。</AlertDescription>
         </Alert>
       )}
       <div className="flex min-w-0 items-center gap-2">

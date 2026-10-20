@@ -15,7 +15,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 680,
     minHeight: 520,
-    title: 'ixov · pi',
+    title: 'ixov',
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'win32'

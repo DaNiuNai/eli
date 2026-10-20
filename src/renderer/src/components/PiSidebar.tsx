@@ -88,7 +88,6 @@ export function PiSidebar({
         <div className="flex h-9 items-center gap-2 rounded-lg bg-sidebar-accent px-3 text-sm">
           <Code2Icon className="size-4" />
           <span className="font-medium">Code</span>
-          <span className="ml-auto text-xs text-muted-foreground">pi</span>
         </div>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -212,7 +211,7 @@ export function PiSidebar({
       <SidebarFooter className="gap-3 border-t border-sidebar-border px-4 py-3">
         <div className="flex items-center gap-2">
           <LaptopIcon className="size-4 text-muted-foreground" />
-          <span className="text-sm">本机 pi</span>
+          <span className="text-sm">本机</span>
           <Badge className="ml-auto" variant={ready ? 'secondary' : 'outline'}>
             {ready ? '已连接' : snapshot?.connection === 'error' ? '连接失败' : '连接中'}
           </Badge>
@@ -223,8 +222,8 @@ export function PiSidebar({
             <Button
               variant="ghost"
               size="icon-sm"
-              title="重新连接 pi"
-              aria-label="重新连接 pi"
+              title="重新连接"
+              aria-label="重新连接"
               disabled={busy || snapshot?.connection === 'connecting' || !window.api}
               onClick={onReconnect}
             >

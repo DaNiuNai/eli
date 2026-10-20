@@ -45,7 +45,7 @@ export class PiLibraryService {
   async findSession(path: string): Promise<SavedSession> {
     if (!this.sessions.has(path)) await this.load()
     const session = this.sessions.get(path)
-    if (!session) throw new Error('该会话不在本机 pi 历史记录中，请刷新列表')
+    if (!session) throw new Error('该会话不在本机历史记录中，请刷新列表')
     await stat(session.path)
     return session
   }

@@ -70,7 +70,7 @@ export class PiService {
         throw new Error('请输入 1 至 100000 个字符的消息')
       }
       await this.exclusive(async (client) => {
-        if (!this.snapshot.model) throw new Error('请先在 pi 中配置模型，再重新连接')
+        if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
         this.snapshot.error = null
         this.snapshot.running = true
         this.snapshot.activity = '正在等待回复'
@@ -166,7 +166,7 @@ export class PiService {
       this.publish()
       try {
         const result = await dialog.showOpenDialog(this.window, {
-          title: '选择 pi 的工作目录',
+          title: '选择工作目录',
           defaultPath: this.snapshot.cwd,
           properties: ['openDirectory']
         })
@@ -267,7 +267,7 @@ export class PiService {
 
   private requireClient(): RpcClient {
     if (!this.client || this.snapshot.connection !== 'ready') {
-      throw new Error('pi 尚未连接，请重新连接')
+      throw new Error('本机服务尚未连接，请重新连接')
     }
     return this.client
   }
@@ -389,7 +389,7 @@ export class PiService {
         if (event.method === 'notify') this.snapshot.error = event.message
         else if (['select', 'confirm', 'input', 'editor'].includes(event.method)) {
           // RpcClient 尚无公开的 extension_ui_response 方法，不访问它的私有 stdin。
-          this.snapshot.error = '此扩展需要交互，请在 pi 命令行中完成。可停止或重新连接。'
+          this.snapshot.error = '此扩展需要交互，请在命令行中完成。可停止或重新连接。'
         }
         break
     }

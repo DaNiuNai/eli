@@ -1,7 +1,7 @@
 import { BrainIcon, TerminalIcon } from 'lucide-react'
 import type { PiMessage, PiToolEvent } from '../../../shared/pi'
 import { Bubble, BubbleContent } from '@renderer/components/ui/bubble'
-import { Message, MessageContent, MessageHeader } from '@renderer/components/ui/message'
+import { Message, MessageContent } from '@renderer/components/ui/message'
 import {
   Trace,
   TraceCollapsible,
@@ -97,7 +97,6 @@ export function ChatMessage({
   return (
     <Message align={user ? 'end' : 'start'}>
       <MessageContent>
-        <MessageHeader>{user ? '你' : 'pi'}</MessageHeader>
         {groups.map((group, groupIndex) =>
           group.kind === 'text' ? (
             <Bubble

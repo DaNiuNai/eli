@@ -8,7 +8,7 @@ export function usePi(): {
 } {
   const [snapshot, setSnapshot] = useState<PiSnapshot | null>(null)
   const [error, setError] = useState<string | null>(
-    window.api ? null : '请通过 pnpm dev 启动桌面应用，浏览器预览无法连接本机 pi。'
+    window.api ? null : '请通过 pnpm dev 启动桌面应用，浏览器预览无法连接本机服务。'
   )
   const perform = useCallback(async (action: () => Promise<unknown>): Promise<boolean> => {
     setError(null)
