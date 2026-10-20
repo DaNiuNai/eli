@@ -1,0 +1,94 @@
+/* 应用样式独立于 CLI 生成的 shadcn 文件。 */
+.pi-wordmark {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  font-family: Georgia, serif;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.pi-hero {
+  color: var(--foreground);
+  font-family: Georgia, serif;
+  font-size: 4rem;
+  line-height: 1.2;
+}
+
+.chat-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown > * + * {
+  margin-top: 0.85em;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+  margin-top: 1.3em;
+  font-weight: 600;
+}
+
+.chat-markdown h1 {
+  font-size: 1.4em;
+}
+.chat-markdown h2 {
+  font-size: 1.25em;
+}
+.chat-markdown h3 {
+  font-size: 1.1em;
+}
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+.chat-markdown ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.chat-markdown ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.chat-markdown li + li {
+  margin-top: 0.35em;
+}
+.chat-markdown li > p {
+  margin-block: 0.4em;
+}
+.chat-markdown a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chat-markdown :not(pre) > code {
+  border-radius: 0.25rem;
+  padding: 0.15em 0.35em;
+  background: var(--muted);
+  font-size: 0.9em;
+}
+.chat-markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+}
+.chat-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.chat-markdown th,
+.chat-markdown td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.chat-markdown hr {
+  border-color: var(--border);
+  margin-block: 1.25em;
+}

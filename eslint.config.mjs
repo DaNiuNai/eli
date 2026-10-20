@@ -11,6 +11,7 @@ export default defineConfig(
       '**/node_modules',
       '**/dist',
       '**/out',
+      '.agents/**',
       // 保留 shadcn CLI 生成文件原样，业务组件仍执行检查。
       'src/renderer/src/components/ui/**',
       'src/renderer/src/hooks/use-mobile.ts',

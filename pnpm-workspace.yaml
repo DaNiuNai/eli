@@ -1,4 +1,6 @@
 shamefullyHoist: true
 
 allowBuilds:
+  '@google/genai': true
   electron-winstaller: true
+  protobufjs: true

@@ -1,22 +1,20 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron'
+import { piChannels, type PiApi, type PiSnapshot } from '../shared/pi'
 
 // Custom APIs for renderer
-const api = {}
-
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+const api: PiApi = {
+  connect: (restart) => ipcRenderer.invoke(piChannels.connect, restart),
+  prompt: (message) => ipcRenderer.invoke(piChannels.prompt, message),
+  abort: () => ipcRenderer.invoke(piChannels.abort),
+  newSession: () => ipcRenderer.invoke(piChannels.newSession),
+  setModel: (provider, modelId) => ipcRenderer.invoke(piChannels.setModel, provider, modelId),
+  chooseDirectory: () => ipcRenderer.invoke(piChannels.chooseDirectory),
+  onSnapshot: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: PiSnapshot): void =>
+      listener(snapshot)
+    ipcRenderer.on(piChannels.snapshot, handler)
+    return () => ipcRenderer.removeListener(piChannels.snapshot, handler)
   }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
 }
+
+contextBridge.exposeInMainWorld('api', api)
