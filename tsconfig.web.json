@@ -9,6 +9,8 @@
   "compilerOptions": {
     "composite": true,
     "jsx": "react-jsx",
+    // 未使用变量由 ESLint 检查，以保留 CLI 生成文件原样。
+    "noUnusedLocals": false,
     "baseUrl": ".",
     "paths": {
       "@renderer/*": [

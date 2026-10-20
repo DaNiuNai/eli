@@ -6,7 +6,19 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      // 保留 shadcn CLI 生成文件原样，业务组件仍执行检查。
+      'src/renderer/src/components/ui/**',
+      'src/renderer/src/hooks/use-mobile.ts',
+      'src/renderer/src/hooks/use-highlighted-code.ts',
+      'src/renderer/src/lib/utils.ts',
+      'src/renderer/src/lib/highlighter.tsx'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
@@ -25,7 +37,8 @@ export default defineConfig(
     },
     rules: {
       ...eslintPluginReactHooks.configs.recommended.rules,
-      ...eslintPluginReactRefresh.configs.vite.rules
+      ...eslintPluginReactRefresh.configs.vite.rules,
+      '@typescript-eslint/no-unused-vars': 'error'
     }
   },
   eslintConfigPrettier
