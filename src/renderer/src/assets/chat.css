@@ -1,21 +1,119 @@
 /* 应用样式独立于 CLI 生成的 shadcn 文件。 */
-.pi-wordmark {
-  display: grid;
-  width: 2.25rem;
-  height: 2.25rem;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  font-family: Georgia, serif;
-  font-size: 1.7rem;
-  line-height: 1;
+:root {
+  --desktop-titlebar-height: env(titlebar-area-height, 40px);
 }
 
-.pi-hero {
-  color: var(--foreground);
-  font-family: Georgia, serif;
-  font-size: 4rem;
-  line-height: 1.2;
+.desktop-titlebar {
+  height: var(--desktop-titlebar-height);
+}
+
+.window-titlebar {
+  width: env(titlebar-area-width, 100%);
+  margin-left: env(titlebar-area-x, 0px);
+  user-select: none;
+  app-region: drag;
+}
+
+.window-titlebar-actions {
+  app-region: no-drag;
+}
+
+.desktop-sidebar {
+  top: var(--desktop-titlebar-height);
+  height: calc(100dvh - var(--desktop-titlebar-height));
+}
+
+/* 仅定制思考强度滑块的形状，复用 shadcn Slider 的交互与主题。 */
+.thinking-slider {
+  --thinking-thumb-width: 0.875rem;
+  --thinking-track-height: 1.25rem;
+  position: relative;
+  height: var(--thinking-track-height);
+  border-radius: 0.375rem;
+  background: var(--muted);
+}
+
+.thinking-slider-marks {
+  position: absolute;
+  inset: 0 calc(var(--thinking-thumb-width) / 2);
+  pointer-events: none;
+}
+
+.thinking-slider-mark {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+  opacity: 0.65;
+  transform: translate(-50%, -50%);
+}
+
+.thinking-slider-mark[data-default] {
+  height: 8px;
+  opacity: 1;
+}
+
+.thinking-slider [data-slot='slider'] {
+  position: relative;
+}
+
+.thinking-slider [data-slot='slider-track'] {
+  height: var(--thinking-track-height);
+  border-radius: inherit;
+  background: transparent;
+}
+
+.thinking-slider [data-slot='slider-range'] {
+  display: none;
+}
+
+.thinking-slider [data-slot='slider-thumb'] {
+  width: var(--thinking-thumb-width);
+  height: 1.125rem;
+  border-radius: 0.375rem;
+}
+
+.usage-heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(26, minmax(0, 1fr));
+  grid-template-rows: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.usage-day {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--muted);
+}
+
+.usage-day[data-level='1'] {
+  background: color-mix(in srgb, var(--chart-1) 30%, var(--muted));
+}
+
+.usage-day[data-level='2'] {
+  background: color-mix(in srgb, var(--chart-1) 50%, var(--muted));
+}
+
+.usage-day[data-level='3'] {
+  background: color-mix(in srgb, var(--chart-1) 75%, var(--muted));
+}
+
+.usage-day[data-level='4'] {
+  background: var(--chart-1);
+}
+
+.usage-day[data-future] {
+  visibility: hidden;
+}
+
+@media (max-width: 767px) {
+  .usage-heatmap {
+    gap: 3px;
+  }
 }
 
 .chat-markdown {

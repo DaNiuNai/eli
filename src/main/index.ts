@@ -1,8 +1,9 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { PiService } from './pi-service'
+import { windowAppearanceChannel } from '../shared/window-appearance'
 
 let piService: PiService | undefined
 let quitting = false
@@ -17,6 +18,17 @@ function createWindow(): void {
     title: 'ixov · pi',
     show: false,
     autoHideMenuBar: true,
+    ...(process.platform === 'win32'
+      ? {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: {
+            color: '#00000000',
+            symbolColor: nativeTheme.shouldUseDarkColors ? '#fafafa' : '#171717',
+            height: 40
+          },
+          backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff'
+        }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -25,9 +37,22 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  ipcMain.handle(windowAppearanceChannel, (event, dark: unknown) => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame ||
+      typeof dark !== 'boolean'
+    ) {
+      throw new Error('无效的窗口主题请求')
+    }
+    if (process.platform !== 'win32') return
+    mainWindow.setTitleBarOverlay({ symbolColor: dark ? '#fafafa' : '#171717' })
+    mainWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff')
+  })
   piService = new PiService(mainWindow)
   piService.register()
   mainWindow.on('closed', () => {
+    ipcMain.removeHandler(windowAppearanceChannel)
     void piService?.dispose()
     piService = undefined
   })

@@ -22,6 +22,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
       root.classList.remove('light', 'dark')
       root.classList.add(resolvedTheme)
       root.style.colorScheme = resolvedTheme
+      void window.windowAppearance
+        ?.setDarkMode(resolvedTheme === 'dark')
+        .catch((error: unknown) => {
+          console.error('同步窗口主题失败', error)
+        })
     }
 
     applyTheme()

@@ -1,18 +1,21 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
+import { stat } from 'node:fs/promises'
 import type {
   JsonAgentSessionEvent,
   RpcClient,
   RpcExtensionUIRequest
 } from '@earendil-works/pi-coding-agent'
-import { piChannels, type PiSnapshot } from '../shared/pi'
+import { piChannels, type PiSnapshot, type PiThinkingLevel } from '../shared/pi'
 import { updateAssistantMessage } from '../shared/pi-messages'
+import { PiLibraryService } from './pi-library'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
 export class PiService {
+  private library = new PiLibraryService()
   private client: RpcClient | null = null
   private unsubscribe?: () => void
   private connecting?: Promise<PiSnapshot>
@@ -24,9 +27,12 @@ export class PiService {
   private sessionFile?: string
   private snapshot: PiSnapshot = {
     revision: 0,
+    libraryVersion: 0,
     connection: 'connecting',
     cwd: app.isPackaged ? app.getPath('documents') : process.cwd(),
     session: null,
+    thinkingLevels: [],
+    contextUsage: null,
     model: null,
     models: [],
     messages: [],
@@ -95,13 +101,47 @@ export class PiService {
         throw error
       }
     })
-    handle(piChannels.newSession, () =>
+    handle(piChannels.getLibrary, () => this.library.load(this.snapshot.libraryVersion))
+    handle(piChannels.openSession, (path) =>
       this.exclusive(async (client) => {
+        if (typeof path !== 'string') throw new Error('请选择有效的历史会话')
+        const session = await this.library.findSession(path)
+        if (session.cwd && session.cwd !== this.snapshot.cwd) {
+          await this.changeWorkspace(session.cwd, session.path)
+          return
+        }
+        const result = await client.switchSession(session.path)
+        if (result.cancelled) throw new Error('扩展取消了切换会话')
+        this.snapshot.tools = {}
+        this.snapshot.error = null
+        await this.refresh(client)
+      })
+    )
+    handle(piChannels.newSession, (cwd) =>
+      this.exclusive(async (client) => {
+        if (cwd !== undefined && typeof cwd !== 'string') throw new Error('无效的工作目录')
+        if (typeof cwd === 'string' && cwd !== this.snapshot.cwd) {
+          if (!(await this.library.hasWorkspace(cwd))) throw new Error('请选择已有工作目录')
+          await this.changeWorkspace(cwd)
+          return
+        }
         const result = await client.newSession()
         if (result.cancelled) throw new Error('扩展取消了新建对话')
         this.activeMessage = -1
         this.snapshot.tools = {}
         this.snapshot.error = null
+        await this.refresh(client)
+      })
+    )
+    handle(piChannels.setThinkingLevel, (level) =>
+      this.exclusive(async (client) => {
+        if (
+          typeof level !== 'string' ||
+          !this.snapshot.thinkingLevels.includes(level as PiThinkingLevel)
+        ) {
+          throw new Error('当前模型不支持该思考强度')
+        }
+        await client.setThinkingLevel(level as PiThinkingLevel)
         await this.refresh(client)
       })
     )
@@ -133,19 +173,27 @@ export class PiService {
         if (result.canceled || !result.filePaths[0] || result.filePaths[0] === this.snapshot.cwd) {
           return
         }
-        await this.stopClient()
-        this.snapshot.connection = 'connecting'
-        this.sessionFile = undefined
-        this.snapshot.cwd = result.filePaths[0]
-        this.snapshot.messages = []
-        this.snapshot.tools = {}
-        this.snapshot.session = null
-        await this.connect()
+        await this.changeWorkspace(result.filePaths[0])
       } finally {
         this.snapshot.pending = false
         this.publish()
       }
     })
+  }
+
+  private async changeWorkspace(cwd: string, sessionFile?: string): Promise<void> {
+    if (!(await stat(cwd)).isDirectory()) throw new Error('工作目录不存在或无法访问')
+    await this.stopClient()
+    this.snapshot.connection = 'connecting'
+    this.sessionFile = sessionFile
+    this.snapshot.cwd = cwd
+    this.snapshot.messages = []
+    this.snapshot.tools = {}
+    this.snapshot.session = null
+    this.snapshot.thinkingLevels = []
+    this.snapshot.contextUsage = null
+    await this.connect()
+    if (this.snapshot.error) throw new Error(this.snapshot.error)
   }
 
   connect(): Promise<PiSnapshot> {
@@ -186,10 +234,22 @@ export class PiService {
       if (this.client !== client || this.disposed) return this.snapshot
       this.snapshot.connection = 'ready'
       this.heartbeat = setInterval(() => {
-        if (this.checking || this.snapshot.connection !== 'ready') return
+        if (this.checking || this.snapshot.pending || this.snapshot.connection !== 'ready') return
         this.checking = true
-        void client
-          .getState()
+        void Promise.all([client.getState(), client.getSessionStats()])
+          .then(([state, stats]) => {
+            if (
+              this.client !== client ||
+              this.snapshot.pending ||
+              state.sessionId !== this.snapshot.session?.sessionId
+            )
+              return
+            const next = stats.contextUsage ?? null
+            if (JSON.stringify(next) !== JSON.stringify(this.snapshot.contextUsage)) {
+              this.snapshot.contextUsage = next
+              this.publish()
+            }
+          })
           .catch((error: unknown) => {
             if (this.client === client) this.fail(error)
           })
@@ -226,18 +286,24 @@ export class PiService {
   }
 
   private async refresh(client: RpcClient): Promise<void> {
-    const [state, messages, models] = await Promise.all([
+    const [state, messages, models, thinkingLevels, stats] = await Promise.all([
       client.getState(),
       client.getMessages(),
-      client.getAvailableModels()
+      client.getAvailableModels(),
+      client.getAvailableThinkingLevels(),
+      client.getSessionStats()
     ])
     if (this.client !== client || this.disposed) return
     this.sessionFile = state.sessionFile
     this.snapshot.session = {
       sessionId: state.sessionId,
+      sessionFile: state.sessionFile,
       sessionName: state.sessionName,
       thinkingLevel: state.thinkingLevel
     }
+    this.snapshot.thinkingLevels = thinkingLevels
+    this.snapshot.contextUsage = stats.contextUsage ?? null
+    this.snapshot.libraryVersion++
     // 不把模型配置中的 headers 等字段传入渲染进程。
     this.snapshot.model = state.model
       ? {
@@ -307,8 +373,10 @@ export class PiService {
       }
       case 'compaction_start':
         this.snapshot.activity = '正在整理上下文'
+        this.snapshot.contextUsage = null
         break
       case 'compaction_end':
+        this.snapshot.contextUsage = null
         if (event.errorMessage) this.snapshot.error = event.errorMessage
         break
       case 'auto_retry_start':
