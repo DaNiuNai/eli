@@ -9,10 +9,11 @@ const api: PiApi = {
   abort: () => ipcRenderer.invoke(piChannels.abort),
   newSession: (cwd) => ipcRenderer.invoke(piChannels.newSession, cwd),
   openSession: (path) => ipcRenderer.invoke(piChannels.openSession, path),
+  deleteSession: (path) => ipcRenderer.invoke(piChannels.deleteSession, path),
   getLibrary: () => ipcRenderer.invoke(piChannels.getLibrary),
   setThinkingLevel: (level) => ipcRenderer.invoke(piChannels.setThinkingLevel, level),
   setModel: (provider, modelId) => ipcRenderer.invoke(piChannels.setModel, provider, modelId),
-  chooseDirectory: () => ipcRenderer.invoke(piChannels.chooseDirectory),
+  chooseDirectory: (language) => ipcRenderer.invoke(piChannels.chooseDirectory, language),
   onSnapshot: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: PiSnapshot): void =>
       listener(snapshot)

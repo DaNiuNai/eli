@@ -4,6 +4,11 @@
 }
 
 .desktop-titlebar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  width: 100%;
   height: var(--desktop-titlebar-height);
 }
 
@@ -19,8 +24,33 @@
 }
 
 .desktop-sidebar {
-  top: var(--desktop-titlebar-height);
-  height: calc(100dvh - var(--desktop-titlebar-height));
+  top: 0;
+  height: 100dvh;
+}
+
+.desktop-sidebar-header,
+.desktop-main {
+  padding-top: var(--desktop-titlebar-height);
+}
+
+.desktop-sidebar-toggle {
+  cursor: pointer;
+}
+
+.sidebar-drag-handle {
+  touch-action: none;
+}
+
+.composer-action-button {
+  position: relative;
+  right: 8px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.composer-action-button svg {
+  width: 0.75rem;
+  height: 0.75rem;
 }
 
 /* 仅定制思考强度滑块的形状，复用 shadcn Slider 的交互与主题。 */

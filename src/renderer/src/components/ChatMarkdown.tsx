@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useLanguage } from '@renderer/hooks/use-language'
 import {
   CodeBlock,
   CodeBlockActions,
@@ -11,6 +12,7 @@ import {
 } from '@renderer/components/ui/code-block'
 
 export function ChatMarkdown({ text }: { text: string }): React.JSX.Element {
+  const { t } = useLanguage()
   return (
     <div className="chat-markdown">
       <Markdown
@@ -22,17 +24,21 @@ export function ChatMarkdown({ text }: { text: string }): React.JSX.Element {
               {children}
             </a>
           ),
-          img: ({ alt }) => <span>[图片：{alt || '未加载'}]</span>,
+          img: ({ alt }) => <span>[{t('图片：{alt}', { alt: alt || t('未加载') })}]</span>,
           pre: ({ children }) => {
             const code = children as ReactElement<{ children?: string; className?: string }>
             const value = String(code.props.children ?? '').replace(/\n$/, '')
-            const language = code.props.className?.replace('language-', '') || '代码'
+            const language = code.props.className?.replace('language-', '') || t('代码')
             return (
               <CodeBlock>
                 <CodeBlockHeader>
                   <CodeBlockTitle>{language}</CodeBlockTitle>
                   <CodeBlockActions>
-                    <CodeBlockCopyButton value={value} aria-label="复制代码" />
+                    <CodeBlockCopyButton
+                      value={value}
+                      aria-label={t('复制代码')}
+                      title={t('复制代码')}
+                    />
                   </CodeBlockActions>
                 </CodeBlockHeader>
                 <CodeBlockContent className="max-h-96">{value}</CodeBlockContent>

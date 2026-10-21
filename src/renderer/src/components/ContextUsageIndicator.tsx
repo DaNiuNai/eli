@@ -9,6 +9,7 @@ import {
 } from '@renderer/components/ui/popover'
 import { Progress } from '@renderer/components/ui/progress'
 import { compactNumber } from '@renderer/lib/pi-display'
+import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot } from '../../../shared/pi'
 
 export function ContextUsageIndicator({
@@ -18,17 +19,21 @@ export function ContextUsageIndicator({
   usage: PiSnapshot['contextUsage']
   contextWindow: number | undefined
 }): React.JSX.Element {
+  const { t, locale } = useLanguage()
   const capacity = usage?.contextWindow || contextWindow || 0
   const tokens = usage?.tokens ?? null
   const percent = tokens !== null && capacity > 0 ? (tokens / capacity) * 100 : null
   const progress = percent === null ? null : Math.min(100, Math.max(0, percent))
-  const label = percent === null ? '上下文用量：等待更新' : `上下文已用 ${percent.toFixed(1)}%`
+  const label =
+    percent === null
+      ? t('上下文用量：等待更新')
+      : t('上下文已用 {percent}%', { percent: percent.toFixed(1) })
 
   return (
     <Popover>
       <PopoverTrigger
         render={<Button variant="ghost" size="icon-sm" />}
-        aria-label="上下文用量"
+        aria-label={t('上下文用量')}
         title={label}
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -56,12 +61,12 @@ export function ContextUsageIndicator({
       </PopoverTrigger>
       <PopoverContent side="top" align="end" className="w-72 gap-4 p-4">
         <PopoverHeader>
-          <PopoverTitle>上下文用量</PopoverTitle>
-          <PopoverDescription>当前对话占用的模型上下文估算。</PopoverDescription>
+          <PopoverTitle>{t('上下文用量')}</PopoverTitle>
+          <PopoverDescription>{t('当前对话占用的模型上下文估算。')}</PopoverDescription>
         </PopoverHeader>
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-xl font-medium tabular-nums">
-            {percent === null ? '等待更新' : `${percent.toFixed(1)}%`}
+            {percent === null ? t('等待更新') : `${percent.toFixed(1)}%`}
           </span>
           <span className="text-xs text-muted-foreground">
             {tokens === null ? '—' : compactNumber(tokens)} /{' '}
@@ -70,26 +75,21 @@ export function ContextUsageIndicator({
         </div>
         <Progress value={progress} aria-label={label} />
         <dl className="grid grid-cols-2 gap-y-2 text-xs">
-          <dt className="text-muted-foreground">已使用</dt>
+          <dt className="text-muted-foreground">{t('已使用')}</dt>
           <dd className="text-right tabular-nums">
-            {tokens === null ? '暂不可用' : tokens.toLocaleString()}
+            {tokens === null ? t('暂不可用') : tokens.toLocaleString(locale)}
           </dd>
-          <dt className="text-muted-foreground">上下文容量</dt>
+          <dt className="text-muted-foreground">{t('上下文容量')}</dt>
           <dd className="text-right tabular-nums">
-            {capacity ? capacity.toLocaleString() : '暂不可用'}
+            {capacity ? capacity.toLocaleString(locale) : t('暂不可用')}
           </dd>
-          <dt className="text-muted-foreground">剩余容量</dt>
+          <dt className="text-muted-foreground">{t('剩余容量')}</dt>
           <dd className="text-right tabular-nums">
             {tokens === null || !capacity
-              ? '暂不可用'
-              : Math.max(0, capacity - tokens).toLocaleString()}
+              ? t('暂不可用')
+              : Math.max(0, capacity - tokens).toLocaleString(locale)}
           </dd>
         </dl>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {tokens === null
-            ? '暂未提供估算；上下文压缩后，需要等待后续回复更新。'
-            : '用量为估算值，生成中定期同步，回复结束后刷新。'}
-        </p>
       </PopoverContent>
     </Popover>
   )

@@ -1,13 +1,13 @@
 import type { PiThinkingLevel } from '../../../shared/pi'
 
-export function directoryName(path: string): string {
+export function directoryName(path: string, fallback = '工作目录'): string {
   return (
     path
       .replace(/[\\/]+$/, '')
       .split(/[\\/]/)
       .at(-1) ||
     path ||
-    '工作目录'
+    fallback
   )
 }
 

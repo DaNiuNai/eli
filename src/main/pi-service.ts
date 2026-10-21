@@ -1,5 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { join, relative, resolve } from 'node:path'
 import { stat } from 'node:fs/promises'
 import type {
   JsonAgentSessionEvent,
@@ -117,6 +117,31 @@ export class PiService {
         await this.refresh(client)
       })
     )
+    handle(piChannels.deleteSession, (path) =>
+      this.exclusive(async (client) => {
+        if (typeof path !== 'string') throw new Error('请选择有效的历史会话')
+        const session = await this.library.findSession(path)
+        const state = await client.getState()
+        const isCurrent = !!state.sessionFile && relative(state.sessionFile, session.path) === ''
+        if (isCurrent) {
+          const result = await client.newSession()
+          if (result.cancelled) throw new Error('扩展取消了新建对话，未删除原会话')
+          this.snapshot.tools = {}
+          await this.refresh(client)
+        }
+        try {
+          await shell.trashItem(resolve(session.path))
+        } catch (cause) {
+          if (isCurrent) {
+            const restored = await client.switchSession(session.path).catch(() => null)
+            if (restored && !restored.cancelled) await this.refresh(client)
+          }
+          throw cause
+        }
+        this.snapshot.error = null
+        this.snapshot.libraryVersion++
+      })
+    )
     handle(piChannels.newSession, (cwd) =>
       this.exclusive(async (client) => {
         if (cwd !== undefined && typeof cwd !== 'string') throw new Error('无效的工作目录')
@@ -158,7 +183,10 @@ export class PiService {
         await this.refresh(client)
       })
     )
-    handle(piChannels.chooseDirectory, async () => {
+    handle(piChannels.chooseDirectory, async (language) => {
+      if (language !== undefined && language !== 'zh-CN' && language !== 'en') {
+        throw new Error('无效的界面语言')
+      }
       if (this.snapshot.running || this.snapshot.pending || this.connecting) {
         throw new Error('请等待当前操作完成')
       }
@@ -166,7 +194,7 @@ export class PiService {
       this.publish()
       try {
         const result = await dialog.showOpenDialog(this.window, {
-          title: '选择工作目录',
+          title: language === 'en' ? 'Choose workspace' : '选择工作目录',
           defaultPath: this.snapshot.cwd,
           properties: ['openDirectory']
         })

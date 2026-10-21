@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { rememberSidebarSessions } from '@renderer/lib/sidebar-order'
 import type { PiLibrary } from '../../../shared/pi-library'
 
 interface LibraryResult {
@@ -24,7 +25,10 @@ export function usePiLibrary(version: number | undefined): {
     void window.api
       .getLibrary()
       .then((library) => {
-        if (active) setResult({ library, error: null, version, request })
+        if (active) {
+          rememberSidebarSessions(library.sessions)
+          setResult({ library, error: null, version, request })
+        }
       })
       .catch((cause: unknown) => {
         if (active)

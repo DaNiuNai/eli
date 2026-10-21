@@ -11,6 +11,7 @@ import {
 } from '@renderer/components/ui/popover'
 import { Slider } from '@renderer/components/ui/slider'
 import { thinkingLabels } from '@renderer/lib/pi-display'
+import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiThinkingLevel } from '../../../shared/pi'
 
 export function ThinkingControl({
@@ -24,6 +25,7 @@ export function ThinkingControl({
   disabled: boolean
   onChange: (level: PiThinkingLevel) => Promise<boolean>
 }): React.JSX.Element {
+  const { t } = useLanguage()
   const labelId = useId()
   const descriptionId = useId()
   const [preview, setPreview] = useState<PiThinkingLevel | null>(null)
@@ -51,11 +53,11 @@ export function ThinkingControl({
     <Popover onOpenChange={() => setPreview(null)}>
       <PopoverTrigger
         render={<Button variant="ghost" size="sm" />}
-        aria-label="思考强度"
-        title="调整思考强度"
+        aria-label={t('思考强度')}
+        title={t('调整思考强度')}
         disabled={disabled || saving}
       >
-        {thinkingLabels[value]}
+        {t(thinkingLabels[value])}
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -64,14 +66,14 @@ export function ThinkingControl({
       >
         <PopoverHeader className="flex-row items-center justify-between gap-3">
           <PopoverTitle id={labelId} className="text-xs">
-            <span className="text-muted-foreground">思考强度</span>
-            <span className="ml-2">{thinkingLabels[selected]}</span>
+            <span className="text-muted-foreground">{t('思考强度')}</span>
+            <span className="ml-2">{t(thinkingLabels[selected])}</span>
           </PopoverTitle>
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label="恢复默认思考强度"
-            title={`恢复默认：${thinkingLabels[defaultLevel]}`}
+            aria-label={t('恢复默认思考强度')}
+            title={t('恢复默认：{level}', { level: t(thinkingLabels[defaultLevel]) })}
             disabled={disabled || saving || value === defaultLevel || defaultIndex < 0}
             onClick={() => {
               setPreview(defaultLevel)
@@ -83,8 +85,8 @@ export function ThinkingControl({
         </PopoverHeader>
         <div className="flex flex-col gap-2">
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>更快</span>
-            <span>更深入</span>
+            <span>{t('更快')}</span>
+            <span>{t('更深入')}</span>
           </div>
           <div className="thinking-slider">
             <div className="thinking-slider-marks" aria-hidden="true">
@@ -114,7 +116,7 @@ export function ThinkingControl({
           </div>
         </div>
         <PopoverDescription id={descriptionId} className="text-center text-xs">
-          {saving ? '正在应用…' : `默认：${thinkingLabels[defaultLevel]}`}
+          {saving ? t('正在应用…') : t('默认：{level}', { level: t(thinkingLabels[defaultLevel]) })}
         </PopoverDescription>
       </PopoverContent>
     </Popover>

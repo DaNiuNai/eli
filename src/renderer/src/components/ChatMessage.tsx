@@ -14,6 +14,7 @@ import {
 import { CodeBlock, CodeBlockContent } from '@renderer/components/ui/code-block'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { ChatMarkdown } from './ChatMarkdown'
+import { useLanguage } from '@renderer/hooks/use-language'
 
 type Assistant = Extract<PiMessage, { role: 'assistant' }>
 type ToolCall = Extract<Assistant['content'][number], { type: 'toolCall' }>
@@ -29,10 +30,11 @@ function ToolCallView({
   result?: Extract<PiMessage, { role: 'toolResult' }>
   running: boolean
 }): React.JSX.Element {
+  const { t } = useLanguage()
   const finished = event?.type === 'tool_execution_end' || !!result
   const failed = (event?.type === 'tool_execution_end' && event.isError) || result?.isError
   const output = result?.content
-    .map((part) => (part.type === 'text' ? part.text : '[图片输出]'))
+    .map((part) => (part.type === 'text' ? part.text : t('[图片输出]')))
     .join('\n')
   return (
     <TraceCollapsible>
@@ -42,7 +44,7 @@ function ToolCallView({
             <TerminalIcon />
           </TraceIcon>
           <TraceTitle>
-            {failed ? '执行失败' : finished ? '已执行' : running ? '正在执行' : '未完成'} ·{' '}
+            {t(failed ? '执行失败' : finished ? '已执行' : running ? '正在执行' : '未完成')} ·{' '}
             {call.name}
           </TraceTitle>
         </TraceLine>
@@ -78,6 +80,7 @@ export function ChatMessage({
   tools: Record<string, PiToolEvent>
   running: boolean
 }): React.JSX.Element | null {
+  const { t } = useLanguage()
   if (message.role === 'toolResult') return null
   if (message.role !== 'assistant' && message.role !== 'user') return null
   const user = message.role === 'user'
@@ -136,7 +139,7 @@ export function ChatMessage({
                         <TraceIcon>
                           <BrainIcon />
                         </TraceIcon>
-                        <TraceTitle>思考过程</TraceTitle>
+                        <TraceTitle>{t('思考过程')}</TraceTitle>
                       </TraceLine>
                     </TraceCollapsibleTrigger>
                     <TraceCollapsibleContent>
@@ -161,11 +164,11 @@ export function ChatMessage({
         )}
         {message.role === 'assistant' && message.stopReason === 'error' && (
           <Alert variant="destructive">
-            <AlertDescription>{message.errorMessage || '回复失败，请重试。'}</AlertDescription>
+            <AlertDescription>{t(message.errorMessage || '回复失败，请重试。')}</AlertDescription>
           </Alert>
         )}
         {message.role === 'assistant' && message.stopReason === 'aborted' && (
-          <span className="text-xs text-muted-foreground">已停止生成</span>
+          <span className="text-xs text-muted-foreground">{t('已停止生成')}</span>
         )}
       </MessageContent>
     </Message>

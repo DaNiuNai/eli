@@ -20,6 +20,7 @@ import {
   TableRow
 } from '@renderer/components/ui/table'
 import { compactNumber } from '@renderer/lib/pi-display'
+import { useLanguage } from '@renderer/hooks/use-language'
 import {
   localDateKey,
   summarizeUsage,
@@ -38,6 +39,7 @@ export function UsageDashboard({
   loading: boolean
   error: string | null
 }): React.JSX.Element {
+  const { t, locale } = useLanguage()
   const [period, setPeriod] = useState<UsagePeriod>('all')
   const usage = library?.usage ?? emptyUsage
   const summary = useMemo(() => summarizeUsage(usage, period), [usage, period])
@@ -89,17 +91,21 @@ export function UsageDashboard({
   return (
     <section className="dashboard mx-auto w-full max-w-4xl px-6 pb-4 pt-6 sm:px-8">
       <div className="mb-5 flex flex-col gap-2">
-        <h1 className="text-2xl font-medium tracking-tight">工作概览</h1>
+        <h1 className="text-2xl font-medium tracking-tight">{t('工作概览')}</h1>
         <p className="text-sm text-muted-foreground">
-          本机使用记录
-          {library && ` · ${workspaceCount} 个工作目录 · ${library.sessions.length} 个已保存会话`}
+          {t('本机使用记录')}
+          {library &&
+            t(' · {workspaces} 个工作目录 · {sessions} 个已保存会话', {
+              workspaces: workspaceCount,
+              sessions: library.sessions.length
+            })}
         </p>
       </div>
       <Card size="sm" className="max-w-[30rem]">
         <CardHeader className="sr-only">
-          <CardTitle>用量统计</CardTitle>
+          <CardTitle>{t('用量统计')}</CardTitle>
           <CardDescription>
-            根据本地会话文件统计，包含缓存用量，分支继承的相同条目去重。
+            {t('根据本地会话文件统计，包含缓存用量，分支继承的相同条目去重。')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -107,14 +113,14 @@ export function UsageDashboard({
             <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
               <TabsList variant="line">
                 <TabsTrigger value="overview" className="text-xs">
-                  概览
+                  {t('概览')}
                 </TabsTrigger>
                 <TabsTrigger value="models" className="text-xs">
-                  模型
+                  {t('模型')}
                 </TabsTrigger>
               </TabsList>
               <ToggleGroup
-                aria-label="统计时间范围"
+                aria-label={t('统计时间范围')}
                 size="sm"
                 value={[period]}
                 onValueChange={(value) => {
@@ -122,9 +128,9 @@ export function UsageDashboard({
                     setPeriod(value[0])
                 }}
               >
-                <ToggleGroupItem value="all">全部</ToggleGroupItem>
-                <ToggleGroupItem value="30">30 天</ToggleGroupItem>
-                <ToggleGroupItem value="7">7 天</ToggleGroupItem>
+                <ToggleGroupItem value="all">{t('全部')}</ToggleGroupItem>
+                <ToggleGroupItem value="30">{t('30 天')}</ToggleGroupItem>
+                <ToggleGroupItem value="7">{t('7 天')}</ToggleGroupItem>
               </ToggleGroup>
             </div>
             <TabsContent value="overview">
@@ -142,10 +148,10 @@ export function UsageDashboard({
                       <div
                         className="min-w-0 rounded-md bg-muted px-2 py-1"
                         key={metric.label}
-                        title={metric.title}
+                        title={t(metric.title)}
                       >
                         <dt className="text-[11px] leading-4 text-muted-foreground">
-                          {metric.label}
+                          {t(metric.label)}
                         </dt>
                         <dd className="truncate text-sm font-medium leading-5 tabular-nums">
                           {metric.value}
@@ -156,8 +162,10 @@ export function UsageDashboard({
                   <div
                     className="usage-heatmap mt-2"
                     role="img"
-                    title="最近 26 周的活动记录，按本地时间统计"
-                    aria-label={`最近 26 周的用量热力图，所选时段共 ${summary.days.size} 个活跃日`}
+                    title={t('最近 26 周的活动记录，按本地时间统计')}
+                    aria-label={t('最近 26 周的用量热力图，所选时段共 {days} 个活跃日', {
+                      days: summary.days.size
+                    })}
                   >
                     {days.map((date) => {
                       const activity = summary.days.get(date)
@@ -172,7 +180,11 @@ export function UsageDashboard({
                           className="usage-day"
                           data-level={level}
                           data-future={date > today || undefined}
-                          title={`${date} · ${activity?.messages ?? 0} 条消息 · ${(activity?.tokens ?? 0).toLocaleString()} Token`}
+                          title={t('{date} · {messages} 条消息 · {tokens} Token', {
+                            date,
+                            messages: activity?.messages ?? 0,
+                            tokens: (activity?.tokens ?? 0).toLocaleString(locale)
+                          })}
                         />
                       )
                     })}
@@ -180,15 +192,19 @@ export function UsageDashboard({
                   <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                     <span>
                       {summary.tokens
-                        ? `输入 ${compactNumber(summary.input)} · 输出 ${compactNumber(summary.output)} · 缓存 ${compactNumber(summary.cache)}`
-                        : '暂无已保存的用量记录'}
+                        ? t('输入 {input} · 输出 {output} · 缓存 {cache}', {
+                            input: compactNumber(summary.input),
+                            output: compactNumber(summary.output),
+                            cache: compactNumber(summary.cache)
+                          })
+                        : t('暂无已保存的用量记录')}
                     </span>
                     <div className="flex shrink-0 items-center gap-1" aria-hidden="true">
-                      <span className="mr-1">少</span>
+                      <span className="mr-1">{t('少')}</span>
                       {[0, 1, 2, 3, 4].map((level) => (
                         <span key={level} className="usage-day size-2" data-level={level} />
                       ))}
-                      <span className="ml-1">多</span>
+                      <span className="ml-1">{t('多')}</span>
                     </div>
                   </div>
                 </>
@@ -199,10 +215,10 @@ export function UsageDashboard({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>模型</TableHead>
-                      <TableHead className="text-right">回复</TableHead>
+                      <TableHead>{t('模型')}</TableHead>
+                      <TableHead className="text-right">{t('回复')}</TableHead>
                       <TableHead className="text-right">Token</TableHead>
-                      <TableHead className="text-right">记录费用</TableHead>
+                      <TableHead className="text-right">{t('记录费用')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -215,7 +231,7 @@ export function UsageDashboard({
                           <div className="text-xs text-muted-foreground">{model.provider}</div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {model.requests.toLocaleString()}
+                          {model.requests.toLocaleString(locale)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {compactNumber(model.tokens)}
@@ -229,26 +245,33 @@ export function UsageDashboard({
                 </Table>
               ) : (
                 <p className="py-12 text-center text-sm text-muted-foreground">
-                  {loading ? '正在读取模型用量…' : '所选时段还没有模型用量记录'}
+                  {t(loading ? '正在读取模型用量…' : '所选时段还没有模型用量记录')}
                 </p>
               )}
             </TabsContent>
           </Tabs>
         </CardContent>
         <CardFooter className="flex-wrap justify-between gap-1 py-1.5 text-[10px] text-muted-foreground">
-          <span title="Token 包含缓存用量，相同分支记录已去重">热力图：近 26 周 · 记录去重</span>
+          <span title={t('Token 包含缓存用量，相同分支记录已去重')}>
+            {t('热力图：近 26 周 · 记录去重')}
+          </span>
           <span>
             {loading
-              ? '更新中…'
+              ? t('更新中…')
               : library
-                ? `更新于 ${new Date(library.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : '等待本地记录'}
+                ? t('更新于 {time}', {
+                    time: new Date(library.updatedAt).toLocaleTimeString(locale, {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })
+                  })
+                : t('等待本地记录')}
           </span>
         </CardFooter>
       </Card>
       {(error || library?.warning) && (
         <Alert className="mt-3 max-w-[30rem]" variant={error ? 'destructive' : 'default'}>
-          <AlertDescription>{error || library?.warning}</AlertDescription>
+          <AlertDescription>{t(error || library?.warning || '')}</AlertDescription>
         </Alert>
       )}
     </section>

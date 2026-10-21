@@ -1,17 +1,8 @@
-import { useState } from 'react'
-import {
-  ChartNoAxesCombinedIcon,
-  ChevronRightIcon,
-  Code2Icon,
-  FolderOpenIcon,
-  LaptopIcon,
-  MessageCircleIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  SearchIcon
-} from 'lucide-react'
-import { Badge } from '@renderer/components/ui/badge'
-import { Button } from '@renderer/components/ui/button'
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { DragDropProvider, KeyboardSensor, PointerSensor } from '@dnd-kit/react'
+import { isSortable } from '@dnd-kit/react/sortable'
+import { Accessibility, PointerActivationConstraints } from '@dnd-kit/dom'
+import { ChevronRightIcon, Code2Icon, MessageCircleIcon, PlusIcon, SearchIcon } from 'lucide-react'
 import {
   Collapsible,
   CollapsibleContent,
@@ -32,22 +23,57 @@ import {
   useSidebar
 } from '@renderer/components/ui/sidebar'
 import { Skeleton } from '@renderer/components/ui/skeleton'
-import { ModeToggle } from '@renderer/components/ModeToggle'
+import { DeleteSessionAction } from '@renderer/components/DeleteSessionAction'
+import { AppMenu } from '@renderer/components/AppMenu'
+import { SortableSidebarItem } from '@renderer/components/SortableSidebarItem'
 import { directoryName } from '@renderer/lib/pi-display'
+import { useLanguage } from '@renderer/hooks/use-language'
+import {
+  getSidebarOrder,
+  orderSidebarItems,
+  reorderSidebarSessions,
+  reorderSidebarWorkspaces,
+  subscribeSidebarOrder
+} from '@renderer/lib/sidebar-order'
 import type { PiSnapshot } from '../../../shared/pi'
 import type { PiLibrary, SavedSession } from '../../../shared/pi-library'
+
+const dragSensors = [
+  PointerSensor.configure({
+    activationConstraints: [new PointerActivationConstraints.Distance({ value: 6 })]
+  }),
+  KeyboardSensor
+]
+function moveItem(items: string[], from: number, to: number): string[] {
+  const next = [...items]
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
+}
+
+function WorkspaceCollapsible({
+  initiallyOpen,
+  children
+}: {
+  initiallyOpen: boolean
+  children: ReactNode
+}): React.JSX.Element {
+  const [open, setOpen] = useState(initiallyOpen)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="group/workspace mb-2">
+      {children}
+    </Collapsible>
+  )
+}
 
 interface PiSidebarProps {
   snapshot: PiSnapshot | null
   library: PiLibrary | null
   loading: boolean
-  overview: boolean
   busy: boolean
-  onOverview: () => void
   onNewSession: (cwd?: string) => void
   onOpenSession: (session: SavedSession) => void
-  onChooseDirectory: () => void
-  onRefresh: () => void
+  onDeleteSession: (session: SavedSession) => Promise<void>
   onReconnect: () => void
 }
 
@@ -55,20 +81,32 @@ export function PiSidebar({
   snapshot,
   library,
   loading,
-  overview,
   busy,
-  onOverview,
   onNewSession,
   onOpenSession,
-  onChooseDirectory,
-  onRefresh,
+  onDeleteSession,
   onReconnect
 }: PiSidebarProps): React.JSX.Element {
+  const { t, locale, language } = useLanguage()
+  const dragAccessibility = useMemo(
+    () =>
+      Accessibility.configure({
+        screenReaderInstructions: {
+          draggable: t('按空格键开始拖动，使用上下方向键调整位置，再按空格键完成，按 Esc 取消。')
+        },
+        announcements: {
+          dragstart: () => t('已开始拖动，可使用上下方向键调整顺序。'),
+          dragover: () => t('正在调整顺序。'),
+          dragend: ({ canceled }) => t(canceled ? '已取消拖动。' : '顺序已保存。')
+        }
+      }),
+    [t]
+  )
   const [search, setSearch] = useState('')
+  const order = useSyncExternalStore(subscribeSidebarOrder, getSidebarOrder)
   const { isMobile, setOpenMobile } = useSidebar()
   const ready = snapshot?.connection === 'ready'
   const groups = new Map<string, SavedSession[]>()
-  if (snapshot?.cwd) groups.set(snapshot.cwd, [])
   const query = search.trim().toLocaleLowerCase()
   for (const session of library?.sessions ?? []) {
     if (query && !`${session.title} ${session.cwd}`.toLocaleLowerCase().includes(query)) continue
@@ -76,6 +114,14 @@ export function PiSidebar({
     list.push(session)
     groups.set(session.cwd, list)
   }
+  if (snapshot?.cwd && !groups.has(snapshot.cwd)) groups.set(snapshot.cwd, [])
+  const orderedGroups = orderSidebarItems([...groups], order.workspaces, ([cwd]) => cwd).map(
+    ([cwd, sessions]): [string, SavedSession[]] => [
+      cwd,
+      orderSidebarItems(sessions, order.sessions[cwd] ?? [], (session) => session.path)
+    ]
+  )
+  const dragDisabled = !ready || busy || loading || !!query
 
   function navigate(action: () => void): void {
     action()
@@ -83,8 +129,8 @@ export function PiSidebar({
   }
 
   return (
-    <Sidebar className="desktop-sidebar" aria-label="工作目录与历史会话">
-      <SidebarHeader className="gap-3 px-3 pb-2 pt-4">
+    <Sidebar className="desktop-sidebar" aria-label={t('工作目录与历史会话')}>
+      <SidebarHeader className="desktop-sidebar-header gap-3 px-3 pb-2">
         <div className="flex h-9 items-center gap-2 rounded-lg bg-sidebar-accent px-3 text-sm">
           <Code2Icon className="size-4" />
           <span className="font-medium">Code</span>
@@ -96,45 +142,20 @@ export function PiSidebar({
               onClick={() => navigate(() => onNewSession())}
             >
               <PlusIcon />
-              <span>新对话</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton isActive={overview} onClick={() => navigate(onOverview)}>
-              <ChartNoAxesCombinedIcon />
-              <span>用量概览</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton disabled={busy || !ready} onClick={onChooseDirectory}>
-              <FolderOpenIcon />
-              <span>打开工作目录</span>
+              <span>{t('新对话')}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent className="gap-1 px-1">
         <SidebarGroup className="gap-3">
-          <div className="flex items-center justify-between pl-2 text-xs text-muted-foreground">
-            <span>工作目录</span>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="刷新历史和统计"
-              title="刷新历史和统计"
-              disabled={loading}
-              onClick={onRefresh}
-            >
-              <RefreshCwIcon />
-            </Button>
-          </div>
           <InputGroup>
             <InputGroupAddon>
               <SearchIcon />
             </InputGroupAddon>
             <InputGroupInput
-              aria-label="搜索历史会话"
-              placeholder="搜索对话…"
+              aria-label={t('搜索历史会话')}
+              placeholder={t('搜索对话…')}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -147,91 +168,133 @@ export function PiSidebar({
                 <Skeleton className="h-5 w-2/3" />
               </div>
             ) : (
-              <SidebarMenu>
-                {[...groups].map(([cwd, sessions]) => (
-                  <SidebarMenuItem key={`${cwd}:${query}`}>
-                    <Collapsible
-                      defaultOpen={!!query || cwd === snapshot?.cwd}
-                      className="group/workspace mb-2"
+              <DragDropProvider
+                key={language}
+                sensors={dragSensors}
+                plugins={(defaults) =>
+                  defaults.map((plugin) => (plugin === Accessibility ? dragAccessibility : plugin))
+                }
+                onDragEnd={(event) => {
+                  if (event.canceled) return
+                  const { source } = event.operation
+                  if (!isSortable(source) || source.group !== source.initialGroup) return
+                  const { initialIndex, index, initialGroup } = source
+                  if (initialIndex === index) return
+                  if (initialGroup === 'workspaces') {
+                    reorderSidebarWorkspaces(
+                      moveItem(
+                        orderedGroups.map(([cwd]) => cwd),
+                        initialIndex,
+                        index
+                      )
+                    )
+                  } else if (
+                    typeof initialGroup === 'string' &&
+                    initialGroup.startsWith('session:')
+                  ) {
+                    const cwd = initialGroup.slice('session:'.length)
+                    const sessions = orderedGroups.find(([path]) => path === cwd)?.[1]
+                    if (sessions) {
+                      reorderSidebarSessions(
+                        cwd,
+                        moveItem(
+                          sessions.map((session) => session.path),
+                          initialIndex,
+                          index
+                        )
+                      )
+                    }
+                  }
+                }}
+              >
+                <SidebarMenu>
+                  {orderedGroups.map(([cwd, sessions], workspaceIndex) => (
+                    <SortableSidebarItem
+                      key={`${cwd}:${query}`}
+                      id={`workspace:${cwd}`}
+                      index={workspaceIndex}
+                      group="workspaces"
+                      disabled={dragDisabled}
                     >
-                      <CollapsibleTrigger
-                        render={<SidebarMenuButton />}
-                        title={cwd || '未记录工作目录'}
-                      >
-                        <ChevronRightIcon className="transition-transform group-data-open/workspace:rotate-90" />
-                        <span>{directoryName(cwd)}</span>
-                      </CollapsibleTrigger>
-                      {!!cwd && (
-                        <SidebarMenuAction
-                          aria-label={`在 ${directoryName(cwd)} 中新建对话`}
-                          title="新建对话"
-                          disabled={!ready || busy}
-                          onClick={() => navigate(() => onNewSession(cwd))}
-                        >
-                          <PlusIcon />
-                        </SidebarMenuAction>
-                      )}
-                      <CollapsibleContent>
-                        <SidebarMenu className="mt-1 pl-3">
-                          {sessions.map((session) => (
-                            <SidebarMenuItem key={session.path}>
-                              <SidebarMenuButton
-                                isActive={
-                                  !overview && session.path === snapshot?.session?.sessionFile
-                                }
-                                disabled={!ready || busy}
-                                title={`${session.title}\n${new Date(session.modified).toLocaleString()}`}
-                                onClick={() => navigate(() => onOpenSession(session))}
-                              >
-                                <MessageCircleIcon />
-                                <span>{session.title}</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          ))}
-                          {sessions.length === 0 && (
-                            <li className="px-2 py-2 text-xs text-muted-foreground">
-                              {query ? '没有匹配的对话' : '还没有保存的对话'}
-                            </li>
+                      {(workspaceHandleRef) => (
+                        <WorkspaceCollapsible initiallyOpen={!!query || cwd === snapshot?.cwd}>
+                          <CollapsibleTrigger
+                            ref={workspaceHandleRef}
+                            render={<SidebarMenuButton className="sidebar-drag-handle" />}
+                            title={`${cwd || t('未记录工作目录')}\n${t('拖动调整目录顺序')}`}
+                          >
+                            <ChevronRightIcon className="transition-transform group-data-open/workspace:rotate-90" />
+                            <span>{directoryName(cwd, t('工作目录'))}</span>
+                          </CollapsibleTrigger>
+                          {!!cwd && (
+                            <SidebarMenuAction
+                              aria-label={t('在 {directory} 中新建对话', {
+                                directory: directoryName(cwd)
+                              })}
+                              title={t('新建对话')}
+                              disabled={!ready || busy}
+                              onClick={() => navigate(() => onNewSession(cwd))}
+                            >
+                              <PlusIcon />
+                            </SidebarMenuAction>
                           )}
-                        </SidebarMenu>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </SidebarMenuItem>
-                ))}
-                {groups.size === 0 && (
-                  <li className="px-2 py-3 text-xs text-muted-foreground">
-                    {query ? '没有匹配的对话' : '对话开始后会显示在这里'}
-                  </li>
-                )}
-              </SidebarMenu>
+                          <CollapsibleContent>
+                            <SidebarMenu className="mt-1 pl-3">
+                              {sessions.map((session, sessionIndex) => (
+                                <SortableSidebarItem
+                                  key={session.path}
+                                  id={`session:${session.path}`}
+                                  index={sessionIndex}
+                                  group={`session:${cwd}`}
+                                  disabled={dragDisabled}
+                                  className="group/session"
+                                >
+                                  {(sessionHandleRef) => (
+                                    <>
+                                      <SidebarMenuButton
+                                        ref={sessionHandleRef}
+                                        className="sidebar-drag-handle"
+                                        isActive={session.path === snapshot?.session?.sessionFile}
+                                        disabled={!ready || busy}
+                                        title={`${session.title}\n${new Date(session.modified).toLocaleString(locale)}\n${t('拖动调整会话顺序')}`}
+                                        onClick={() => navigate(() => onOpenSession(session))}
+                                      >
+                                        <MessageCircleIcon />
+                                        <span>{session.title}</span>
+                                      </SidebarMenuButton>
+                                      <DeleteSessionAction
+                                        session={session}
+                                        disabled={!ready || busy}
+                                        onDelete={onDeleteSession}
+                                      />
+                                    </>
+                                  )}
+                                </SortableSidebarItem>
+                              ))}
+                              {sessions.length === 0 && (
+                                <li className="px-2 py-2 text-xs text-muted-foreground">
+                                  {t(query ? '没有匹配的对话' : '还没有保存的对话')}
+                                </li>
+                              )}
+                            </SidebarMenu>
+                          </CollapsibleContent>
+                        </WorkspaceCollapsible>
+                      )}
+                    </SortableSidebarItem>
+                  ))}
+                  {groups.size === 0 && (
+                    <li className="px-2 py-3 text-xs text-muted-foreground">
+                      {t(query ? '没有匹配的对话' : '对话开始后会显示在这里')}
+                    </li>
+                  )}
+                </SidebarMenu>
+              </DragDropProvider>
             )}
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="gap-3 border-t border-sidebar-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <LaptopIcon className="size-4 text-muted-foreground" />
-          <span className="text-sm">本机</span>
-          <Badge className="ml-auto" variant={ready ? 'secondary' : 'outline'}>
-            {ready ? '已连接' : snapshot?.connection === 'error' ? '连接失败' : '连接中'}
-          </Badge>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">本地会话 · 自动保存</span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="重新连接"
-              aria-label="重新连接"
-              disabled={busy || snapshot?.connection === 'connecting' || !window.api}
-              onClick={onReconnect}
-            >
-              <RefreshCwIcon />
-            </Button>
-            <ModeToggle />
-          </div>
-        </div>
+      <SidebarFooter className="border-t border-sidebar-border p-3">
+        <AppMenu snapshot={snapshot} busy={busy} onReconnect={onReconnect} />
       </SidebarFooter>
     </Sidebar>
   )
