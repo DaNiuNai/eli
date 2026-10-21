@@ -95,6 +95,11 @@ export class PiService {
       return library
     })
     handle(piChannels.getSettings, () => this.settings.get())
+    handle(piChannels.getSkills, async (key) => {
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      return session.getSkills()
+    })
     handle(piChannels.saveSettings, async (changes) => {
       const result = await this.settings.save(changes)
       const directory = result.values.sessionDir

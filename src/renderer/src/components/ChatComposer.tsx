@@ -17,15 +17,11 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea
-} from '@renderer/components/ui/input-group'
+import { InputGroupAddon, InputGroupButton } from '@renderer/components/ui/input-group'
 import { directoryName } from '@renderer/lib/pi-display'
 import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
+import { SkillCommandInput } from '@renderer/components/SkillCommandInput'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot, PiThinkingLevel } from '../../../shared/pi'
 
@@ -121,66 +117,46 @@ export function ChatComposer({
           <ChevronDownIcon data-icon="inline-end" />
         </Button>
       </div>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSend()
-        }}
+      <SkillCommandInput
+        key={snapshot?.sessionKey}
+        sessionKey={snapshot?.sessionKey}
+        draft={draft}
+        textarea={textarea}
+        disabled={!snapshot?.session}
+        onDraft={onDraft}
+        onSend={onSend}
       >
-        <InputGroup className="rounded-2xl">
-          <InputGroupTextarea
-            ref={textarea}
-            aria-label={t('消息')}
-            placeholder={t('描述一个任务，或者问个问题…')}
-            className="max-h-40 min-h-12 px-4 py-3"
-            disabled={!snapshot?.session}
-            value={draft}
-            maxLength={100000}
-            onChange={(event) => onDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key === 'Enter' &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
-                event.keyCode !== 229
-              ) {
-                event.preventDefault()
-                onSend()
-              }
-            }}
-          />
-          <InputGroupAddon align="inline-end" className="self-end px-2 py-2">
-            {snapshot?.running ? (
-              <InputGroupButton
-                variant="ghost"
-                size="icon-sm"
-                className="composer-action-button"
-                aria-label={t('停止生成')}
-                title={t('停止生成')}
-                disabled={stopping}
-                onClick={onStop}
-              >
-                <SquareIcon />
-              </InputGroupButton>
-            ) : (
-              <InputGroupButton
-                type="submit"
-                variant="ghost"
-                size="icon-sm"
-                className="composer-action-button"
-                aria-label={t('发送消息')}
-                title={t('发送消息')}
-                disabled={!ready || busy || !hasModel || !draft.trim()}
-              >
-                <CornerDownLeftIcon />
-              </InputGroupButton>
-            )}
-          </InputGroupAddon>
-        </InputGroup>
-      </form>
+        <InputGroupAddon align="inline-end" className="self-end px-2 py-2">
+          {snapshot?.running ? (
+            <InputGroupButton
+              variant="ghost"
+              size="icon-sm"
+              className="composer-action-button"
+              aria-label={t('停止生成')}
+              title={t('停止生成')}
+              disabled={stopping}
+              onClick={onStop}
+            >
+              <SquareIcon />
+            </InputGroupButton>
+          ) : (
+            <InputGroupButton
+              type="submit"
+              variant="ghost"
+              size="icon-sm"
+              className="composer-action-button"
+              aria-label={t('发送消息')}
+              title={t('发送消息')}
+              disabled={!ready || busy || !hasModel || !draft.trim()}
+            >
+              <CornerDownLeftIcon />
+            </InputGroupButton>
+          )}
+        </InputGroupAddon>
+      </SkillCommandInput>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs text-muted-foreground">
-          {t('Enter 发送 · Shift + Enter 换行')}
+          {t('/ 选择技能 · Enter 发送 · Shift + Enter 换行')}
         </span>
         <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
           <DropdownMenu>

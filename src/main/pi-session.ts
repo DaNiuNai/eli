@@ -10,7 +10,12 @@ import type {
   RpcExtensionUIRequest,
   SettingsManager
 } from '@earendil-works/pi-coding-agent'
-import type { PiLiveSession, PiSessionSnapshot, PiThinkingLevel } from '../shared/pi'
+import type {
+  PiLiveSession,
+  PiSessionSnapshot,
+  PiSkillCommand,
+  PiThinkingLevel
+} from '../shared/pi'
 import {
   updateActiveThinking,
   updateAssistantMessage,
@@ -238,6 +243,25 @@ export class PiSession {
       const client = await this.ensureClient()
       await this.sendPrompt(client, text)
     })
+  }
+
+  async getSkills(): Promise<PiSkillCommand[]> {
+    const read = async (client: RpcClient): Promise<PiSkillCommand[]> =>
+      (await client.getCommands())
+        .filter((command) => command.source === 'skill')
+        .map(({ name, description }) => ({ name, description }))
+
+    // 生成期间只查询已有进程，不能为了刷新技能重启正在运行的任务。
+    if (this.busy) {
+      const client = this.connecting ? await this.connecting : this.client
+      if (!client || this.disposed) throw new Error('请等待当前操作完成')
+      return read(client)
+    }
+    let skills: PiSkillCommand[] = []
+    await this.exclusive(async () => {
+      skills = await read(await this.ensureClient())
+    })
+    return skills
   }
 
   private ensureClient(): Promise<RpcClient> {

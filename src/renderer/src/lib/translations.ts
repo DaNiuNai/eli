@@ -95,6 +95,18 @@ const english: Record<string, string> = {
   '已创建分叉，但扩展取消了切换会话':
     'The fork was created, but an extension canceled switching to it.',
   '描述一个任务，或者问个问题…': 'Describe a task or ask a question…',
+  '描述一个任务，输入 / 选择技能…': 'Describe a task, or type / to choose a skill…',
+  选择技能: 'Choose a skill',
+  可用技能: 'Available skills',
+  技能: 'Skills',
+  '正在加载技能…': 'Loading skills…',
+  技能加载失败: 'Could not load skills',
+  重试: 'Retry',
+  没有匹配的技能: 'No matching skills',
+  当前工作目录没有可用技能: 'No skills available in this workspace',
+  '↑↓ 选择 · Tab / Enter 补全 · Esc 关闭': '↑↓ to select · Tab / Enter to complete · Esc to close',
+  '/ 选择技能 · Enter 发送 · Shift + Enter 换行':
+    '/ to choose a skill · Enter to send · Shift + Enter for a new line',
   停止生成: 'Stop generating',
   发送消息: 'Send message',
   'Enter 发送 · Shift + Enter 换行': 'Enter to send · Shift + Enter for a new line',

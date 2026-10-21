@@ -11,6 +11,10 @@ import type { PiSettingsChange, PiSettingsSnapshot } from './pi-settings'
 
 // 消息、模型和 RPC 事件直接使用 pi 的类型，只定义桌面端的状态与 IPC 边界。
 export type PiMessage = Awaited<ReturnType<RpcClient['getMessages']>>[number]
+export type PiSkillCommand = Pick<
+  Awaited<ReturnType<RpcClient['getCommands']>>[number],
+  'name' | 'description'
+>
 export type PiThinkingLevel = RpcSessionState['thinkingLevel']
 export type PiToolEvent = Extract<
   JsonAgentSessionEvent,
@@ -68,6 +72,7 @@ export interface PiApi {
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
   getLibrary(): Promise<PiLibrary>
+  getSkills(sessionKey: string): Promise<PiSkillCommand[]>
   getSettings(): Promise<PiSettingsSnapshot>
   saveSettings(changes: PiSettingsChange[]): Promise<PiSettingsSnapshot>
   readImage(source: string): Promise<string>
@@ -87,6 +92,7 @@ export const piChannels = {
   openSession: 'pi:open-session',
   deleteSession: 'pi:delete-session',
   getLibrary: 'pi:get-library',
+  getSkills: 'pi:get-skills',
   getSettings: 'pi:get-settings',
   saveSettings: 'pi:save-settings',
   readImage: 'pi:read-image',
