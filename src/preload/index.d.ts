@@ -4,7 +4,7 @@ import type { AppPreferencesApi } from '../shared/app-preferences'
 
 declare global {
   interface Window {
-    api: PiApi // 会话操作携带会话标识，支持后台任务与并发会话。
+    api: PiApi // 包括读取与保存 PI 全局设置的类型。
     appPreferences: AppPreferencesApi
     windowAppearance?: WindowAppearanceApi
   }

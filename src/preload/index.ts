@@ -14,6 +14,8 @@ const api: PiApi = {
   openSession: (path) => ipcRenderer.invoke(piChannels.openSession, path),
   deleteSession: (path) => ipcRenderer.invoke(piChannels.deleteSession, path),
   getLibrary: () => ipcRenderer.invoke(piChannels.getLibrary),
+  getSettings: () => ipcRenderer.invoke(piChannels.getSettings),
+  saveSettings: (changes) => ipcRenderer.invoke(piChannels.saveSettings, changes),
   readImage: (source) => ipcRenderer.invoke(piChannels.readImage, source),
   setThinkingLevel: (sessionKey, level) =>
     ipcRenderer.invoke(piChannels.setThinkingLevel, sessionKey, level),

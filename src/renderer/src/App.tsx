@@ -62,7 +62,8 @@ function App(): React.JSX.Element {
   const messages = snapshot?.messages ?? []
   const visibleMessages = buildChatEntries(
     messages,
-    snapshot?.running ? snapshot.activeThinking : null
+    snapshot?.running ? snapshot.activeThinking : null,
+    snapshot?.hideThinkingBlock
   )
   if (processing && visibleMessages.at(-1)?.role !== 'assistant') {
     visibleMessages.push({ id: 'processing', lastMessageIndex: -1, role: 'assistant', groups: [] })

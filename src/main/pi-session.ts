@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { stat } from 'node:fs/promises'
 import type {
   JsonAgentSessionEvent,
@@ -49,6 +50,8 @@ export class PiSession {
   private activeMessage = -1
   private activeTools = new Set<string>()
   private settings!: SettingsManager
+  private settingsVersion = 0
+  private appliedSettingsVersion = 0
   readonly snapshot: PiSessionSnapshot
 
   constructor(
@@ -73,13 +76,13 @@ export class PiSession {
       running: false,
       pending: false,
       activity: '',
-      error: null
+      error: null,
+      hideThinkingBlock: false
     }
   }
 
   async load(): Promise<void> {
     const { SessionManager, SettingsManager } = await import('@earendil-works/pi-coding-agent')
-    this.settings = SettingsManager.create(this.snapshot.cwd)
     const path = this.persisted ? this.snapshot.session?.sessionFile : undefined
     let savedModel: { provider: string; modelId: string } | null = null
     let savedThinking: string | undefined
@@ -103,8 +106,9 @@ export class PiSession {
       this.created = new Date(manager.getHeader()?.timestamp ?? info.birthtimeMs).getTime()
       this.modified = info.mtimeMs
     }
-    const runtime = await this.models()
-    this.snapshot.models = (await runtime.getAvailable()).map(modelInfo)
+    this.settings = SettingsManager.create(this.snapshot.cwd)
+    this.snapshot.hideThinkingBlock = this.settings.getHideThinkingBlock()
+    await this.loadModels()
     const provider = savedModel?.provider ?? this.settings.getDefaultProvider()
     const id = savedModel?.modelId ?? this.settings.getDefaultModel()
     const selected =
@@ -113,6 +117,46 @@ export class PiSession {
     await this.configureModel(selected ?? null, savedThinking)
     this.snapshot.connection = 'ready'
     this.snapshot.error = null
+  }
+
+  get sessionDirectory(): string | undefined {
+    const directory = this.settings.getSessionDir()
+    if (!directory) return undefined
+    return resolve(this.snapshot.cwd, directory.replace(/^~(?=$|[\\/])/, homedir()))
+  }
+
+  invalidateSettings(): void {
+    this.settingsVersion++
+    // 展示设置立即刷新，正在运行的 RPC 在下一次操作启动时再更新。
+    void this.settings
+      .reload()
+      .then(() => {
+        if (this.disposed) return
+        this.snapshot.hideThinkingBlock = this.settings.getHideThinkingBlock()
+        this.changed()
+      })
+      .catch((error: unknown) => {
+        this.snapshot.error = error instanceof Error ? error.message : String(error)
+        this.changed()
+      })
+  }
+
+  private async loadModels(): Promise<void> {
+    const runtime = await this.models()
+    const patterns = this.settings.getEnabledModels()
+    if (patterns?.length) {
+      const { resolveModelScopeWithDiagnostics } = await import('@earendil-works/pi-coding-agent')
+      const { scopedModels } = await resolveModelScopeWithDiagnostics(patterns, runtime)
+      this.snapshot.models = scopedModels.map(({ model }) => modelInfo(model))
+    } else this.snapshot.models = (await runtime.getAvailable()).map(modelInfo)
+    const current = this.snapshot.model
+    if (
+      current &&
+      !this.snapshot.models.some(
+        (model) => model.provider === current.provider && model.id === current.id
+      )
+    )
+      this.snapshot.models.unshift(current)
   }
 
   private firstUserText(): string {
@@ -207,6 +251,13 @@ export class PiSession {
   private async startClient(): Promise<RpcClient> {
     await this.stopping
     if (this.disposed) throw new Error('会话已关闭')
+    if (this.settingsVersion !== this.appliedSettingsVersion) {
+      const version = this.settingsVersion
+      await this.stopClient()
+      await this.settings.reload()
+      await this.loadModels()
+      this.appliedSettingsVersion = version
+    }
     if (this.client) return this.client
     const { RpcClient, getPackageDir } = await import('@earendil-works/pi-coding-agent')
     if (this.disposed) throw new Error('会话已关闭')
@@ -224,7 +275,13 @@ export class PiSession {
       provider: desiredModel?.provider,
       model: desiredModel?.id,
       // pi 自带的精确会话 ID 避免首轮失败重试时产生第二个会话。
-      args: this.persistedFile ? ['--session', this.persistedFile] : ['--session-id', this.key]
+      args: this.persistedFile
+        ? ['--session', this.persistedFile]
+        : [
+            '--session-id',
+            this.key,
+            ...(this.sessionDirectory ? ['--session-dir', this.sessionDirectory] : [])
+          ]
     })
     this.client = client
     this.unsubscribe = client.onEvent((event) => {
@@ -399,7 +456,8 @@ export class PiSession {
     this.snapshot.thinkingLevels = thinkingLevels
     this.snapshot.contextUsage = stats.contextUsage ?? null
     this.snapshot.model = state.model ? modelInfo(state.model) : null
-    this.snapshot.models = models.map(modelInfo)
+    if (this.settings.getEnabledModels()?.length) await this.loadModels()
+    else this.snapshot.models = models.map(modelInfo)
     this.snapshot.messages = messages
     if (messages.some((message) => message.role === 'user' || message.role === 'assistant')) {
       this.persisted = true

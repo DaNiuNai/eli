@@ -23,7 +23,8 @@ export interface ChatEntry {
 /** 工具结果不打断连续活动；正文、用户消息和错误保持原来的顺序与边界。 */
 export function buildChatEntries(
   messages: PiMessage[],
-  activeThinking: PiSnapshot['activeThinking'] = null
+  activeThinking: PiSnapshot['activeThinking'] = null,
+  hideThinking = false
 ): ChatEntry[] {
   const entries: ChatEntry[] = []
   let current: ChatEntry | undefined
@@ -62,7 +63,8 @@ export function buildChatEntries(
       } else if (part.type === 'toolCall' || part.type === 'thinking') {
         const pending =
           activeThinking?.messageIndex === messageIndex && activeThinking.contentIndex === partIndex
-        if (part.type === 'thinking' && !pending && !part.thinking.trim()) return
+        if (part.type === 'thinking' && (hideThinking || (!pending && !part.thinking.trim())))
+          return
         const tracePart: TracePart =
           part.type === 'toolCall'
             ? { id: part.id, type: 'toolCall', call: part }

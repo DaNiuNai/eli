@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { relative, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { stat } from 'node:fs/promises'
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { piChannels, type PiSnapshot, type PiThinkingLevel } from '../shared/pi'
@@ -7,6 +8,7 @@ import { PiLibraryService } from './pi-library'
 import { PiSession } from './pi-session'
 import { readLocalImage } from './image-files'
 import { copySessionThrough } from './pi-history'
+import { PiSettingsService } from './pi-settings'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -18,6 +20,7 @@ function promptText(value: unknown): string {
 /** 主进程只切换当前视图；每个会话的进程、锁和事件流均独立维护。 */
 export class PiService {
   private library = new PiLibraryService()
+  private settings = new PiSettingsService()
   private sessions = new Map<string, PiSession>()
   private current?: PiSession
   private runtime?: Promise<ModelRuntime>
@@ -76,6 +79,21 @@ export class PiService {
     })
     handle(piChannels.abort, async (key) => this.session(key).abort())
     handle(piChannels.getLibrary, () => this.library.load(this.libraryVersion))
+    handle(piChannels.getSettings, () => this.settings.get())
+    handle(piChannels.saveSettings, async (changes) => {
+      const result = await this.settings.save(changes)
+      const directory = result.values.sessionDir
+      for (const session of this.sessions.values()) {
+        if (typeof directory === 'string' && directory) {
+          this.library.addSessionDirectory(
+            resolve(session.snapshot.cwd, directory.replace(/^~(?=$|[\\/])/, homedir()))
+          )
+        }
+        session.invalidateSettings()
+      }
+      this.publish(true)
+      return result
+    })
     handle(piChannels.readImage, (source) => readLocalImage(source, this.active().snapshot.cwd))
     handle(piChannels.openSession, (path) =>
       this.navigate(async () => {
@@ -198,6 +216,7 @@ export class PiService {
     this.sessions.set(session.key, session)
     try {
       await session.load()
+      if (session.sessionDirectory) this.library.addSessionDirectory(session.sessionDirectory)
       if (this.disposed) throw new Error('本机服务已关闭')
       return session
     } catch (error) {

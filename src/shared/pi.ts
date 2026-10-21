@@ -7,6 +7,7 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { PiLibrary, SavedSession } from './pi-library'
 import type { UiLanguage } from './app-preferences'
+import type { PiSettingsChange, PiSettingsSnapshot } from './pi-settings'
 
 // 消息、模型和 RPC 事件直接使用 pi 的类型，只定义桌面端的状态与 IPC 边界。
 export type PiMessage = Awaited<ReturnType<RpcClient['getMessages']>>[number]
@@ -40,6 +41,7 @@ export interface PiSessionSnapshot {
   pending: boolean
   activity: string
   error: string | null
+  hideThinkingBlock: boolean
 }
 
 export interface PiLiveSession extends SavedSession {
@@ -65,6 +67,8 @@ export interface PiApi {
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
   getLibrary(): Promise<PiLibrary>
+  getSettings(): Promise<PiSettingsSnapshot>
+  saveSettings(changes: PiSettingsChange[]): Promise<PiSettingsSnapshot>
   readImage(source: string): Promise<string>
   setThinkingLevel(sessionKey: string, level: PiThinkingLevel): Promise<void>
   setModel(sessionKey: string, provider: string, modelId: string): Promise<void>
@@ -82,6 +86,8 @@ export const piChannels = {
   openSession: 'pi:open-session',
   deleteSession: 'pi:delete-session',
   getLibrary: 'pi:get-library',
+  getSettings: 'pi:get-settings',
+  saveSettings: 'pi:save-settings',
   readImage: 'pi:read-image',
   setThinkingLevel: 'pi:set-thinking-level',
   setModel: 'pi:set-model',

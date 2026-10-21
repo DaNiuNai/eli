@@ -28,6 +28,11 @@ export class PiLibraryService {
   private sessions = new Map<string, SavedSession>()
   private loading?: Promise<PiLibrary>
   private loadingVersion = -1
+  private sessionDirectories = new Set<string>()
+
+  addSessionDirectory(directory: string): void {
+    this.sessionDirectories.add(directory)
+  }
 
   load(version = 0): Promise<PiLibrary> {
     if (this.loading && version > this.loadingVersion) {
@@ -130,7 +135,11 @@ export class PiLibraryService {
 
   private async read(): Promise<PiLibrary> {
     const { SessionManager } = await import('@earendil-works/pi-coding-agent')
-    const infos = await SessionManager.listAll()
+    const lists = await Promise.all([
+      SessionManager.listAll(),
+      ...[...this.sessionDirectories].map((directory) => SessionManager.listAll(directory))
+    ])
+    const infos = [...new Map(lists.flat().map((session) => [session.path, session])).values()]
     const saved = infos.map((session): SavedSession => ({
       path: session.path,
       id: session.id,
