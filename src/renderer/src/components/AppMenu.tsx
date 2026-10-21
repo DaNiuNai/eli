@@ -18,7 +18,6 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { Button } from '@renderer/components/ui/button'
-import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
 import { AppLanguageDialog } from '@renderer/components/AppLanguageDialog'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot } from '../../../shared/pi'
@@ -29,6 +28,7 @@ export function AppMenu({
   onNewSession,
   onChooseDirectory,
   onReconnect,
+  onOpenSettings,
   onResetLayout
 }: {
   snapshot: PiSnapshot | null
@@ -36,28 +36,24 @@ export function AppMenu({
   onNewSession: () => void
   onChooseDirectory: () => void
   onReconnect: () => void
+  onOpenSettings: () => void
   onResetLayout: () => void
 }): React.JSX.Element {
   const { t } = useLanguage()
   const [open, setOpen] = useState(false)
-  const [activeDialog, setActiveDialog] = useState<'settings' | 'language' | null>(null)
-
-  function showDialog(dialog: 'settings' | 'language'): void {
-    setOpen(false)
-    setActiveDialog(dialog)
-  }
+  const [languageOpen, setLanguageOpen] = useState(false)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if ((event.ctrlKey || event.metaKey) && event.key === ',') {
         event.preventDefault()
         setOpen(false)
-        setActiveDialog('settings')
+        onOpenSettings()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [onOpenSettings])
 
   return (
     <>
@@ -90,12 +86,22 @@ export function AppMenu({
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => showDialog('settings')}>
+            <DropdownMenuItem
+              onClick={() => {
+                setOpen(false)
+                onOpenSettings()
+              }}
+            >
               <Settings2Icon />
               {t('设置')}
               <DropdownMenuShortcut>Ctrl+,</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => showDialog('language')}>
+            <DropdownMenuItem
+              onClick={() => {
+                setOpen(false)
+                setLanguageOpen(true)
+              }}
+            >
               <LanguagesIcon />
               {t('语言')}
             </DropdownMenuItem>
@@ -116,14 +122,7 @@ export function AppMenu({
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <AppSettingsDialog
-        open={activeDialog === 'settings'}
-        onOpenChange={(open) => setActiveDialog(open ? 'settings' : null)}
-      />
-      <AppLanguageDialog
-        open={activeDialog === 'language'}
-        onOpenChange={(open) => setActiveDialog(open ? 'language' : null)}
-      />
+      <AppLanguageDialog open={languageOpen} onOpenChange={setLanguageOpen} />
     </>
   )
 }

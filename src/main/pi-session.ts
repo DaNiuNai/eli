@@ -27,6 +27,7 @@ import {
   restoreSessionLeaf,
   rewindSessionBefore
 } from './pi-history'
+import { compactContext, compactionSkipReason } from './pi-compaction'
 
 const idleTimeout = 5 * 60 * 1000
 
@@ -46,6 +47,7 @@ export class PiSession {
   private client: RpcClient | null = null
   private unsubscribe?: () => void
   private connecting?: Promise<RpcClient>
+  private compaction?: AbortController
   private stopping?: Promise<void>
   private disposing?: Promise<void>
   private heartbeat?: ReturnType<typeof setInterval>
@@ -262,6 +264,40 @@ export class PiSession {
       skills = await read(await this.ensureClient())
     })
     return skills
+  }
+
+  async compact(instructions?: string): Promise<void> {
+    await this.exclusive(async () => {
+      if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
+      const client = await this.ensureClient()
+      const controller = new AbortController()
+      this.compaction = controller
+      this.snapshot.running = true
+      this.snapshot.activity = '正在整理上下文'
+      this.snapshot.error = null
+      this.changed()
+      let activity = ''
+      try {
+        const outcome = await compactContext(client, instructions, controller.signal)
+        if (this.client === client && !this.disposed) {
+          await this.refresh(client)
+          if (outcome === 'compacted') this.modified = Date.now()
+          activity = {
+            compacted: '上下文压缩完成',
+            cancelled: '已停止',
+            'too-small': '当前没有可压缩的历史内容，可继续对话',
+            'already-compacted': '当前上下文已压缩，暂无新的内容需要整理'
+          }[outcome]
+        }
+      } finally {
+        if (this.compaction === controller) this.compaction = undefined
+        if (this.client === client && !this.disposed) {
+          this.snapshot.running = false
+          this.snapshot.activity = activity
+          this.changed()
+        }
+      }
+    })
   }
 
   private ensureClient(): Promise<RpcClient> {
@@ -553,6 +589,8 @@ export class PiSession {
         }
         break
       case 'agent_settled': {
+        // 手动压缩会先中止 pi 的当前运行，由 compact() 统一刷新和解除状态。
+        if (this.compaction) break
         this.snapshot.activeThinking = null
         this.activeTools.clear()
         const client = this.client
@@ -572,12 +610,20 @@ export class PiSession {
         break
       }
       case 'compaction_start':
-        this.snapshot.activity = '正在处理'
+        this.snapshot.activity = this.compaction ? '正在整理上下文' : '正在处理'
         this.snapshot.contextUsage = null
         break
       case 'compaction_end':
         this.snapshot.contextUsage = null
-        if (event.errorMessage) this.snapshot.error = event.errorMessage
+        if (
+          event.errorMessage &&
+          !(
+            this.compaction &&
+            event.reason === 'manual' &&
+            compactionSkipReason(event.errorMessage)
+          )
+        )
+          this.snapshot.error = event.errorMessage
         break
       case 'auto_retry_start':
         this.snapshot.activity = '正在处理'
@@ -617,6 +663,7 @@ export class PiSession {
 
   async stopClient(): Promise<void> {
     if (this.stopping) return this.stopping
+    this.compaction?.abort()
     clearTimeout(this.idleTimer)
     clearInterval(this.heartbeat)
     this.unsubscribe?.()

@@ -15,12 +15,14 @@ import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { usePiSkills } from '@renderer/hooks/use-pi-skills'
 import {
-  completeSkillCommand,
-  filterSkillCommands,
-  getSkillQuery
-} from '@renderer/lib/skill-commands'
+  completeSlashCommand,
+  filterSlashCommands,
+  getSlashCommandQuery,
+  isCompleteSlashCommand,
+  slashCommandRegistry
+} from '@renderer/lib/slash-commands'
 
-interface SkillCommandInputProps {
+interface SlashCommandInputProps {
   sessionKey: string | undefined
   draft: string
   textarea: RefObject<HTMLTextAreaElement | null>
@@ -30,7 +32,7 @@ interface SkillCommandInputProps {
   children: ReactNode
 }
 
-export function SkillCommandInput({
+export function SlashCommandInput({
   sessionKey,
   draft,
   textarea,
@@ -38,23 +40,28 @@ export function SkillCommandInput({
   onDraft,
   onSend,
   children
-}: SkillCommandInputProps): React.JSX.Element {
+}: SlashCommandInputProps): React.JSX.Element {
   const { t } = useLanguage()
   const [focused, setFocused] = useState(false)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [selected, setSelected] = useState('')
-  const query = getSkillQuery(draft, selection.start, selection.end)
+  const query = getSlashCommandQuery(draft, selection.start, selection.end)
   const open = focused && !disabled && !!query && dismissed !== draft
   const { skills, loading, error, reload } = usePiSkills(sessionKey, open)
-  const matches = filterSkillCommands(skills, query?.query ?? '')
+  const commandMatches = filterSlashCommands(
+    slashCommandRegistry.map((command) => ({ ...command, description: t(command.description) })),
+    query?.query ?? ''
+  )
+  const skillMatches = filterSlashCommands(skills, query?.query ?? '')
+  const matches = [...commandMatches, ...skillMatches]
   const selectedName = matches.some((skill) => skill.name === selected)
     ? selected
     : (matches[0]?.name ?? '')
 
   function complete(name: string): void {
     if (!query || !name) return
-    const next = completeSkillCommand(draft, query.end, name)
+    const next = completeSlashCommand(draft, query.end, name)
     if (next.length > 100_000) return
     const caret = name.length + 2
     onDraft(next)
@@ -69,13 +76,13 @@ export function SkillCommandInput({
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        if (open) complete(selectedName)
+        if (open && !isCompleteSlashCommand(draft)) complete(selectedName)
         else onSend()
       }}
     >
       <Command
-        className="composer-skill-command"
-        label={t('选择技能')}
+        className="composer-command"
+        label={t('选择命令或技能')}
         shouldFilter={false}
         value={selectedName}
         onValueChange={setSelected}
@@ -84,10 +91,32 @@ export function SkillCommandInput({
       >
         {open && (
           <CommandList
-            className="composer-skill-menu absolute inset-x-0 bottom-full mb-2"
-            label={t('可用技能')}
+            className="composer-command-menu absolute inset-x-0 bottom-full mb-2"
+            label={t('可用命令和技能')}
             onMouseDown={(event) => event.preventDefault()}
           >
+            {commandMatches.length > 0 && (
+              <CommandGroup heading={t('命令')}>
+                {commandMatches.map(({ icon: Icon, ...command }) => (
+                  <CommandItem
+                    key={command.name}
+                    value={command.name}
+                    onSelect={() => complete(command.name)}
+                  >
+                    <Icon />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate">/{command.name}</span>
+                      {command.argumentHint && (
+                        <span className="text-xs text-muted-foreground">
+                          {t(command.argumentHint)}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{command.description}</span>
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
             {loading ? (
               <div
                 role="status"
@@ -116,28 +145,33 @@ export function SkillCommandInput({
               </Alert>
             ) : (
               <>
-                <CommandEmpty>
-                  {skills.length ? t('没有匹配的技能') : t('当前工作目录没有可用技能')}
-                </CommandEmpty>
-                <CommandGroup heading={t('技能')}>
-                  {matches.map((skill) => (
-                    <CommandItem
-                      key={skill.name}
-                      value={skill.name}
-                      onSelect={() => complete(skill.name)}
-                    >
-                      <SparklesIcon />
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="truncate">/{skill.name}</span>
-                        {skill.description && (
-                          <span className="line-clamp-2 text-xs text-muted-foreground">
-                            {skill.description}
-                          </span>
-                        )}
-                      </span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
+                <CommandEmpty>{t('没有匹配的命令或技能')}</CommandEmpty>
+                {skillMatches.length > 0 && (
+                  <CommandGroup heading={t('技能')}>
+                    {skillMatches.map((skill) => (
+                      <CommandItem
+                        key={skill.name}
+                        value={skill.name}
+                        onSelect={() => complete(skill.name)}
+                      >
+                        <SparklesIcon />
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="truncate">/{skill.name}</span>
+                          {skill.description && (
+                            <span className="line-clamp-2 text-xs text-muted-foreground">
+                              {skill.description}
+                            </span>
+                          )}
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+                {!skills.length && commandMatches.length > 0 && (
+                  <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
+                    {t('当前工作目录没有可用技能')}
+                  </p>
+                )}
               </>
             )}
             <p className="px-3 py-2 text-xs text-muted-foreground">
@@ -158,7 +192,7 @@ export function SkillCommandInput({
               ref={textarea}
               aria-label={t('消息')}
               aria-expanded={open}
-              placeholder={t('描述一个任务，输入 / 选择技能…')}
+              placeholder={t('描述一个任务，输入 / 选择命令或技能…')}
               className="max-h-40 min-h-12 px-4 py-3"
               disabled={disabled}
               maxLength={100000}
@@ -199,12 +233,15 @@ export function SkillCommandInput({
                   if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
                     event.preventDefault()
                     event.stopPropagation()
-                    complete(selectedName)
+                    if (event.key === 'Enter' && isCompleteSlashCommand(draft)) onSend()
+                    else complete(selectedName)
                     return
                   }
                 }
-                // 关闭面板时让文本框保持原生的方向键、Home、End 与换行行为。
-                event.stopPropagation()
+                // 保留文本导航和换行行为，其他按键继续传递给全局快捷键。
+                if (['ArrowUp', 'ArrowDown', 'Home', 'End', 'Enter'].includes(event.key)) {
+                  event.stopPropagation()
+                }
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
                   onSend()

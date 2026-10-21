@@ -7,6 +7,8 @@ import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-pr
 const api: PiApi = {
   connect: (restart) => ipcRenderer.invoke(piChannels.connect, restart),
   prompt: (sessionKey, message) => ipcRenderer.invoke(piChannels.prompt, sessionKey, message),
+  compact: (sessionKey, instructions) =>
+    ipcRenderer.invoke(piChannels.compact, sessionKey, instructions),
   editMessage: (target, message) => ipcRenderer.invoke(piChannels.editMessage, target, message),
   forkMessage: (target) => ipcRenderer.invoke(piChannels.forkMessage, target),
   abort: (sessionKey) => ipcRenderer.invoke(piChannels.abort, sessionKey),

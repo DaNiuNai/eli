@@ -1,5 +1,5 @@
 /* 应用样式独立于 CLI 生成的 shadcn 文件。 */
-.composer-skill-command {
+.composer-command {
   position: relative;
   height: auto;
   overflow: visible;
@@ -7,7 +7,7 @@
   background: transparent;
 }
 
-.composer-skill-menu {
+.composer-command-menu {
   max-height: min(20rem, 50dvh);
   padding: 0.25rem;
   border: 1px solid var(--border);

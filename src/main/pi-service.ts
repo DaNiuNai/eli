@@ -67,6 +67,18 @@ export class PiService {
       await this.requireWorkspace(session.snapshot.cwd)
       await session.prompt(promptText(message))
     })
+    handle(piChannels.compact, async (key, instructions) => {
+      if (
+        instructions !== undefined &&
+        (typeof instructions !== 'string' || instructions.length > 100_000)
+      )
+        throw new Error('压缩要求不能超过 100000 个字符')
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      await session.compact(
+        typeof instructions === 'string' ? instructions.trim() || undefined : undefined
+      )
+    })
     handle(piChannels.editMessage, async (target, message) => {
       const session = this.messageSession(target)
       await this.requireWorkspace(session.snapshot.cwd)

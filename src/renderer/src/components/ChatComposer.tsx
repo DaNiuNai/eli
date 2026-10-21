@@ -21,7 +21,9 @@ import { InputGroupAddon, InputGroupButton } from '@renderer/components/ui/input
 import { directoryName } from '@renderer/lib/pi-display'
 import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
-import { SkillCommandInput } from '@renderer/components/SkillCommandInput'
+import { SlashCommandInput } from '@renderer/components/SlashCommandInput'
+import { Spinner } from '@renderer/components/ui/spinner'
+import { canExecuteSlashCommand, matchSlashCommand } from '@renderer/lib/slash-commands'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot, PiThinkingLevel } from '../../../shared/pi'
 
@@ -29,6 +31,7 @@ interface ChatComposerProps {
   snapshot: PiSnapshot | null
   draft: string
   busy: boolean
+  commandPending: boolean
   stopping: boolean
   textarea: RefObject<HTMLTextAreaElement | null>
   onDraft: (text: string) => void
@@ -43,6 +46,7 @@ export function ChatComposer({
   snapshot,
   draft,
   busy,
+  commandPending,
   stopping,
   textarea,
   onDraft,
@@ -54,6 +58,9 @@ export function ChatComposer({
 }: ChatComposerProps): React.JSX.Element {
   const { t } = useLanguage()
   const ready = snapshot?.connection === 'ready'
+  const command = matchSlashCommand(draft)
+  const commandAvailable =
+    !!command && canExecuteSlashCommand(command, { snapshot, busy, commandPending })
   const modelKey = snapshot?.model
     ? JSON.stringify([snapshot.model.provider, snapshot.model.id])
     : ''
@@ -91,6 +98,18 @@ export function ChatComposer({
 
   return (
     <footer className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 px-6 pb-4 pt-3 sm:px-8">
+      {snapshot &&
+        [
+          '正在整理上下文',
+          '上下文压缩完成',
+          '当前没有可压缩的历史内容，可继续对话',
+          '当前上下文已压缩，暂无新的内容需要整理'
+        ].includes(snapshot.activity) && (
+          <span role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+            {snapshot.activity === '正在整理上下文' && <Spinner />}
+            {t(snapshot.activity)}
+          </span>
+        )}
       {ready && !hasModel && (
         <Alert>
           <AlertTitle>{t('尚无可用模型')}</AlertTitle>
@@ -117,7 +136,7 @@ export function ChatComposer({
           <ChevronDownIcon data-icon="inline-end" />
         </Button>
       </div>
-      <SkillCommandInput
+      <SlashCommandInput
         key={snapshot?.sessionKey}
         sessionKey={snapshot?.sessionKey}
         draft={draft}
@@ -127,7 +146,7 @@ export function ChatComposer({
         onSend={onSend}
       >
         <InputGroupAddon align="inline-end" className="self-end px-2 py-2">
-          {snapshot?.running ? (
+          {snapshot?.running && !command ? (
             <InputGroupButton
               variant="ghost"
               size="icon-sm"
@@ -147,16 +166,18 @@ export function ChatComposer({
               className="composer-action-button"
               aria-label={t('发送消息')}
               title={t('发送消息')}
-              disabled={!ready || busy || !hasModel || !draft.trim()}
+              disabled={
+                !draft.trim() || (command ? !commandAvailable : !ready || busy || !hasModel)
+              }
             >
               <CornerDownLeftIcon />
             </InputGroupButton>
           )}
         </InputGroupAddon>
-      </SkillCommandInput>
+      </SlashCommandInput>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="text-xs text-muted-foreground">
-          {t('/ 选择技能 · Enter 发送 · Shift + Enter 换行')}
+          {t('/ 选择命令或技能 · Enter 发送 · Shift + Enter 换行')}
         </span>
         <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
           <DropdownMenu>

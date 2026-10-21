@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDownIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import {
@@ -12,6 +12,7 @@ import {
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
+import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { PiSidebar } from '@renderer/components/PiSidebar'
@@ -22,6 +23,11 @@ import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
 import { restoreWorkspace } from '@renderer/lib/workspace-archive'
+import {
+  canExecuteSlashCommand,
+  executeSlashCommand,
+  matchSlashCommand
+} from '@renderer/lib/slash-commands'
 import {
   getAppPreferences,
   getAppPreferencesError,
@@ -39,12 +45,16 @@ function App(): React.JSX.Element {
   const { snapshot, error, perform } = usePi()
   const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
   const [sendingSessions, setSendingSessions] = useState<Set<string>>(new Set())
+  const [commandSessions, setCommandSessions] = useState<Set<string>>(new Set())
   const [stoppingSessions, setStoppingSessions] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<{ target: PiMessageTarget; text: string } | null>(null)
   const [messageActions, setMessageActions] = useState<Record<string, 'edit' | 'fork'>>({})
   const textarea = useRef<HTMLTextAreaElement>(null)
   const sendingRef = useRef(new Set<string>())
+  const commandRef = useRef(new Set<string>())
   const messageActionRef = useRef(new Set<string>())
   const draftKey = snapshot?.sessionKey ?? ''
   const selectedSessionRef = useRef(draftKey)
@@ -52,12 +62,19 @@ function App(): React.JSX.Element {
     selectedSessionRef.current = draftKey
   }, [draftKey])
   const sending = sendingSessions.has(draftKey)
+  const commandPending = commandSessions.has(draftKey)
   const stopping = stoppingSessions.has(draftKey)
   const messageActionKind = messageActions[draftKey]
   const draft = drafts[draftKey] ?? ''
   const ready = snapshot?.connection === 'ready'
   const workspaceUnavailable = !!snapshot?.unavailableWorkspaces.includes(snapshot.cwd)
-  const busy = !!(snapshot?.running || snapshot?.pending || sending || messageActionKind)
+  const busy = !!(
+    snapshot?.running ||
+    snapshot?.pending ||
+    sending ||
+    commandPending ||
+    messageActionKind
+  )
   const processing =
     !stopping &&
     (snapshot?.running ? snapshot.activity === '正在处理' : sending || messageActionKind === 'edit')
@@ -84,6 +101,41 @@ function App(): React.JSX.Element {
   }
 
   async function send(): Promise<void> {
+    const command = matchSlashCommand(draft)
+    if (command) {
+      if (
+        commandRef.current.has(draftKey) ||
+        !canExecuteSlashCommand(command, { snapshot, busy, commandPending })
+      )
+        return
+      commandRef.current.add(draftKey)
+      setCommandSessions((current) => new Set(current).add(draftKey))
+      const text = draft
+      updateDraft('')
+      try {
+        const success = await perform(
+          () =>
+            executeSlashCommand(command, {
+              snapshot,
+              busy,
+              commandPending,
+              api: window.api,
+              openSettings
+            }),
+          draftKey
+        )
+        if (!success)
+          setDrafts((current) => ({ ...current, [draftKey]: current[draftKey] || text }))
+      } finally {
+        commandRef.current.delete(draftKey)
+        setCommandSessions((current) => {
+          const next = new Set(current)
+          next.delete(draftKey)
+          return next
+        })
+      }
+      return
+    }
     if (
       !draft.trim() ||
       !ready ||
@@ -198,7 +250,9 @@ function App(): React.JSX.Element {
         onNewSession={() => void newSession()}
         onChooseDirectory={() => void chooseDirectory()}
         onReconnect={() => void perform(() => window.api.connect(true))}
+        onOpenSettings={openSettings}
       />
+      <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <WorkspaceLayout
         sidebar={
           <PiSidebar
@@ -300,6 +354,7 @@ function App(): React.JSX.Element {
             snapshot={snapshot}
             draft={draft}
             busy={busy}
+            commandPending={commandPending}
             stopping={stopping}
             textarea={textarea}
             onDraft={updateDraft}

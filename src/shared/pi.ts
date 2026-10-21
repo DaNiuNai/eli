@@ -65,6 +65,7 @@ export interface PiSnapshot extends PiSessionSnapshot {
 export interface PiApi {
   connect(restart?: boolean): Promise<PiSnapshot>
   prompt(sessionKey: string, message: string): Promise<void>
+  compact(sessionKey: string, instructions?: string): Promise<void>
   editMessage(target: PiMessageTarget, message: string): Promise<void>
   forkMessage(target: PiMessageTarget): Promise<void>
   abort(sessionKey: string): Promise<void>
@@ -85,6 +86,7 @@ export interface PiApi {
 export const piChannels = {
   connect: 'pi:connect',
   prompt: 'pi:prompt',
+  compact: 'pi:compact',
   editMessage: 'pi:edit-message',
   forkMessage: 'pi:fork-message',
   abort: 'pi:abort',
