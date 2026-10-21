@@ -12,15 +12,20 @@ function saveOrder(next: SidebarOrder): void {
   updateAppPreferences({ sidebarOrder: next })
 }
 
-function appendNew(saved: string[], incoming: string[]): string[] {
+function mergeNew(
+  saved: string[],
+  incoming: string[],
+  position: 'start' | 'end' = 'end'
+): string[] {
   const known = new Set(saved)
   const added = [...new Set(incoming)].filter((id) => !known.has(id))
-  return added.length ? [...saved, ...added] : saved
+  if (!added.length) return saved
+  return position === 'start' ? [...added, ...saved] : [...saved, ...added]
 }
 
 export function rememberSidebarSessions(sessions: SavedSession[]): void {
   const current = getSidebarOrder()
-  const workspaces = appendNew(
+  const workspaces = mergeNew(
     current.workspaces,
     sessions.map((session) => session.cwd)
   )
@@ -34,7 +39,7 @@ export function rememberSidebarSessions(sessions: SavedSession[]): void {
   let changed = workspaces !== current.workspaces
   for (const [cwd, paths] of incoming) {
     const previous = current.sessions[cwd] ?? []
-    const next = appendNew(previous, paths)
+    const next = mergeNew(previous, paths, 'start')
     if (next !== previous) {
       nextSessions[cwd] = next
       changed = true
@@ -45,7 +50,7 @@ export function rememberSidebarSessions(sessions: SavedSession[]): void {
 
 export function reorderSidebarWorkspaces(ordered: string[]): void {
   const current = getSidebarOrder()
-  saveOrder({ ...current, workspaces: appendNew(ordered, current.workspaces) })
+  saveOrder({ ...current, workspaces: mergeNew(ordered, current.workspaces) })
 }
 
 export function reorderSidebarSessions(cwd: string, ordered: string[]): void {
@@ -54,7 +59,7 @@ export function reorderSidebarSessions(cwd: string, ordered: string[]): void {
     ...current,
     sessions: {
       ...current.sessions,
-      [cwd]: appendNew(ordered, current.sessions[cwd] ?? [])
+      [cwd]: mergeNew(ordered, current.sessions[cwd] ?? [])
     }
   })
 }

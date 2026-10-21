@@ -1,6 +1,13 @@
 /* 应用样式独立于 CLI 生成的 shadcn 文件。 */
 :root {
   --desktop-titlebar-height: env(titlebar-area-height, 40px);
+  --tool-added-foreground: oklch(0.49 0.15 145);
+  --tool-added-background: oklch(0.94 0.04 145);
+}
+
+.dark {
+  --tool-added-foreground: oklch(0.77 0.19 145);
+  --tool-added-background: oklch(0.3 0.05 145);
 }
 
 .desktop-titlebar {
@@ -151,6 +158,40 @@
   overflow-wrap: anywhere;
 }
 
+.chat-image {
+  display: block;
+  max-width: 100%;
+  margin-block: 0.75rem;
+}
+
+.chat-image img {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 40rem);
+  height: auto;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+}
+
+.message-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.chat-message:hover .message-actions,
+.chat-message:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .chat-markdown > * + * {
   margin-top: 0.85em;
 }
@@ -219,4 +260,62 @@
 .chat-markdown hr {
   border-color: var(--border);
   margin-block: 1.25em;
+}
+
+.tool-activity-trigger {
+  padding-block: 0.25rem;
+}
+
+.tool-activity-content {
+  margin: 0.5rem 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  padding: 0;
+}
+
+.tool-activity-content > .tool-activity-list {
+  gap: 0;
+}
+
+.tool-activity-content > .tool-activity-list > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.tool-activity-content .tool-activity-list > [data-slot='trace-collapsible'] > button {
+  width: 100%;
+  border-radius: 0;
+  padding: 0.625rem 0.75rem;
+}
+
+.tool-call-trigger > [data-slot='trace-line'] {
+  flex: 1;
+}
+
+.tool-activity-content .tool-call-content {
+  margin: 0 0 0.75rem;
+  border: 0;
+  padding-inline: 0.75rem;
+}
+
+.tool-diff-stats {
+  white-space: nowrap;
+}
+
+.tool-diff-stats [data-diff='added'] {
+  color: var(--tool-added-foreground);
+}
+
+.tool-diff-stats [data-diff='removed'],
+.tool-failure-count {
+  color: var(--destructive);
+}
+
+.tool-diff [data-slot='code-block-line'][data-variant='added'] {
+  background: var(--tool-added-background);
+}
+
+/* 工具返回的差异本身已带 + / − 与行号，避免组件再次添加符号。 */
+.tool-diff [data-slot='code-block-line']::after {
+  content: none;
 }

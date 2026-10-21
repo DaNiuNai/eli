@@ -19,6 +19,7 @@ import { usePi } from '@renderer/hooks/use-pi'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { cn } from '@renderer/lib/utils'
+import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
 import {
   getAppPreferences,
   getAppPreferencesError,
@@ -26,6 +27,7 @@ import {
   updateAppPreferences
 } from '@renderer/lib/app-preferences'
 import type { SavedSession } from '../../shared/pi-library'
+import type { PiMessageTarget } from '../../shared/pi'
 import './assets/chat.css'
 
 function App(): React.JSX.Element {
@@ -37,16 +39,30 @@ function App(): React.JSX.Element {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [editing, setEditing] = useState<{ target: PiMessageTarget; text: string } | null>(null)
+  const [messageActionKind, setMessageActionKind] = useState<'edit' | 'fork' | null>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const sendingRef = useRef(false)
+  const messageActionRef = useRef(false)
   const draftKey = `${snapshot?.cwd ?? ''}:${snapshot?.session?.sessionId ?? ''}`
   const draft = drafts[draftKey] ?? ''
   const ready = snapshot?.connection === 'ready'
-  const busy = !!(snapshot?.running || snapshot?.pending || sending)
+  const busy = !!(snapshot?.running || snapshot?.pending || sending || messageActionKind)
+  const processing =
+    !stopping &&
+    (snapshot?.running ? snapshot.activity === '正在处理' : sending || messageActionKind === 'edit')
   const messages = snapshot?.messages ?? []
-  const visibleMessages = messages
-    .map((message, index) => ({ message, index }))
-    .filter(({ message }) => message.role === 'user' || message.role === 'assistant')
+  const visibleMessages = buildChatEntries(
+    messages,
+    snapshot?.running ? snapshot.activeThinking : null
+  )
+  if (processing && visibleMessages.at(-1)?.role !== 'assistant') {
+    visibleMessages.push({ id: 'processing', lastMessageIndex: -1, role: 'assistant', groups: [] })
+  }
+  const toolResults = new Map<string, ToolResult>()
+  for (const message of messages) {
+    if (message.role === 'toolResult') toolResults.set(message.toolCallId, message)
+  }
   const problem = error || snapshot?.error
   const hasModel = !!snapshot?.models.some(
     (model) => model.provider === snapshot.model?.provider && model.id === snapshot.model.id
@@ -73,6 +89,35 @@ function App(): React.JSX.Element {
     setStopping(true)
     await perform(() => window.api.abort())
     setStopping(false)
+  }
+
+  async function messageAction(
+    kind: 'edit' | 'fork',
+    action: () => Promise<void>
+  ): Promise<boolean> {
+    if (!ready || busy || messageActionRef.current) return false
+    messageActionRef.current = true
+    setMessageActionKind(kind)
+    try {
+      return await perform(action)
+    } finally {
+      messageActionRef.current = false
+      setMessageActionKind(null)
+    }
+  }
+
+  async function sendEdit(): Promise<void> {
+    if (!editing || !editing.text.trim() || !hasModel) return
+    if (await messageAction('edit', () => window.api.editMessage(editing.target, editing.text))) {
+      setEditing(null)
+    }
+  }
+
+  async function forkMessage(target: PiMessageTarget): Promise<void> {
+    if (await messageAction('fork', () => window.api.forkMessage(target))) {
+      setEditing(null)
+      textarea.current?.focus()
+    }
   }
 
   async function newSession(cwd?: string): Promise<void> {
@@ -167,20 +212,45 @@ function App(): React.JSX.Element {
                 <MessageScroller>
                   <MessageScrollerViewport aria-label={t('对话消息')}>
                     <MessageScrollerContent className="mx-auto max-w-4xl gap-8 px-6 py-8 sm:px-8">
-                      {visibleMessages.map(({ message, index }) => (
-                        <MessageScrollerItem
-                          key={index}
-                          messageId={String(index)}
-                          scrollAnchor={message.role === 'user'}
-                        >
-                          <ChatMessage
-                            message={message}
-                            messages={messages}
-                            tools={snapshot?.tools ?? {}}
-                            running={!!snapshot?.running}
-                          />
-                        </MessageScrollerItem>
-                      ))}
+                      {visibleMessages.map((entry) => {
+                        const entryId = snapshot?.messageEntryIds?.[entry.lastMessageIndex]
+                        const target =
+                          entryId && snapshot?.session
+                            ? { sessionId: snapshot.session.sessionId, entryId }
+                            : null
+                        const isEditing =
+                          !!editing &&
+                          editing.target.sessionId === target?.sessionId &&
+                          editing.target.entryId === target?.entryId
+                        return (
+                          <MessageScrollerItem
+                            key={entry.id}
+                            messageId={entry.id}
+                            scrollAnchor={entry.role === 'user'}
+                          >
+                            <ChatMessage
+                              entry={entry}
+                              results={toolResults}
+                              tools={snapshot?.tools ?? {}}
+                              running={!!snapshot?.running && entry === visibleMessages.at(-1)}
+                              processing={processing && entry === visibleMessages.at(-1)}
+                              actionDisabled={
+                                !target || busy || !ready || (entry.role === 'user' && !hasModel)
+                              }
+                              editing={
+                                isEditing && editing ? { text: editing.text, busy } : undefined
+                              }
+                              onStartEdit={(text) => target && setEditing({ target, text })}
+                              onEditChange={(text) =>
+                                setEditing((current) => (current ? { ...current, text } : null))
+                              }
+                              onEditCancel={() => setEditing(null)}
+                              onEditSend={() => void sendEdit()}
+                              onFork={() => target && void forkMessage(target)}
+                            />
+                          </MessageScrollerItem>
+                        )
+                      })}
                     </MessageScrollerContent>
                   </MessageScrollerViewport>
                   <MessageScrollerButton aria-label={t('跳转到最新消息')}>

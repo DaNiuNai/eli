@@ -7,11 +7,30 @@ import type {
   RpcExtensionUIRequest
 } from '@earendil-works/pi-coding-agent'
 import { piChannels, type PiSnapshot, type PiThinkingLevel } from '../shared/pi'
-import { updateAssistantMessage } from '../shared/pi-messages'
+import {
+  updateActiveThinking,
+  updateAssistantMessage,
+  updateResponseActivity
+} from '../shared/pi-messages'
 import { PiLibraryService } from './pi-library'
+import { readLocalImage } from './image-files'
+import {
+  copySessionThrough,
+  mapMessageEntryIds,
+  readHistoryTarget,
+  restoreSessionLeaf,
+  rewindSessionBefore
+} from './pi-history'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function promptText(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
+    throw new Error('请输入 1 至 100000 个字符的消息')
+  }
+  return value.trim()
 }
 
 export class PiService {
@@ -24,6 +43,7 @@ export class PiService {
   private checking = false
   private disposed = false
   private activeMessage = -1
+  private activeTools = new Set<string>()
   private sessionFile?: string
   private snapshot: PiSnapshot = {
     revision: 0,
@@ -36,6 +56,8 @@ export class PiService {
     model: null,
     models: [],
     messages: [],
+    messageEntryIds: [],
+    activeThinking: null,
     tools: {},
     running: false,
     pending: false,
@@ -66,29 +88,25 @@ export class PiService {
       return this.connect()
     })
     handle(piChannels.prompt, async (message) => {
-      if (typeof message !== 'string' || !message.trim() || message.length > 100_000) {
-        throw new Error('请输入 1 至 100000 个字符的消息')
-      }
-      await this.exclusive(async (client) => {
-        if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
-        this.snapshot.error = null
-        this.snapshot.running = true
-        this.snapshot.activity = '正在等待回复'
-        this.publish()
-        try {
-          const disposition = await client.prompt(message.trim())
-          if (disposition === 'handled') {
-            this.snapshot.running = false
-            this.snapshot.activity = ''
-            await this.refresh(client)
-          }
-        } catch (error) {
-          this.snapshot.running = false
-          this.snapshot.activity = ''
-          throw error
-        }
-      })
+      const text = promptText(message)
+      await this.exclusive((client) => this.sendPrompt(client, text))
     })
+    handle(piChannels.editMessage, async (target, message) => {
+      const text = promptText(message)
+      await this.exclusive(() => this.editMessage(target, text))
+    })
+    handle(piChannels.forkMessage, (target) =>
+      this.exclusive(async (client) => {
+        const { path, entryId } = this.messageTarget(target)
+        const copiedPath = await copySessionThrough(path, entryId)
+        this.snapshot.libraryVersion++
+        const result = await client.switchSession(copiedPath)
+        if (result.cancelled) throw new Error('已创建分叉，但扩展取消了切换会话')
+        this.snapshot.tools = {}
+        this.snapshot.error = null
+        await this.refresh(client)
+      })
+    )
     handle(piChannels.abort, async () => {
       const client = this.requireClient()
       this.snapshot.activity = '正在停止'
@@ -102,6 +120,7 @@ export class PiService {
       }
     })
     handle(piChannels.getLibrary, () => this.library.load(this.snapshot.libraryVersion))
+    handle(piChannels.readImage, (source) => readLocalImage(source, this.snapshot.cwd))
     handle(piChannels.openSession, (path) =>
       this.exclusive(async (client) => {
         if (typeof path !== 'string') throw new Error('请选择有效的历史会话')
@@ -216,6 +235,7 @@ export class PiService {
     this.sessionFile = sessionFile
     this.snapshot.cwd = cwd
     this.snapshot.messages = []
+    this.snapshot.messageEntryIds = []
     this.snapshot.tools = {}
     this.snapshot.session = null
     this.snapshot.thinkingLevels = []
@@ -313,14 +333,95 @@ export class PiService {
     }
   }
 
+  private messageTarget(value: unknown): { path: string; entryId: string } {
+    if (!value || typeof value !== 'object') throw new Error('无效的消息位置')
+    const target = value as Record<string, unknown>
+    const session = this.snapshot.session
+    if (
+      typeof target.entryId !== 'string' ||
+      !target.entryId ||
+      target.entryId.length > 256 ||
+      target.sessionId !== session?.sessionId ||
+      !session?.sessionFile
+    ) {
+      throw new Error('会话已变化，请重新选择消息')
+    }
+    return { path: session.sessionFile, entryId: target.entryId }
+  }
+
+  private async sendPrompt(
+    client: RpcClient,
+    text: string,
+    images?: Parameters<RpcClient['prompt']>[1]
+  ): Promise<void> {
+    if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
+    this.snapshot.error = null
+    this.snapshot.running = true
+    this.snapshot.activity = '正在处理'
+    this.publish()
+    try {
+      const disposition = await client.prompt(text, images)
+      if (disposition === 'handled') {
+        this.snapshot.running = false
+        this.snapshot.activity = ''
+        await this.refresh(client)
+      }
+    } catch (error) {
+      this.snapshot.running = false
+      this.snapshot.activity = ''
+      throw error
+    }
+  }
+
+  private async editMessage(target: unknown, text: string): Promise<void> {
+    const { path, entryId } = this.messageTarget(target)
+    const model = this.snapshot.model
+    const thinkingLevel = this.snapshot.session?.thinkingLevel
+    if (!model) throw new Error('请先配置模型，再重新连接')
+    await readHistoryTarget(path, entryId, 'user')
+    let previousLeaf: string | null = null
+    try {
+      // 先停止 RPC 进程，避免两个 SessionManager 同时向同一会话追加记录。
+      await this.stopClient()
+      const rewound = await rewindSessionBefore(path, entryId)
+      previousLeaf = rewound.previousLeaf
+      this.sessionFile = path
+      this.snapshot.tools = {}
+      await this.start()
+      const client = this.requireClient()
+      await client.setModel(model.provider, model.id)
+      if (thinkingLevel && this.snapshot.thinkingLevels.includes(thinkingLevel)) {
+        await client.setThinkingLevel(thinkingLevel)
+      }
+      await this.refresh(client)
+      await this.sendPrompt(client, text, rewound.images.length ? rewound.images : undefined)
+    } catch (error) {
+      // 提交失败时回到原来的活动路径，编辑文本由界面保留以便重试。
+      try {
+        await this.stopClient()
+        if (previousLeaf) await restoreSessionLeaf(path, previousLeaf)
+        this.sessionFile = path
+        await this.start()
+        this.requireClient()
+      } catch (restoreError) {
+        throw new Error(`${errorText(error)}；恢复会话失败：${errorText(restoreError)}`, {
+          cause: restoreError
+        })
+      }
+      throw error
+    }
+  }
+
   private async refresh(client: RpcClient): Promise<void> {
-    const [state, messages, models, thinkingLevels, stats] = await Promise.all([
+    const [state, messages, models, thinkingLevels, stats, history] = await Promise.all([
       client.getState(),
       client.getMessages(),
       client.getAvailableModels(),
       client.getAvailableThinkingLevels(),
-      client.getSessionStats()
+      client.getSessionStats(),
+      client.getEntries()
     ])
+    const { buildSessionProjection } = await import('@earendil-works/pi-coding-agent')
     if (this.client !== client || this.disposed) return
     this.sessionFile = state.sessionFile
     this.snapshot.session = {
@@ -348,6 +449,11 @@ export class PiService {
       reasoning
     }))
     this.snapshot.messages = messages
+    this.snapshot.messageEntryIds = mapMessageEntryIds(
+      messages,
+      buildSessionProjection(history.entries, history.leafId)
+    )
+    this.snapshot.activeThinking = null
     this.activeMessage = -1
   }
 
@@ -355,24 +461,43 @@ export class PiService {
     switch (event.type) {
       case 'agent_start':
         this.snapshot.running = true
-        this.snapshot.activity = '正在回复'
+        this.snapshot.activeThinking = null
+        this.activeTools.clear()
+        this.snapshot.activity = '正在处理'
         break
       case 'message_start':
+        this.snapshot.activeThinking = null
         this.activeMessage = this.snapshot.messages.length
         this.snapshot.messages.push(event.message)
+        this.snapshot.messageEntryIds.push(null)
         break
       case 'message_update': {
         const message = this.snapshot.messages[this.activeMessage]
         if (message) {
           this.snapshot.messages[this.activeMessage] = updateAssistantMessage(message, event)
+          this.snapshot.activeThinking = updateActiveThinking(
+            this.snapshot.activeThinking,
+            event,
+            this.activeMessage
+          )
+          this.snapshot.activity = updateResponseActivity(
+            this.snapshot.activity,
+            event,
+            this.activeTools.size > 0
+          )
         }
         break
       }
       case 'message_end':
+        this.snapshot.activeThinking = null
+        if (this.snapshot.running && this.snapshot.activity !== '正在停止') {
+          this.snapshot.activity = this.activeTools.size ? '正在调用工具' : '正在处理'
+        }
         if (this.activeMessage >= 0) {
           this.snapshot.messages[this.activeMessage] = event.message
         } else {
           this.snapshot.messages.push(event.message)
+          this.snapshot.messageEntryIds.push(null)
         }
         this.activeMessage = -1
         break
@@ -380,10 +505,15 @@ export class PiService {
       case 'tool_execution_update':
       case 'tool_execution_end':
         this.snapshot.tools[event.toolCallId] = event
-        this.snapshot.activity =
-          event.type === 'tool_execution_end' ? '正在回复' : `正在执行 ${event.toolName}`
+        if (event.type === 'tool_execution_end') this.activeTools.delete(event.toolCallId)
+        else this.activeTools.add(event.toolCallId)
+        if (this.snapshot.activity !== '正在停止') {
+          this.snapshot.activity = this.activeTools.size ? '正在调用工具' : '正在处理'
+        }
         break
       case 'agent_settled': {
+        this.snapshot.activeThinking = null
+        this.activeTools.clear()
         const client = this.client
         if (!client) break
         // 直到最终消息同步完毕才解除锁，避免下一轮与 get_messages 互相覆盖。
@@ -400,7 +530,7 @@ export class PiService {
         break
       }
       case 'compaction_start':
-        this.snapshot.activity = '正在整理上下文'
+        this.snapshot.activity = '正在处理'
         this.snapshot.contextUsage = null
         break
       case 'compaction_end':
@@ -408,7 +538,7 @@ export class PiService {
         if (event.errorMessage) this.snapshot.error = event.errorMessage
         break
       case 'auto_retry_start':
-        this.snapshot.activity = `正在重试（${event.attempt}/${event.maxAttempts}）`
+        this.snapshot.activity = '正在处理'
         break
       case 'auto_retry_end':
         if (event.finalError) this.snapshot.error = event.finalError
@@ -427,6 +557,8 @@ export class PiService {
   private fail(error: unknown): void {
     this.snapshot.connection = 'error'
     this.snapshot.running = false
+    this.snapshot.activeThinking = null
+    this.activeTools.clear()
     this.snapshot.activity = ''
     this.snapshot.error = errorText(error)
     this.publish()
@@ -452,6 +584,8 @@ export class PiService {
     const client = this.client
     this.client = null
     this.activeMessage = -1
+    this.snapshot.activeThinking = null
+    this.activeTools.clear()
     await client?.stop()
   }
 

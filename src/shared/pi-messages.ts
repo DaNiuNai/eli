@@ -1,7 +1,56 @@
 import type { JsonAgentSessionEvent } from '@earendil-works/pi-coding-agent'
-import type { PiMessage } from './pi'
+import type { PiMessage, PiSnapshot } from './pi'
 
 type MessageUpdate = Extract<JsonAgentSessionEvent, { type: 'message_update' }>
+
+export function updateResponseActivity(
+  current: string,
+  event: MessageUpdate,
+  toolsRunning: boolean
+): string {
+  if (current === '正在停止') return current
+  switch (event.assistantMessageEvent.type) {
+    case 'thinking_start':
+    case 'thinking_delta':
+      return '正在思考'
+    case 'text_start':
+      return toolsRunning ? '正在调用工具' : '正在处理'
+    case 'text_delta':
+      if (!event.assistantMessageEvent.delta.trim() && current !== '正在回复') {
+        return toolsRunning ? '正在调用工具' : '正在处理'
+      }
+      return '正在回复'
+    case 'toolcall_start':
+    case 'toolcall_delta':
+      return '正在调用工具'
+    case 'thinking_end':
+    case 'text_end':
+    case 'toolcall_end':
+      return toolsRunning ? '正在调用工具' : '正在处理'
+    default:
+      return current
+  }
+}
+
+/** 用块级事件区分思考结束与整条助手消息结束，正文仍可能继续流式输出。 */
+export function updateActiveThinking(
+  current: PiSnapshot['activeThinking'],
+  event: MessageUpdate,
+  messageIndex: number
+): PiSnapshot['activeThinking'] {
+  const update = event.assistantMessageEvent
+  switch (update.type) {
+    case 'thinking_start':
+    case 'thinking_delta':
+      return { messageIndex, contentIndex: update.contentIndex }
+    case 'thinking_end':
+    case 'text_start':
+    case 'toolcall_start':
+      return null
+    default:
+      return current
+  }
+}
 
 /** RPC 的 update 只有增量；按官方 contentIndex 重建，最终以 message_end 为准。 */
 export function updateAssistantMessage(message: PiMessage, event: MessageUpdate): PiMessage {

@@ -16,6 +16,11 @@ export type PiToolEvent = Extract<
   { type: 'tool_execution_start' | 'tool_execution_update' | 'tool_execution_end' }
 >
 
+export interface PiMessageTarget {
+  sessionId: string
+  entryId: string
+}
+
 export interface PiSnapshot {
   revision: number
   libraryVersion: number
@@ -30,6 +35,8 @@ export interface PiSnapshot {
   model: ModelInfo | null
   models: ModelInfo[]
   messages: PiMessage[]
+  messageEntryIds: (string | null)[]
+  activeThinking: { messageIndex: number; contentIndex: number } | null
   tools: Record<string, PiToolEvent>
   running: boolean
   pending: boolean
@@ -40,11 +47,14 @@ export interface PiSnapshot {
 export interface PiApi {
   connect(restart?: boolean): Promise<PiSnapshot>
   prompt(message: string): Promise<void>
+  editMessage(target: PiMessageTarget, message: string): Promise<void>
+  forkMessage(target: PiMessageTarget): Promise<void>
   abort(): Promise<void>
   newSession(cwd?: string): Promise<void>
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
   getLibrary(): Promise<PiLibrary>
+  readImage(source: string): Promise<string>
   setThinkingLevel(level: PiThinkingLevel): Promise<void>
   setModel(provider: string, modelId: string): Promise<void>
   chooseDirectory(language?: UiLanguage): Promise<void>
@@ -54,11 +64,14 @@ export interface PiApi {
 export const piChannels = {
   connect: 'pi:connect',
   prompt: 'pi:prompt',
+  editMessage: 'pi:edit-message',
+  forkMessage: 'pi:fork-message',
   abort: 'pi:abort',
   newSession: 'pi:new-session',
   openSession: 'pi:open-session',
   deleteSession: 'pi:delete-session',
   getLibrary: 'pi:get-library',
+  readImage: 'pi:read-image',
   setThinkingLevel: 'pi:set-thinking-level',
   setModel: 'pi:set-model',
   chooseDirectory: 'pi:choose-directory',

@@ -22,8 +22,6 @@ import {
   InputGroupButton,
   InputGroupTextarea
 } from '@renderer/components/ui/input-group'
-import { Spinner } from '@renderer/components/ui/spinner'
-import { Trace, TraceIcon, TraceLine, TraceTitle } from '@renderer/components/ui/trace'
 import { directoryName } from '@renderer/lib/pi-display'
 import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
@@ -68,18 +66,6 @@ export function ChatComposer({
 
   return (
     <footer className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 px-6 pb-4 pt-3 sm:px-8">
-      {snapshot?.running && (
-        <div className="pb-1" role="status" aria-live="polite">
-          <Trace>
-            <TraceLine status="running">
-              <TraceIcon>
-                <Spinner />
-              </TraceIcon>
-              <TraceTitle>{t(snapshot.activity || '正在回复')}</TraceTitle>
-            </TraceLine>
-          </Trace>
-        </div>
-      )}
       {ready && !hasModel && (
         <Alert>
           <AlertTitle>{t('尚无可用模型')}</AlertTitle>
