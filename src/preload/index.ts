@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { piChannels, type PiApi, type PiSnapshot } from '../shared/pi'
 import { windowAppearanceChannel, type WindowAppearanceApi } from '../shared/window-appearance'
+import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-preferences'
 
 // Custom APIs for renderer
 const api: PiApi = {
@@ -23,6 +24,13 @@ const api: PiApi = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+const appPreferences: AppPreferencesApi = {
+  get: () => ipcRenderer.invoke(appPreferencesChannels.get),
+  set: (preferences) => ipcRenderer.invoke(appPreferencesChannels.set, preferences)
+}
+
+contextBridge.exposeInMainWorld('appPreferences', appPreferences)
 
 const windowAppearance: WindowAppearanceApi = {
   customTitleBar: process.platform === 'win32',

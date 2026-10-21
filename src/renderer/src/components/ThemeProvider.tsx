@@ -1,18 +1,13 @@
-import { useLayoutEffect, useState } from 'react'
-import { isTheme, ThemeContext, type Theme } from '@renderer/hooks/use-theme'
-
-const storageKey = 'eli-ui-theme'
+import { useLayoutEffect, useSyncExternalStore } from 'react'
+import { ThemeContext, type Theme } from '@renderer/hooks/use-theme'
+import {
+  getAppPreferences,
+  subscribeAppPreferences,
+  updateAppPreferences
+} from '@renderer/lib/app-preferences'
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const [theme, setTheme] = useState<Theme>(() => {
-    try {
-      const savedTheme = localStorage.getItem(storageKey)
-      if (isTheme(savedTheme)) return savedTheme
-    } catch {
-      // 本地存储不可用时仍可跟随系统并切换主题。
-    }
-    return 'system'
-  })
+  const { theme } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
 
   useLayoutEffect(() => {
     const root = document.documentElement
@@ -38,12 +33,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
   }, [theme])
 
   function changeTheme(nextTheme: Theme): void {
-    setTheme(nextTheme)
-    try {
-      localStorage.setItem(storageKey, nextTheme)
-    } catch {
-      // 保存失败不影响本次使用。
-    }
+    updateAppPreferences({ theme: nextTheme })
   }
 
   return (

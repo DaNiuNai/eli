@@ -11,6 +11,7 @@ const english: Record<string, string> = {
   '本地会话 · 自动保存': 'Local sessions · Auto-saved',
   重新连接: 'Reconnect',
   设置: 'Settings',
+  设置保存失败: 'Failed to save settings',
   语言: 'Language',
   关闭: 'Close',
   设置与连接: 'Settings and connection',

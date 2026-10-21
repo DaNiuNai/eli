@@ -1,15 +1,12 @@
 import { createContext, useContext } from 'react'
+import type { Theme } from '../../../shared/app-preferences'
 
-export type Theme = 'light' | 'dark' | 'system'
+export { isTheme, type Theme } from '../../../shared/app-preferences'
 
 export const ThemeContext = createContext<{
   theme: Theme
   setTheme: (theme: Theme) => void
 } | null>(null)
-
-export function isTheme(value: unknown): value is Theme {
-  return value === 'light' || value === 'dark' || value === 'system'
-}
 
 export function useTheme(): NonNullable<React.ContextType<typeof ThemeContext>> {
   const context = useContext(ThemeContext)

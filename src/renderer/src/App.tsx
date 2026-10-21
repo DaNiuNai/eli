@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react'
+import { useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { ArrowDownIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import {
@@ -19,11 +19,19 @@ import { usePi } from '@renderer/hooks/use-pi'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { cn } from '@renderer/lib/utils'
+import {
+  getAppPreferences,
+  getAppPreferencesError,
+  subscribeAppPreferences,
+  updateAppPreferences
+} from '@renderer/lib/app-preferences'
 import type { SavedSession } from '../../shared/pi-library'
 import './assets/chat.css'
 
 function App(): React.JSX.Element {
   const { t, language } = useLanguage()
+  const { sidebarOpen } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
+  const preferencesError = useSyncExternalStore(subscribeAppPreferences, getAppPreferencesError)
   const { snapshot, error, perform } = usePi()
   const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -97,6 +105,8 @@ function App(): React.JSX.Element {
 
   return (
     <SidebarProvider
+      open={sidebarOpen}
+      onOpenChange={(open) => updateAppPreferences({ sidebarOpen: open })}
       className="desktop-shell relative h-dvh min-h-0 flex-col overflow-hidden bg-background"
       style={{ '--sidebar-width': '17rem' } as CSSProperties}
     >
@@ -131,14 +141,24 @@ function App(): React.JSX.Element {
           onReconnect={() => void perform(() => window.api.connect(true))}
         />
         <main className="desktop-main flex min-h-0 min-w-0 flex-1 flex-col">
-          {problem && (
+          {(problem || preferencesError) && (
             <div className="mx-auto w-full max-w-4xl shrink-0 px-6 pt-3 sm:px-8">
-              <Alert variant="destructive">
-                <AlertTitle>{t('需要处理')}</AlertTitle>
-                <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
-                  {t(problem)}
-                </AlertDescription>
-              </Alert>
+              {preferencesError && (
+                <Alert variant="destructive">
+                  <AlertTitle>{t('设置保存失败')}</AlertTitle>
+                  <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
+                    {preferencesError}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {problem && (
+                <Alert variant="destructive">
+                  <AlertTitle>{t('需要处理')}</AlertTitle>
+                  <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
+                    {t(problem)}
+                  </AlertDescription>
+                </Alert>
+              )}
             </div>
           )}
           <div className="min-h-0 flex-1">

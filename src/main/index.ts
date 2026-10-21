@@ -1,10 +1,13 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { PiService } from './pi-service'
 import { windowAppearanceChannel } from '../shared/window-appearance'
+import { appPreferencesChannels } from '../shared/app-preferences'
+import { AppConfig } from './app-config'
 
+const appConfig = new AppConfig()
 let piService: PiService | undefined
 let quitting = false
 
@@ -37,6 +40,23 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  const assertSender = (event: Electron.IpcMainInvokeEvent): void => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      event.senderFrame !== mainWindow.webContents.mainFrame
+    ) {
+      throw new Error('无效的设置请求来源')
+    }
+  }
+  ipcMain.handle(appPreferencesChannels.get, (event) => {
+    assertSender(event)
+    return appConfig.get()
+  })
+  ipcMain.handle(appPreferencesChannels.set, async (event, value: unknown) => {
+    assertSender(event)
+    await appConfig.set(value)
+    nativeTheme.themeSource = appConfig.get().theme
+  })
   ipcMain.handle(windowAppearanceChannel, (event, dark: unknown) => {
     if (
       event.sender !== mainWindow.webContents ||
@@ -52,6 +72,8 @@ function createWindow(): void {
   piService = new PiService(mainWindow)
   piService.register()
   mainWindow.on('closed', () => {
+    ipcMain.removeHandler(appPreferencesChannels.get)
+    ipcMain.removeHandler(appPreferencesChannels.set)
     ipcMain.removeHandler(windowAppearanceChannel)
     void piService?.dispose()
     piService = undefined
@@ -79,7 +101,15 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await appConfig.load()
+  } catch (error) {
+    dialog.showErrorBox('无法加载 eli 配置', `${appConfig.path}\n${String(error)}`)
+    app.quit()
+    return
+  }
+  nativeTheme.themeSource = appConfig.get().theme
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.eli.desktop')
 
@@ -109,10 +139,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
-  if (quitting || !piService) return
+  if (quitting) return
   event.preventDefault()
   quitting = true
-  void piService.dispose().finally(() => app.quit())
+  void Promise.allSettled([piService?.dispose(), appConfig.flush()]).then(() => app.quit())
 })
 
 // In this file you can include the rest of your app's specific main process

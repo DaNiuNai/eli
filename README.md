@@ -37,10 +37,37 @@
 需要 `select`、`confirm`、`input` 或 `editor` 的扩展应在 pi 命令行中使用；
 桌面端会提示此限制。
 
+## 应用设置
+
+eli 的主题、界面语言、侧栏展开状态，以及工作目录和会话的排序统一保存在
+`~/.pi/eli/config.json`，Windows 下为用户目录中的 `.pi\eli\config.json`。
+主进程在启动时读取配置，文件不存在时自动创建默认配置；界面改动立即应用并写入该文件。
+退出前会等待已提交的写入完成。旧版前端本地存储不再读取或迁移。
+
+默认配置如下，关闭应用后可手动编辑，重新启动生效：
+
+```json
+{
+  "theme": "system",
+  "language": "zh-CN",
+  "sidebarOpen": true,
+  "sidebarOrder": {
+    "workspaces": [],
+    "sessions": {}
+  }
+}
+```
+
+`theme` 支持 `system`、`light`、`dark`，`language` 支持 `zh-CN`、`en`。
+配置项省略时使用默认值；JSON 或配置值格式错误时提示文件位置并停止启动，保留原文件。
+写入通过临时文件替换完成，保存失败会在界面提示。
+
 ## 实现结构
 
 - `src/main/pi-service.ts`：官方 RPC 客户端的生命周期、事件处理与 IPC 校验。
 - `src/main/pi-library.ts`：历史会话索引、流式用量解析、文件缓存与去重。
+- `src/main/app-config.ts`：应用配置的启动读取、串行写入与文件替换。
+- `src/shared/app-preferences.ts`：统一的设置类型、默认值、校验与 IPC 契约。
 - `src/shared/pi-library.ts`：会话元数据、统计数据契约与时间范围聚合。
 - `src/shared/pi.ts`：复用 pi 的消息、模型与事件类型，定义桌面端 IPC 接口。
 - `src/shared/pi-messages.ts`：按 RPC 的增量事件重建流式消息。

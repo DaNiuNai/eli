@@ -1,57 +1,15 @@
 import type { SavedSession } from '../../../shared/pi-library'
+import type { SidebarOrder } from '../../../shared/app-preferences'
+import { getAppPreferences, updateAppPreferences } from './app-preferences'
 
-interface SidebarOrder {
-  workspaces: string[]
-  sessions: Record<string, string[]>
-}
-
-const storageKey = 'eli-sidebar-order-v1'
-const listeners = new Set<() => void>()
-let snapshot: SidebarOrder | undefined
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? [...new Set(value.filter((item): item is string => typeof item === 'string'))]
-    : []
-}
+export { subscribeAppPreferences as subscribeSidebarOrder } from './app-preferences'
 
 export function getSidebarOrder(): SidebarOrder {
-  if (snapshot) return snapshot
-  snapshot = { workspaces: [], sessions: {} }
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null')
-    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
-      const value = saved as Record<string, unknown>
-      const sessions = value.sessions
-      snapshot = {
-        workspaces: stringList(value.workspaces),
-        sessions:
-          sessions && typeof sessions === 'object' && !Array.isArray(sessions)
-            ? Object.fromEntries(
-                Object.entries(sessions).map(([cwd, paths]) => [cwd, stringList(paths)])
-              )
-            : {}
-      }
-    }
-  } catch {
-    // 本地存储不可用或数据损坏时，仍然允许本次排序。
-  }
-  return snapshot
-}
-
-export function subscribeSidebarOrder(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
+  return getAppPreferences().sidebarOrder
 }
 
 function saveOrder(next: SidebarOrder): void {
-  snapshot = next
-  try {
-    localStorage.setItem(storageKey, JSON.stringify(next))
-  } catch {
-    // 保存失败不影响当前窗口的顺序。
-  }
-  for (const listener of listeners) listener()
+  updateAppPreferences({ sidebarOrder: next })
 }
 
 function appendNew(saved: string[], incoming: string[]): string[] {
