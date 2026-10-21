@@ -11,12 +11,22 @@
 }
 
 .desktop-titlebar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 20;
   width: 100%;
   height: var(--desktop-titlebar-height);
+}
+
+.desktop-titlebar-content {
+  position: relative;
+  width: 100%;
+}
+
+.desktop-titlebar-title {
+  position: absolute;
+  top: 50%;
+  left: calc(50vw - env(titlebar-area-x, 0px));
+  width: min(42vw, 48rem);
+  max-width: calc(2 * (env(titlebar-area-width, 100vw) + env(titlebar-area-x, 0px) - 50vw - 5rem));
+  transform: translate(-50%, -50%);
 }
 
 .window-titlebar {
@@ -31,13 +41,25 @@
 }
 
 .desktop-sidebar {
-  top: 0;
-  height: 100dvh;
+  height: 100%;
 }
 
-.desktop-sidebar-header,
-.desktop-main {
+[data-mobile='true'] .desktop-sidebar-header {
   padding-top: var(--desktop-titlebar-height);
+}
+
+.desktop-sidebar-resize {
+  app-region: no-drag;
+}
+
+.desktop-sidebar-resize::after {
+  width: 5px;
+  transition: background-color 100ms;
+}
+
+.desktop-sidebar-resize:hover::after,
+.desktop-sidebar-resize[data-separator='active']::after {
+  background: var(--ring);
 }
 
 .desktop-sidebar-toggle {

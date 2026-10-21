@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDownIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import {
@@ -10,15 +10,16 @@ import {
   MessageScrollerViewport
 } from '@renderer/components/ui/message-scroller'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
-import { SidebarProvider, SidebarTrigger } from '@renderer/components/ui/sidebar'
+import { SidebarProvider } from '@renderer/components/ui/sidebar'
+import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { PiSidebar } from '@renderer/components/PiSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
+import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { usePi } from '@renderer/hooks/use-pi'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
-import { cn } from '@renderer/lib/utils'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
 import {
   getAppPreferences,
@@ -174,38 +175,27 @@ function App(): React.JSX.Element {
       open={sidebarOpen}
       onOpenChange={(open) => updateAppPreferences({ sidebarOpen: open })}
       className="desktop-shell relative h-dvh min-h-0 flex-col overflow-hidden bg-background"
-      style={{ '--sidebar-width': '17rem' } as CSSProperties}
     >
-      <header
-        className={cn(
-          'desktop-titlebar flex items-center px-2',
-          window.windowAppearance?.customTitleBar && 'window-titlebar'
-        )}
-      >
-        <div className="window-titlebar-actions flex items-center gap-1">
-          <SidebarTrigger
-            className="desktop-sidebar-toggle"
-            aria-label={t('展开或收起侧栏')}
-            title={t('展开或收起侧栏 · Ctrl+B')}
+      <AppTitlebar
+        title={visibleMessages.length > 0 ? currentTitle : null}
+        snapshot={snapshot}
+        busy={busy}
+        onNewSession={() => void newSession()}
+        onChooseDirectory={() => void chooseDirectory()}
+        onReconnect={() => void perform(() => window.api.connect(true))}
+      />
+      <WorkspaceLayout
+        sidebar={
+          <PiSidebar
+            snapshot={snapshot}
+            library={library}
+            loading={loading}
+            onNewSession={(cwd) => void newSession(cwd)}
+            onOpenSession={(session) => void openSession(session)}
+            onDeleteSession={deleteSession}
           />
-        </div>
-        {visibleMessages.length > 0 && (
-          <span className="ml-4 max-w-[50%] truncate text-xs text-muted-foreground">
-            {currentTitle}
-          </span>
-        )}
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <PiSidebar
-          snapshot={snapshot}
-          library={library}
-          loading={loading}
-          busy={busy}
-          onNewSession={(cwd) => void newSession(cwd)}
-          onOpenSession={(session) => void openSession(session)}
-          onDeleteSession={deleteSession}
-          onReconnect={() => void perform(() => window.api.connect(true))}
-        />
+        }
+      >
         <main className="desktop-main flex min-h-0 min-w-0 flex-1 flex-col">
           {(problem || preferencesError) && (
             <div className="mx-auto w-full max-w-4xl shrink-0 px-6 pt-3 sm:px-8">
@@ -303,7 +293,7 @@ function App(): React.JSX.Element {
             }
           />
         </main>
-      </div>
+      </WorkspaceLayout>
     </SidebarProvider>
   )
 }

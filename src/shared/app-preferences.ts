@@ -1,6 +1,8 @@
 export type UiLanguage = 'zh-CN' | 'en'
 export type Theme = 'light' | 'dark' | 'system'
 
+export const sidebarSizing = { defaultWidth: 272, minWidth: 200, maxWidth: 480 } as const
+
 export interface SidebarOrder {
   workspaces: string[]
   sessions: Record<string, string[]>
@@ -10,6 +12,7 @@ export interface AppPreferences {
   theme: Theme
   language: UiLanguage
   sidebarOpen: boolean
+  sidebarWidth: number
   sidebarOrder: SidebarOrder
 }
 
@@ -36,6 +39,7 @@ export function defaultAppPreferences(): AppPreferences {
     theme: 'system',
     language: 'zh-CN',
     sidebarOpen: true,
+    sidebarWidth: sidebarSizing.defaultWidth,
     sidebarOrder: { workspaces: [], sessions: {} }
   }
 }
@@ -58,9 +62,18 @@ export function parseAppPreferences(value: unknown): AppPreferences {
   const theme = value.theme === undefined ? defaults.theme : value.theme
   const language = value.language === undefined ? defaults.language : value.language
   const sidebarOpen = value.sidebarOpen === undefined ? defaults.sidebarOpen : value.sidebarOpen
+  const sidebarWidth = value.sidebarWidth === undefined ? defaults.sidebarWidth : value.sidebarWidth
   if (!isTheme(theme)) throw new Error('无效的主题设置')
   if (!isUiLanguage(language)) throw new Error('无效的语言设置')
   if (typeof sidebarOpen !== 'boolean') throw new Error('无效的侧栏展开设置')
+  if (
+    typeof sidebarWidth !== 'number' ||
+    !Number.isFinite(sidebarWidth) ||
+    sidebarWidth < sidebarSizing.minWidth ||
+    sidebarWidth > sidebarSizing.maxWidth
+  ) {
+    throw new Error('无效的侧栏宽度设置')
+  }
 
   let sidebarOrder = defaults.sidebarOrder
   if (value.sidebarOrder !== undefined) {
@@ -77,5 +90,5 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     }
   }
 
-  return { theme, language, sidebarOpen, sidebarOrder }
+  return { theme, language, sidebarOpen, sidebarWidth, sidebarOrder }
 }

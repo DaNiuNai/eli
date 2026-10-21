@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@renderer/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@renderer/components/ui/field'
 import {
   Select,
   SelectContent,
@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
-import { isUiLanguage, useLanguage } from '@renderer/hooks/use-language'
+import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
 
 const themeLabels = { light: '亮色', dark: '暗色', system: '跟随系统' }
@@ -30,7 +30,7 @@ export function AppSettingsDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }): React.JSX.Element {
-  const { t, language, setLanguage } = useLanguage()
+  const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
   const id = useId()
 
@@ -58,24 +58,6 @@ export function AppSettingsDialog({
                 </SelectGroup>
               </SelectContent>
             </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`${id}-language`}>{t('语言')}</FieldLabel>
-            <Select
-              value={language}
-              onValueChange={(value) => isUiLanguage(value) && setLanguage(value)}
-            >
-              <SelectTrigger id={`${id}-language`} className="w-full">
-                <SelectValue>{language === 'en' ? 'English' : '简体中文'}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="zh-CN">简体中文</SelectItem>
-                  <SelectItem value="en">English</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <FieldDescription>{t('选择界面语言。会话内容保持原样。')}</FieldDescription>
           </Field>
         </FieldGroup>
         <DialogClose

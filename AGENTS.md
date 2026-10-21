@@ -53,3 +53,6 @@ PR 应说明变更原因、行为变化、验证命令及结果；有对应 issu
 Electron 下载配置位于 `package.json` 的 `config`，打包下载镜像另见 `electron-builder.yml`；依赖提升和构建许可位于 `pnpm-workspace.yaml`，不要迁回 `.npmrc`。调整依赖时同步更新 `pnpm-lock.yaml`。
 
 始终使用简体中文交流；遇到需求不明确时先提问。禁止读取环境变量以及 `.env`、`.env.local` 等环境配置文件，`.env.example` 除外。若需 Python 辅助脚本，使用 `uv` 管理环境。
+
+临时文件夹 `./.tmp`
+需要启动开发服务器时，告知用户手动运行 `pnpm dev`

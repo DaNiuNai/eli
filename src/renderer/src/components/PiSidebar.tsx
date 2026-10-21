@@ -12,7 +12,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/componen
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -25,7 +24,6 @@ import {
 import { Skeleton } from '@renderer/components/ui/skeleton'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { DeleteSessionAction } from '@renderer/components/DeleteSessionAction'
-import { AppMenu } from '@renderer/components/AppMenu'
 import { SortableSidebarItem } from '@renderer/components/SortableSidebarItem'
 import { directoryName } from '@renderer/lib/pi-display'
 import { useLanguage } from '@renderer/hooks/use-language'
@@ -71,22 +69,18 @@ interface PiSidebarProps {
   snapshot: PiSnapshot | null
   library: PiLibrary | null
   loading: boolean
-  busy: boolean
   onNewSession: (cwd?: string) => void
   onOpenSession: (session: SavedSession) => void
   onDeleteSession: (session: SavedSession) => Promise<void>
-  onReconnect: () => void
 }
 
 export function PiSidebar({
   snapshot,
   library,
   loading,
-  busy,
   onNewSession,
   onOpenSession,
-  onDeleteSession,
-  onReconnect
+  onDeleteSession
 }: PiSidebarProps): React.JSX.Element {
   const { t, locale, language } = useLanguage()
   const dragAccessibility = useMemo(
@@ -143,8 +137,12 @@ export function PiSidebar({
   }
 
   return (
-    <Sidebar className="desktop-sidebar" aria-label={t('工作目录与历史会话')}>
-      <SidebarHeader className="desktop-sidebar-header gap-3 px-3 pb-2">
+    <Sidebar
+      collapsible={isMobile ? 'offcanvas' : 'none'}
+      className="desktop-sidebar w-full"
+      aria-label={t('工作目录与历史会话')}
+    >
+      <SidebarHeader className="desktop-sidebar-header gap-3 px-3 pb-2 pt-3">
         <div className="flex h-9 items-center gap-2 rounded-lg bg-sidebar-accent px-3 text-sm">
           <Code2Icon className="size-4" />
           <span className="font-medium">Code</span>
@@ -322,9 +320,6 @@ export function PiSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border p-3">
-        <AppMenu snapshot={snapshot} busy={busy} onReconnect={onReconnect} />
-      </SidebarFooter>
     </Sidebar>
   )
 }
