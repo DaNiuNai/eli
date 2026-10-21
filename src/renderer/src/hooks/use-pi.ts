@@ -18,7 +18,9 @@ export function usePi(): {
         await action()
         return true
       } catch (cause) {
-        setError({ text: cause instanceof Error ? cause.message : String(cause), sessionKey })
+        const text = cause instanceof Error ? cause.message : String(cause)
+        // 主进程会发布目录失效状态，统一由侧栏和输入区提示。
+        if (!text.includes('工作目录不存在或无法访问')) setError({ text, sessionKey })
         return false
       }
     },

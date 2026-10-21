@@ -44,9 +44,20 @@ const english: Record<string, string> = {
   工作目录与历史会话: 'Workspaces and session history',
   新对话: 'New conversation',
   新建对话: 'New conversation',
+  更多选项: 'More options',
+  '工作目录选项：{directory}': 'Workspace options: {directory}',
+  归档: 'Archive',
+  归档工作目录必须是字符串数组: 'Archived workspaces must be an array of strings',
+  '已归档的工作目录可通过重新选择目录恢复显示。':
+    'Select an archived workspace folder again to show it here.',
   搜索历史会话: 'Search session history',
   '搜索对话…': 'Search conversations…',
   工作目录: 'Workspace',
+  工作目录不可用: 'Workspace unavailable',
+  '工作目录文件夹已被移除或无法访问，当前会话仅可查看历史消息。':
+    'The workspace folder has been removed or cannot be accessed. You can still view this conversation’s history.',
+  '恢复原路径下的文件夹后即可继续对话。':
+    'Restore the folder at its original path to continue the conversation.',
   未记录工作目录: 'No recorded workspace',
   拖动调整目录顺序: 'Drag to reorder workspaces',
   拖动调整会话顺序: 'Drag to reorder sessions',

@@ -2,12 +2,26 @@ import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { DragDropProvider, KeyboardSensor, PointerSensor } from '@dnd-kit/react'
 import { isSortable } from '@dnd-kit/react/sortable'
 import { Accessibility, PointerActivationConstraints } from '@dnd-kit/dom'
-import { ChevronRightIcon, Code2Icon, PlusIcon, SearchIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  ChevronRightIcon,
+  Code2Icon,
+  EllipsisIcon,
+  PlusIcon,
+  SearchIcon
+} from 'lucide-react'
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/components/ui/input-group'
 import {
   Sidebar,
@@ -27,12 +41,12 @@ import { DeleteSessionAction } from '@renderer/components/DeleteSessionAction'
 import { SortableSidebarItem } from '@renderer/components/SortableSidebarItem'
 import { directoryName } from '@renderer/lib/pi-display'
 import { useLanguage } from '@renderer/hooks/use-language'
+import { getAppPreferences, subscribeAppPreferences } from '@renderer/lib/app-preferences'
+import { archiveWorkspace, workspacePathKey } from '@renderer/lib/workspace-archive'
 import {
-  getSidebarOrder,
   orderSidebarItems,
   reorderSidebarSessions,
-  reorderSidebarWorkspaces,
-  subscribeSidebarOrder
+  reorderSidebarWorkspaces
 } from '@renderer/lib/sidebar-order'
 import type { PiSnapshot } from '../../../shared/pi'
 import type { PiLibrary, SavedSession } from '../../../shared/pi-library'
@@ -52,14 +66,21 @@ function moveItem(items: string[], from: number, to: number): string[] {
 
 function WorkspaceCollapsible({
   initiallyOpen,
+  unavailable,
   children
 }: {
   initiallyOpen: boolean
+  unavailable: boolean
   children: ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(initiallyOpen)
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="group/workspace mb-2">
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      data-unavailable={unavailable || undefined}
+      className="group/workspace mb-2 data-[unavailable]:opacity-50"
+    >
       {children}
     </Collapsible>
   )
@@ -98,9 +119,14 @@ export function PiSidebar({
     [t]
   )
   const [search, setSearch] = useState('')
-  const order = useSyncExternalStore(subscribeSidebarOrder, getSidebarOrder)
+  const { sidebarOrder: order, archivedWorkspaces } = useSyncExternalStore(
+    subscribeAppPreferences,
+    getAppPreferences
+  )
   const { isMobile, setOpenMobile } = useSidebar()
   const ready = !!snapshot?.sessionKey
+  const unavailableWorkspaces = new Set(snapshot?.unavailableWorkspaces)
+  const archived = new Set(archivedWorkspaces.map(workspacePathKey))
   const groups = new Map<string, SavedSession[]>()
   const query = search.trim().toLocaleLowerCase()
   const sessionsByPath = new Map(
@@ -108,12 +134,15 @@ export function PiSidebar({
   )
   for (const session of snapshot?.liveSessions ?? []) sessionsByPath.set(session.path, session)
   for (const session of [...sessionsByPath.values()].sort((a, b) => b.created - a.created)) {
+    if (archived.has(workspacePathKey(session.cwd))) continue
     if (query && !`${session.title} ${session.cwd}`.toLocaleLowerCase().includes(query)) continue
     const list = groups.get(session.cwd) ?? []
     list.push(session)
     groups.set(session.cwd, list)
   }
-  if (snapshot?.cwd && !groups.has(snapshot.cwd)) groups.set(snapshot.cwd, [])
+  if (snapshot?.cwd && !archived.has(workspacePathKey(snapshot.cwd)) && !groups.has(snapshot.cwd)) {
+    groups.set(snapshot.cwd, [])
+  }
   const orderedGroups = orderSidebarItems([...groups], order.workspaces, ([cwd]) => cwd).map(
     ([cwd, sessions]): [string, SavedSession[]] => [
       cwd,
@@ -149,7 +178,10 @@ export function PiSidebar({
         </div>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton disabled={!ready} onClick={() => navigate(() => onNewSession())}>
+            <SidebarMenuButton
+              disabled={!ready || unavailableWorkspaces.has(snapshot?.cwd ?? '')}
+              onClick={() => navigate(() => onNewSession())}
+            >
               <PlusIcon />
               <span>{t('新对话')}</span>
             </SidebarMenuButton>
@@ -226,27 +258,56 @@ export function PiSidebar({
                       disabled={dragDisabled}
                     >
                       {(workspaceHandleRef) => (
-                        <WorkspaceCollapsible initiallyOpen={!!query || cwd === snapshot?.cwd}>
-                          <CollapsibleTrigger
-                            ref={workspaceHandleRef}
-                            render={<SidebarMenuButton className="sidebar-drag-handle" />}
-                            title={`${cwd || t('未记录工作目录')}\n${t('拖动调整目录顺序')}`}
-                          >
-                            <ChevronRightIcon className="transition-transform group-data-open/workspace:rotate-90" />
-                            <span>{directoryName(cwd, t('工作目录'))}</span>
-                          </CollapsibleTrigger>
-                          {!!cwd && (
-                            <SidebarMenuAction
-                              aria-label={t('在 {directory} 中新建对话', {
-                                directory: directoryName(cwd)
-                              })}
-                              title={t('新建对话')}
-                              disabled={!ready}
-                              onClick={() => navigate(() => onNewSession(cwd))}
+                        <WorkspaceCollapsible
+                          initiallyOpen={!!query || cwd === snapshot?.cwd}
+                          unavailable={unavailableWorkspaces.has(cwd)}
+                        >
+                          <div className="group/workspace-header relative">
+                            <CollapsibleTrigger
+                              ref={workspaceHandleRef}
+                              render={<SidebarMenuButton className="sidebar-drag-handle pr-14!" />}
+                              title={`${cwd || t('未记录工作目录')}\n${t(unavailableWorkspaces.has(cwd) ? '工作目录不存在或无法访问' : '拖动调整目录顺序')}`}
                             >
-                              <PlusIcon />
-                            </SidebarMenuAction>
-                          )}
+                              <ChevronRightIcon className="transition-transform group-data-open/workspace:rotate-90" />
+                              <span>{directoryName(cwd, t('工作目录'))}</span>
+                            </CollapsibleTrigger>
+                            {!!cwd && (
+                              <>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger
+                                    render={
+                                      <SidebarMenuAction className="right-7 opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 aria-expanded:opacity-100" />
+                                    }
+                                    aria-label={t('工作目录选项：{directory}', {
+                                      directory: directoryName(cwd)
+                                    })}
+                                    title={t('更多选项')}
+                                  >
+                                    <EllipsisIcon />
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-40">
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuItem onClick={() => archiveWorkspace(cwd)}>
+                                        <ArchiveIcon />
+                                        {t('归档')}
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                                <SidebarMenuAction
+                                  className="opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100"
+                                  aria-label={t('在 {directory} 中新建对话', {
+                                    directory: directoryName(cwd)
+                                  })}
+                                  title={t('新建对话')}
+                                  disabled={!ready || unavailableWorkspaces.has(cwd)}
+                                  onClick={() => navigate(() => onNewSession(cwd))}
+                                >
+                                  <PlusIcon />
+                                </SidebarMenuAction>
+                              </>
+                            )}
+                          </div>
                           <CollapsibleContent>
                             <SidebarMenu className="mt-1 pl-3">
                               {sessions.map((session, sessionIndex) => (
@@ -311,7 +372,13 @@ export function PiSidebar({
                   ))}
                   {groups.size === 0 && (
                     <li className="px-2 py-3 text-xs text-muted-foreground">
-                      {t(query ? '没有匹配的对话' : '对话开始后会显示在这里')}
+                      {t(
+                        query
+                          ? '没有匹配的对话'
+                          : archived.size > 0
+                            ? '已归档的工作目录可通过重新选择目录恢复显示。'
+                            : '对话开始后会显示在这里'
+                      )}
                     </li>
                   )}
                 </SidebarMenu>

@@ -21,6 +21,7 @@ import { usePi } from '@renderer/hooks/use-pi'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
+import { restoreWorkspace } from '@renderer/lib/workspace-archive'
 import {
   getAppPreferences,
   getAppPreferencesError,
@@ -55,6 +56,7 @@ function App(): React.JSX.Element {
   const messageActionKind = messageActions[draftKey]
   const draft = drafts[draftKey] ?? ''
   const ready = snapshot?.connection === 'ready'
+  const workspaceUnavailable = !!snapshot?.unavailableWorkspaces.includes(snapshot.cwd)
   const busy = !!(snapshot?.running || snapshot?.pending || sending || messageActionKind)
   const processing =
     !stopping &&
@@ -82,7 +84,15 @@ function App(): React.JSX.Element {
   }
 
   async function send(): Promise<void> {
-    if (!draft.trim() || !ready || busy || !hasModel || sendingRef.current.has(draftKey)) return
+    if (
+      !draft.trim() ||
+      !ready ||
+      workspaceUnavailable ||
+      busy ||
+      !hasModel ||
+      sendingRef.current.has(draftKey)
+    )
+      return
     sendingRef.current.add(draftKey)
     setSendingSessions((current) => new Set(current).add(draftKey))
     const text = draft
@@ -112,7 +122,8 @@ function App(): React.JSX.Element {
     kind: 'edit' | 'fork',
     action: () => Promise<void>
   ): Promise<boolean> {
-    if (!ready || busy || messageActionRef.current.has(draftKey)) return false
+    if (!ready || workspaceUnavailable || busy || messageActionRef.current.has(draftKey))
+      return false
     messageActionRef.current.add(draftKey)
     setMessageActions((current) => ({ ...current, [draftKey]: kind }))
     try {
@@ -162,7 +173,10 @@ function App(): React.JSX.Element {
   }
 
   async function chooseDirectory(): Promise<void> {
-    await perform(() => window.api.chooseDirectory(language))
+    await perform(async () => {
+      const cwd = await window.api.chooseDirectory(language)
+      if (cwd) restoreWorkspace(cwd)
+    })
   }
 
   const currentTitle =
@@ -247,10 +261,16 @@ function App(): React.JSX.Element {
                               running={!!snapshot?.running && entry === visibleMessages.at(-1)}
                               processing={processing && entry === visibleMessages.at(-1)}
                               actionDisabled={
-                                !target || busy || !ready || (entry.role === 'user' && !hasModel)
+                                !target ||
+                                busy ||
+                                !ready ||
+                                workspaceUnavailable ||
+                                (entry.role === 'user' && !hasModel)
                               }
                               editing={
-                                isEditing && editing ? { text: editing.text, busy } : undefined
+                                isEditing && editing && !workspaceUnavailable
+                                  ? { text: editing.text, busy }
+                                  : undefined
                               }
                               onStartEdit={(text) => target && setEditing({ target, text })}
                               onEditChange={(text) =>

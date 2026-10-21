@@ -55,6 +55,7 @@ export interface PiSnapshot extends PiSessionSnapshot {
   libraryVersion: number
   sessionKey: string
   liveSessions: PiLiveSession[]
+  unavailableWorkspaces: string[]
 }
 
 export interface PiApi {
@@ -72,7 +73,7 @@ export interface PiApi {
   readImage(source: string): Promise<string>
   setThinkingLevel(sessionKey: string, level: PiThinkingLevel): Promise<void>
   setModel(sessionKey: string, provider: string, modelId: string): Promise<void>
-  chooseDirectory(language?: UiLanguage): Promise<void>
+  chooseDirectory(language?: UiLanguage): Promise<string | undefined>
   onSnapshot(listener: (snapshot: PiSnapshot) => void): () => void
 }
 

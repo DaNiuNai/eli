@@ -3,6 +3,7 @@ import {
   ChevronDownIcon,
   CornerDownLeftIcon,
   FolderOpenIcon,
+  FolderXIcon,
   LaptopIcon,
   SquareIcon
 } from 'lucide-react'
@@ -63,6 +64,34 @@ export function ChatComposer({
   const hasModel = !!snapshot?.models.some(
     (model) => model.provider === snapshot.model?.provider && model.id === snapshot.model.id
   )
+
+  if (snapshot?.unavailableWorkspaces.includes(snapshot.cwd)) {
+    return (
+      <footer className="mx-auto w-full max-w-4xl shrink-0 px-6 pb-4 pt-3 sm:px-8">
+        <Alert>
+          <FolderXIcon />
+          <AlertTitle>{t('工作目录不可用')}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-2">
+            <p>{t('工作目录文件夹已被移除或无法访问，当前会话仅可查看历史消息。')}</p>
+            <p className="break-all">{snapshot.cwd}</p>
+            <p>{t('恢复原路径下的文件夹后即可继续对话。')}</p>
+            {snapshot.running && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-start"
+                disabled={stopping}
+                onClick={onStop}
+              >
+                <SquareIcon data-icon="inline-start" />
+                {t('停止生成')}
+              </Button>
+            )}
+          </AlertDescription>
+        </Alert>
+      </footer>
+    )
+  }
 
   return (
     <footer className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 px-6 pb-4 pt-3 sm:px-8">

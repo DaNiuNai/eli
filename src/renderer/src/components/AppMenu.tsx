@@ -71,7 +71,12 @@ export function AppMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-56">
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled={!snapshot?.sessionKey} onClick={onNewSession}>
+            <DropdownMenuItem
+              disabled={
+                !snapshot?.sessionKey || snapshot.unavailableWorkspaces.includes(snapshot.cwd)
+              }
+              onClick={onNewSession}
+            >
               <PlusIcon />
               {t('新对话')}
             </DropdownMenuItem>

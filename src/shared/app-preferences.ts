@@ -14,6 +14,7 @@ export interface AppPreferences {
   sidebarOpen: boolean
   sidebarWidth: number
   sidebarOrder: SidebarOrder
+  archivedWorkspaces: string[]
 }
 
 export interface AppPreferencesApi {
@@ -40,7 +41,8 @@ export function defaultAppPreferences(): AppPreferences {
     language: 'zh-CN',
     sidebarOpen: true,
     sidebarWidth: sidebarSizing.defaultWidth,
-    sidebarOrder: { workspaces: [], sessions: {} }
+    sidebarOrder: { workspaces: [], sessions: {} },
+    archivedWorkspaces: []
   }
 }
 
@@ -48,9 +50,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function stringList(value: unknown): string[] {
+function stringList(value: unknown, message = '侧栏排序必须是字符串数组'): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    throw new Error('侧栏排序必须是字符串数组')
+    throw new Error(message)
   }
   return [...new Set(value)]
 }
@@ -90,5 +92,10 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     }
   }
 
-  return { theme, language, sidebarOpen, sidebarWidth, sidebarOrder }
+  const archivedWorkspaces =
+    value.archivedWorkspaces === undefined
+      ? defaults.archivedWorkspaces
+      : stringList(value.archivedWorkspaces, '归档工作目录必须是字符串数组')
+
+  return { theme, language, sidebarOpen, sidebarWidth, sidebarOrder, archivedWorkspaces }
 }

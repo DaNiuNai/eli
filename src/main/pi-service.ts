@@ -31,6 +31,10 @@ export class PiService {
   private disposed = false
   private revision = 0
   private libraryVersion = 0
+  private workspacePaths = new Set<string>()
+  private unavailableWorkspaces = new Set<string>()
+  private workspaceTimer?: ReturnType<typeof setInterval>
+  private checkingWorkspaces?: Promise<void>
 
   constructor(private readonly window: BrowserWindow) {}
 
@@ -59,16 +63,20 @@ export class PiService {
 
     handle(piChannels.connect, (restart) => this.connect(restart === true))
     handle(piChannels.prompt, async (key, message) => {
-      await this.session(key).prompt(promptText(message))
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      await session.prompt(promptText(message))
     })
     handle(piChannels.editMessage, async (target, message) => {
       const session = this.messageSession(target)
+      await this.requireWorkspace(session.snapshot.cwd)
       await session.editMessage(target, promptText(message))
     })
     handle(piChannels.forkMessage, async (target) => {
       const session = this.messageSession(target)
       const wasCurrent = this.current === session
       await session.exclusive(async () => {
+        await this.requireWorkspace(session.snapshot.cwd)
         const { path, entryId } = session.messageTarget(target)
         const copiedPath = await copySessionThrough(path, entryId)
         const fork = await this.createSession(session.snapshot.cwd, copiedPath)
@@ -78,7 +86,14 @@ export class PiService {
       })
     })
     handle(piChannels.abort, async (key) => this.session(key).abort())
-    handle(piChannels.getLibrary, () => this.library.load(this.libraryVersion))
+    handle(piChannels.getLibrary, async () => {
+      const library = await this.library.load(this.libraryVersion)
+      for (const session of library.sessions) {
+        if (session.cwd) this.workspacePaths.add(session.cwd)
+      }
+      await this.refreshWorkspaces()
+      return library
+    })
     handle(piChannels.getSettings, () => this.settings.get())
     handle(piChannels.saveSettings, async (changes) => {
       const result = await this.settings.save(changes)
@@ -99,8 +114,10 @@ export class PiService {
       this.navigate(async () => {
         if (typeof path !== 'string') throw new Error('请选择有效的历史会话')
         const existing = this.findSession(path)
-        if (existing) this.current = existing
-        else {
+        if (existing) {
+          await this.checkWorkspace(existing.snapshot.cwd)
+          this.current = existing
+        } else {
           const saved = await this.library.findSession(path)
           this.current = await this.createSession(
             saved.cwd || this.active().snapshot.cwd,
@@ -147,19 +164,25 @@ export class PiService {
         }
         if (session) {
           this.sessions.delete(session.key)
-          if (this.current === session) await this.newSession(session.snapshot.cwd)
+          if (this.current === session) {
+            this.current = await this.createSession(session.snapshot.cwd)
+          }
         }
         this.publish(true)
       })
     )
     handle(piChannels.setThinkingLevel, async (key, level) => {
       if (typeof level !== 'string') throw new Error('当前模型不支持该思考强度')
-      await this.session(key).setThinkingLevel(level as PiThinkingLevel)
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      await session.setThinkingLevel(level as PiThinkingLevel)
     })
     handle(piChannels.setModel, async (key, provider, id) => {
       if (typeof provider !== 'string' || typeof id !== 'string')
         throw new Error('请选择可用的模型')
-      await this.session(key).setModel(provider, id)
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      await session.setModel(provider, id)
     })
     handle(piChannels.chooseDirectory, async (language) => {
       if (language !== undefined && language !== 'zh-CN' && language !== 'en') {
@@ -172,7 +195,43 @@ export class PiService {
       })
       if (result.canceled || !result.filePaths[0]) return
       await this.navigate(() => this.newSession(result.filePaths[0]))
+      return result.filePaths[0]
     })
+    this.workspaceTimer = setInterval(() => void this.refreshWorkspaces(), 5000)
+    this.window.on('focus', this.refreshWorkspaces)
+  }
+
+  private async checkWorkspace(cwd: string): Promise<boolean> {
+    this.workspacePaths.add(cwd)
+    const available = await stat(cwd).then(
+      (info) => info.isDirectory(),
+      () => false
+    )
+    if (this.disposed) return available
+    const wasAvailable = !this.unavailableWorkspaces.has(cwd)
+    if (available !== wasAvailable) {
+      if (available) this.unavailableWorkspaces.delete(cwd)
+      else this.unavailableWorkspaces.add(cwd)
+      this.publish()
+    }
+    return available
+  }
+
+  private refreshWorkspaces = (): Promise<void> => {
+    if (this.disposed) return Promise.resolve()
+    // 只检查目录状态，避免轮询时反复扫描会话文件和用量记录。
+    this.checkingWorkspaces ??= Promise.all(
+      [...this.workspacePaths].map((cwd) => this.checkWorkspace(cwd))
+    )
+      .then(() => {})
+      .finally(() => {
+        this.checkingWorkspaces = undefined
+      })
+    return this.checkingWorkspaces
+  }
+
+  private async requireWorkspace(cwd: string): Promise<void> {
+    if (!(await this.checkWorkspace(cwd))) throw new Error('工作目录不存在或无法访问')
   }
 
   private active(): PiSession {
@@ -216,6 +275,7 @@ export class PiService {
     this.sessions.set(session.key, session)
     try {
       await session.load()
+      await this.checkWorkspace(session.snapshot.cwd)
       if (session.sessionDirectory) this.library.addSessionDirectory(session.sessionDirectory)
       if (this.disposed) throw new Error('本机服务已关闭')
       return session
@@ -227,7 +287,7 @@ export class PiService {
   }
 
   private async newSession(cwd: string): Promise<void> {
-    if (!(await stat(cwd)).isDirectory()) throw new Error('工作目录不存在或无法访问')
+    await this.requireWorkspace(cwd)
     const previous = this.current
     this.current = await this.createSession(cwd)
     // 没提交过消息的空白页不需要一直留在会话表中。
@@ -261,7 +321,10 @@ export class PiService {
         })
       }
     })
-      .then(() => this.snapshot())
+      .then(async () => {
+        await this.refreshWorkspaces()
+        return this.snapshot()
+      })
       .finally(() => {
         this.connecting = undefined
       })
@@ -274,6 +337,7 @@ export class PiService {
       revision: this.revision,
       libraryVersion: this.libraryVersion,
       sessionKey: this.active().key,
+      unavailableWorkspaces: [...this.unavailableWorkspaces],
       liveSessions: [...this.sessions.values()].flatMap((session) => {
         const summary = session.summary
         return summary ? [summary] : []
@@ -299,6 +363,8 @@ export class PiService {
     if (this.disposing) return this.disposing
     this.disposed = true
     clearTimeout(this.broadcastTimer)
+    clearInterval(this.workspaceTimer)
+    this.window.removeListener('focus', this.refreshWorkspaces)
     for (const channel of Object.values(piChannels)) ipcMain.removeHandler(channel)
     const sessions = [...this.sessions.values()]
     this.disposing = (async () => {
