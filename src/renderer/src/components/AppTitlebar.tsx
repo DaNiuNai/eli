@@ -13,7 +13,8 @@ export function AppTitlebar({
   onNewSession,
   onChooseDirectory,
   onReconnect,
-  onOpenSettings
+  onOpenSettings,
+  onOpenLogin
 }: {
   title: string | null
   snapshot: PiSnapshot | null
@@ -22,6 +23,7 @@ export function AppTitlebar({
   onChooseDirectory: () => void
   onReconnect: () => void
   onOpenSettings: () => void
+  onOpenLogin: () => void
 }): React.JSX.Element {
   const { t } = useLanguage()
   const { isMobile, open, openMobile, setOpenMobile } = useSidebar()
@@ -42,6 +44,7 @@ export function AppTitlebar({
             onChooseDirectory={onChooseDirectory}
             onReconnect={onReconnect}
             onOpenSettings={onOpenSettings}
+            onOpenLogin={onOpenLogin}
             onResetLayout={() => {
               updateAppPreferences({
                 sidebarOpen: true,

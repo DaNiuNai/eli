@@ -70,7 +70,7 @@ function createWindow(): void {
     mainWindow.setTitleBarOverlay({ symbolColor: dark ? '#fafafa' : '#171717' })
     mainWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff')
   })
-  piService = new PiService(mainWindow)
+  piService = new PiService(mainWindow, appConfig.firstLaunch)
   piService.register()
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)

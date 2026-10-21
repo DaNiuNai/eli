@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
@@ -28,7 +28,7 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/components/ui/input-group'
 import { TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
-import { useLanguage, isUiLanguage } from '@renderer/hooks/use-language'
+import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
 import { PiSettingsPanel } from './PiSettingsPanel'
 
@@ -48,11 +48,11 @@ const themeOptions = [
 ]
 
 function GeneralSettings(): React.JSX.Element {
-  const { t, language, setLanguage } = useLanguage()
+  const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
   return (
     <section className="flex flex-col gap-6">
-      <h3 className="text-sm font-semibold">{t('外观与语言')}</h3>
+      <h3 className="text-sm font-semibold">{t('外观')}</h3>
       <FieldGroup className="gap-0">
         <Field orientation="responsive" className="settings-row">
           <FieldContent>
@@ -74,23 +74,6 @@ function GeneralSettings(): React.JSX.Element {
             ))}
           </ToggleGroup>
         </Field>
-        <Field orientation="responsive" className="settings-row">
-          <FieldContent>
-            <FieldLabel id="settings-language-label">{t('语言')}</FieldLabel>
-            <FieldDescription>{t('选择菜单、侧栏和设置使用的语言。')}</FieldDescription>
-          </FieldContent>
-          <ToggleGroup
-            value={[language]}
-            onValueChange={(values) => isUiLanguage(values[0]) && setLanguage(values[0])}
-            aria-labelledby="settings-language-label"
-            variant="outline"
-            size="sm"
-            spacing={0}
-          >
-            <ToggleGroupItem value="zh-CN">简体中文</ToggleGroupItem>
-            <ToggleGroupItem value="en">English</ToggleGroupItem>
-          </ToggleGroup>
-        </Field>
       </FieldGroup>
     </section>
   )
@@ -107,16 +90,7 @@ export function AppSettingsDialog({
   const [category, setCategory] = useState<(typeof categories)[number]['value']>('general')
   const [query, setQuery] = useState('')
   const selected = categories.find(({ value }) => value === category) ?? categories[0]
-  const showGeneral = [
-    '通用',
-    '外观',
-    '主题',
-    '语言',
-    'general',
-    'theme',
-    'language',
-    'appearance'
-  ].some(
+  const showGeneral = ['通用', '外观', '主题', 'general', 'theme', 'appearance'].some(
     (word) =>
       t(word).toLowerCase().includes(query.trim().toLowerCase()) || word.includes(query.trim())
   )
@@ -160,19 +134,23 @@ export function AppSettingsDialog({
               />
             </InputGroup>
             <nav className="flex shrink-0 flex-col gap-3" aria-label={t('设置分类')}>
-              <span className="px-2 text-xs text-muted-foreground">{t('设置')}</span>
+              <span className="px-2 text-xs font-semibold text-muted-foreground">Eli</span>
               <TabsList className="settings-tabs w-full bg-transparent p-0">
                 {categories.map(({ value, label, icon: Icon }) => (
-                  <TabsTrigger key={value} value={value} className="settings-tab gap-2.5 px-2.5">
-                    <Icon />
-                    {t(label)}
-                  </TabsTrigger>
+                  <Fragment key={value}>
+                    {value === 'models' && (
+                      <span className="px-2 pb-2 pt-4 text-xs font-semibold text-muted-foreground">
+                        Pi
+                      </span>
+                    )}
+                    <TabsTrigger value={value} className="settings-tab gap-2.5 px-2.5">
+                      <Icon />
+                      {t(label)}
+                    </TabsTrigger>
+                  </Fragment>
                 ))}
               </TabsList>
             </nav>
-            <p className="mt-auto px-2 pb-1 text-xs leading-relaxed text-muted-foreground">
-              eli <span className="mx-1">·</span> PI
-            </p>
           </aside>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <header className="flex shrink-0 flex-col gap-2 px-8 pb-5 pr-14 pt-8">

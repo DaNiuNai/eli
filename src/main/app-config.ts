@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -10,12 +10,21 @@ import {
 } from '../shared/app-preferences'
 
 export class AppConfig {
+  firstLaunch = false
   private preferences = defaultAppPreferences()
   private pending: Promise<void> = Promise.resolve()
 
   constructor(readonly path = join(homedir(), '.pi', 'eli', 'config.json')) {}
 
   async load(): Promise<void> {
+    // 必须在写入默认配置创建目录前记录首次启动状态。
+    this.firstLaunch = await stat(dirname(this.path)).then(
+      () => false,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error
+        return true
+      }
+    )
     let content: string
     try {
       content = await readFile(this.path, 'utf8')

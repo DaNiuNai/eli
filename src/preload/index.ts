@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { piChannels, type PiApi, type PiSnapshot } from '../shared/pi'
 import { windowAppearanceChannel, type WindowAppearanceApi } from '../shared/window-appearance'
 import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-preferences'
+import { piAuthChannels, type PiAuthApi, type PiAuthSnapshot } from '../shared/pi-auth'
 
 // Custom APIs for renderer
 const api: PiApi = {
@@ -34,6 +35,22 @@ const api: PiApi = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+const piAuth: PiAuthApi = {
+  get: () => ipcRenderer.invoke(piAuthChannels.get),
+  login: (providerId, type) => ipcRenderer.invoke(piAuthChannels.login, providerId, type),
+  respond: (promptId, value) => ipcRenderer.invoke(piAuthChannels.respond, promptId, value),
+  cancel: () => ipcRenderer.invoke(piAuthChannels.cancel),
+  openLink: (url) => ipcRenderer.invoke(piAuthChannels.openLink, url),
+  onSnapshot: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: PiAuthSnapshot): void =>
+      listener(snapshot)
+    ipcRenderer.on(piAuthChannels.snapshot, handler)
+    return () => ipcRenderer.removeListener(piAuthChannels.snapshot, handler)
+  }
+}
+
+contextBridge.exposeInMainWorld('piAuth', piAuth)
 
 const appPreferences: AppPreferencesApi = {
   get: () => ipcRenderer.invoke(appPreferencesChannels.get),

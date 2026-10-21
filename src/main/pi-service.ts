@@ -9,6 +9,8 @@ import { PiSession } from './pi-session'
 import { readLocalImage } from './image-files'
 import { copySessionThrough } from './pi-history'
 import { PiSettingsService } from './pi-settings'
+import { PiAuthService } from './pi-auth'
+import { piAuthChannels } from '../shared/pi-auth'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -19,6 +21,7 @@ function promptText(value: unknown): string {
 
 /** 主进程只切换当前视图；每个会话的进程、锁和事件流均独立维护。 */
 export class PiService {
+  private auth: PiAuthService
   private library = new PiLibraryService()
   private settings = new PiSettingsService()
   private sessions = new Map<string, PiSession>()
@@ -36,7 +39,17 @@ export class PiService {
   private workspaceTimer?: ReturnType<typeof setInterval>
   private checkingWorkspaces?: Promise<void>
 
-  constructor(private readonly window: BrowserWindow) {}
+  constructor(
+    private readonly window: BrowserWindow,
+    firstLaunch = false
+  ) {
+    this.auth = new PiAuthService(window, firstLaunch, this.models, async () => {
+      await this.navigate(async () => {
+        await Promise.all([...this.sessions.values()].map((session) => session.refreshAuth()))
+        this.publish()
+      })
+    })
+  }
 
   private models = (): Promise<ModelRuntime> => {
     this.runtime ??= import('@earendil-works/pi-coding-agent')
@@ -61,6 +74,11 @@ export class PiService {
       })
     }
 
+    handle(piAuthChannels.get, () => this.auth.get())
+    handle(piAuthChannels.login, (providerId, type) => this.auth.login(providerId, type))
+    handle(piAuthChannels.respond, async (id, value) => this.auth.respond(id, value))
+    handle(piAuthChannels.cancel, () => this.auth.cancel())
+    handle(piAuthChannels.openLink, (url) => this.auth.openLink(url))
     handle(piChannels.connect, (restart) => this.connect(restart === true))
     handle(piChannels.prompt, async (key, message) => {
       const session = this.session(key)
@@ -383,10 +401,14 @@ export class PiService {
     clearInterval(this.workspaceTimer)
     this.window.removeListener('focus', this.refreshWorkspaces)
     for (const channel of Object.values(piChannels)) ipcMain.removeHandler(channel)
+    for (const channel of Object.values(piAuthChannels)) ipcMain.removeHandler(channel)
     const sessions = [...this.sessions.values()]
     this.disposing = (async () => {
       // 包括正在启动的进程；每个会话的 dispose 可重复调用并等待同一次清理。
-      await Promise.allSettled(sessions.map((session) => session.dispose()))
+      await Promise.allSettled([
+        this.auth.dispose(),
+        ...sessions.map((session) => session.dispose())
+      ])
       await this.navigation
       this.sessions.clear()
     })()

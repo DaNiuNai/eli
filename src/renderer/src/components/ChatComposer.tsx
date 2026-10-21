@@ -38,6 +38,7 @@ interface ChatComposerProps {
   onSend: () => void
   onStop: () => void
   onChooseDirectory: () => void
+  onOpenLogin: () => void
   onModel: (provider: string, id: string) => void
   onThinking: (level: PiThinkingLevel) => Promise<boolean>
 }
@@ -53,6 +54,7 @@ export function ChatComposer({
   onSend,
   onStop,
   onChooseDirectory,
+  onOpenLogin,
   onModel,
   onThinking
 }: ChatComposerProps): React.JSX.Element {
@@ -113,8 +115,11 @@ export function ChatComposer({
       {ready && !hasModel && (
         <Alert>
           <AlertTitle>{t('尚无可用模型')}</AlertTitle>
-          <AlertDescription>
-            {t('请先在本机登录或配置模型，再点击侧栏底部的重新连接。')}
+          <AlertDescription className="flex flex-col gap-2">
+            <p>{t('登录账号或配置 API 密钥后即可开始对话。')}</p>
+            <Button variant="outline" size="sm" className="self-start" onClick={onOpenLogin}>
+              {t('登录')}
+            </Button>
           </AlertDescription>
         </Alert>
       )}

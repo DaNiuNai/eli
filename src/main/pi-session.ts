@@ -148,6 +148,17 @@ export class PiSession {
       })
   }
 
+  async refreshAuth(): Promise<void> {
+    await this.loadModels()
+    if (this.disposed) return
+    if (!this.snapshot.model) {
+      await this.configureModel(this.snapshot.models[0] ?? null)
+    }
+    // 新请求重启 RPC，使它读取 pi 刚保存的认证；正在生成的回复继续运行。
+    this.settingsVersion++
+    this.changed()
+  }
+
   private async loadModels(): Promise<void> {
     const runtime = await this.models()
     const patterns = this.settings.getEnabledModels()

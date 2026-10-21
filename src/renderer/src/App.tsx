@@ -13,12 +13,14 @@ import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
+import { PiLoginDialog } from '@renderer/components/PiLoginDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { PiSidebar } from '@renderer/components/PiSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { usePi } from '@renderer/hooks/use-pi'
+import { usePiAuth } from '@renderer/hooks/use-pi-auth'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
@@ -43,6 +45,7 @@ function App(): React.JSX.Element {
   const { sidebarOpen } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const preferencesError = useSyncExternalStore(subscribeAppPreferences, getAppPreferencesError)
   const { snapshot, error, perform } = usePi()
+  const auth = usePiAuth()
   const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -251,8 +254,10 @@ function App(): React.JSX.Element {
         onChooseDirectory={() => void chooseDirectory()}
         onReconnect={() => void perform(() => window.api.connect(true))}
         onOpenSettings={openSettings}
+        onOpenLogin={() => auth.onOpenChange(true)}
       />
       <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <PiLoginDialog {...auth} />
       <WorkspaceLayout
         sidebar={
           <PiSidebar
@@ -361,6 +366,7 @@ function App(): React.JSX.Element {
             onSend={() => void send()}
             onStop={() => void stop()}
             onChooseDirectory={() => void chooseDirectory()}
+            onOpenLogin={() => auth.onOpenChange(true)}
             onModel={(provider, id) =>
               void perform(() => window.api.setModel(draftKey, provider, id), draftKey)
             }
