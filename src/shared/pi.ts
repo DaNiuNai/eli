@@ -5,7 +5,7 @@ import type {
   RpcClient,
   RpcSessionState
 } from '@earendil-works/pi-coding-agent'
-import type { PiLibrary } from './pi-library'
+import type { PiLibrary, SavedSession } from './pi-library'
 import type { UiLanguage } from './app-preferences'
 
 // 消息、模型和 RPC 事件直接使用 pi 的类型，只定义桌面端的状态与 IPC 边界。
@@ -21,9 +21,7 @@ export interface PiMessageTarget {
   entryId: string
 }
 
-export interface PiSnapshot {
-  revision: number
-  libraryVersion: number
+export interface PiSessionSnapshot {
   connection: 'connecting' | 'ready' | 'error'
   cwd: string
   session: Pick<
@@ -44,19 +42,32 @@ export interface PiSnapshot {
   error: string | null
 }
 
+export interface PiLiveSession extends SavedSession {
+  key: string
+  running: boolean
+  pending: boolean
+}
+
+export interface PiSnapshot extends PiSessionSnapshot {
+  revision: number
+  libraryVersion: number
+  sessionKey: string
+  liveSessions: PiLiveSession[]
+}
+
 export interface PiApi {
   connect(restart?: boolean): Promise<PiSnapshot>
-  prompt(message: string): Promise<void>
+  prompt(sessionKey: string, message: string): Promise<void>
   editMessage(target: PiMessageTarget, message: string): Promise<void>
   forkMessage(target: PiMessageTarget): Promise<void>
-  abort(): Promise<void>
+  abort(sessionKey: string): Promise<void>
   newSession(cwd?: string): Promise<void>
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
   getLibrary(): Promise<PiLibrary>
   readImage(source: string): Promise<string>
-  setThinkingLevel(level: PiThinkingLevel): Promise<void>
-  setModel(provider: string, modelId: string): Promise<void>
+  setThinkingLevel(sessionKey: string, level: PiThinkingLevel): Promise<void>
+  setModel(sessionKey: string, provider: string, modelId: string): Promise<void>
   chooseDirectory(language?: UiLanguage): Promise<void>
   onSnapshot(listener: (snapshot: PiSnapshot) => void): () => void
 }

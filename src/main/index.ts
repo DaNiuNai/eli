@@ -9,6 +9,7 @@ import { AppConfig } from './app-config'
 
 const appConfig = new AppConfig()
 let piService: PiService | undefined
+const closingServices = new Set<Promise<void>>()
 let quitting = false
 
 function createWindow(): void {
@@ -75,7 +76,11 @@ function createWindow(): void {
     ipcMain.removeHandler(appPreferencesChannels.get)
     ipcMain.removeHandler(appPreferencesChannels.set)
     ipcMain.removeHandler(windowAppearanceChannel)
-    void piService?.dispose()
+    if (piService) {
+      const closing = piService.dispose()
+      closingServices.add(closing)
+      void closing.finally(() => closingServices.delete(closing))
+    }
     piService = undefined
   })
 
@@ -142,7 +147,9 @@ app.on('before-quit', (event) => {
   if (quitting) return
   event.preventDefault()
   quitting = true
-  void Promise.allSettled([piService?.dispose(), appConfig.flush()]).then(() => app.quit())
+  void Promise.allSettled([piService?.dispose(), ...closingServices, appConfig.flush()]).then(() =>
+    app.quit()
+  )
 })
 
 // In this file you can include the rest of your app's specific main process

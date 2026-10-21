@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { ArrowDownIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import {
@@ -37,14 +37,21 @@ function App(): React.JSX.Element {
   const { snapshot, error, perform } = usePi()
   const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [sending, setSending] = useState(false)
-  const [stopping, setStopping] = useState(false)
+  const [sendingSessions, setSendingSessions] = useState<Set<string>>(new Set())
+  const [stoppingSessions, setStoppingSessions] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<{ target: PiMessageTarget; text: string } | null>(null)
-  const [messageActionKind, setMessageActionKind] = useState<'edit' | 'fork' | null>(null)
+  const [messageActions, setMessageActions] = useState<Record<string, 'edit' | 'fork'>>({})
   const textarea = useRef<HTMLTextAreaElement>(null)
-  const sendingRef = useRef(false)
-  const messageActionRef = useRef(false)
-  const draftKey = `${snapshot?.cwd ?? ''}:${snapshot?.session?.sessionId ?? ''}`
+  const sendingRef = useRef(new Set<string>())
+  const messageActionRef = useRef(new Set<string>())
+  const draftKey = snapshot?.sessionKey ?? ''
+  const selectedSessionRef = useRef(draftKey)
+  useEffect(() => {
+    selectedSessionRef.current = draftKey
+  }, [draftKey])
+  const sending = sendingSessions.has(draftKey)
+  const stopping = stoppingSessions.has(draftKey)
+  const messageActionKind = messageActions[draftKey]
   const draft = drafts[draftKey] ?? ''
   const ready = snapshot?.connection === 'ready'
   const busy = !!(snapshot?.running || snapshot?.pending || sending || messageActionKind)
@@ -73,50 +80,62 @@ function App(): React.JSX.Element {
   }
 
   async function send(): Promise<void> {
-    if (!draft.trim() || !ready || busy || !hasModel || sendingRef.current) return
-    sendingRef.current = true
-    setSending(true)
+    if (!draft.trim() || !ready || busy || !hasModel || sendingRef.current.has(draftKey)) return
+    sendingRef.current.add(draftKey)
+    setSendingSessions((current) => new Set(current).add(draftKey))
     const text = draft
     updateDraft('')
-    const success = await perform(() => window.api.prompt(text))
+    const success = await perform(() => window.api.prompt(draftKey, text), draftKey)
     if (!success) setDrafts((current) => ({ ...current, [draftKey]: current[draftKey] || text }))
-    sendingRef.current = false
-    setSending(false)
-    textarea.current?.focus()
+    sendingRef.current.delete(draftKey)
+    setSendingSessions((current) => {
+      const next = new Set(current)
+      next.delete(draftKey)
+      return next
+    })
+    if (selectedSessionRef.current === draftKey) textarea.current?.focus()
   }
 
   async function stop(): Promise<void> {
-    setStopping(true)
-    await perform(() => window.api.abort())
-    setStopping(false)
+    setStoppingSessions((current) => new Set(current).add(draftKey))
+    await perform(() => window.api.abort(draftKey), draftKey)
+    setStoppingSessions((current) => {
+      const next = new Set(current)
+      next.delete(draftKey)
+      return next
+    })
   }
 
   async function messageAction(
     kind: 'edit' | 'fork',
     action: () => Promise<void>
   ): Promise<boolean> {
-    if (!ready || busy || messageActionRef.current) return false
-    messageActionRef.current = true
-    setMessageActionKind(kind)
+    if (!ready || busy || messageActionRef.current.has(draftKey)) return false
+    messageActionRef.current.add(draftKey)
+    setMessageActions((current) => ({ ...current, [draftKey]: kind }))
     try {
-      return await perform(action)
+      return await perform(action, draftKey)
     } finally {
-      messageActionRef.current = false
-      setMessageActionKind(null)
+      messageActionRef.current.delete(draftKey)
+      setMessageActions((current) => {
+        const next = { ...current }
+        delete next[draftKey]
+        return next
+      })
     }
   }
 
   async function sendEdit(): Promise<void> {
     if (!editing || !editing.text.trim() || !hasModel) return
     if (await messageAction('edit', () => window.api.editMessage(editing.target, editing.text))) {
-      setEditing(null)
+      setEditing((current) => (current === editing ? null : current))
     }
   }
 
   async function forkMessage(target: PiMessageTarget): Promise<void> {
     if (await messageAction('fork', () => window.api.forkMessage(target))) {
-      setEditing(null)
-      textarea.current?.focus()
+      setEditing((current) => (current?.target.sessionId === target.sessionId ? null : current))
+      if (selectedSessionRef.current === draftKey) textarea.current?.focus()
     }
   }
 
@@ -134,7 +153,8 @@ function App(): React.JSX.Element {
     await window.api.deleteSession(session.path)
     setDrafts((current) => {
       const next = { ...current }
-      delete next[`${session.cwd}:${session.id}`]
+      const key = snapshot?.liveSessions.find((entry) => entry.path === session.path)?.key
+      if (key) delete next[key]
       return next
     })
   }
@@ -145,6 +165,7 @@ function App(): React.JSX.Element {
 
   const currentTitle =
     snapshot?.session?.sessionName ||
+    snapshot?.liveSessions.find((session) => session.key === draftKey)?.title ||
     library?.sessions.find((session) => session.path === snapshot?.session?.sessionFile)?.title ||
     t('当前对话')
 
@@ -208,7 +229,7 @@ function App(): React.JSX.Element {
           )}
           <div className="min-h-0 flex-1">
             {visibleMessages.length > 0 ? (
-              <MessageScrollerProvider key={snapshot?.session?.sessionId} autoScroll>
+              <MessageScrollerProvider key={snapshot?.sessionKey} autoScroll>
                 <MessageScroller>
                   <MessageScrollerViewport aria-label={t('对话消息')}>
                     <MessageScrollerContent className="mx-auto max-w-4xl gap-8 px-6 py-8 sm:px-8">
@@ -274,8 +295,12 @@ function App(): React.JSX.Element {
             onSend={() => void send()}
             onStop={() => void stop()}
             onChooseDirectory={() => void chooseDirectory()}
-            onModel={(provider, id) => void perform(() => window.api.setModel(provider, id))}
-            onThinking={(level) => perform(() => window.api.setThinkingLevel(level))}
+            onModel={(provider, id) =>
+              void perform(() => window.api.setModel(draftKey, provider, id), draftKey)
+            }
+            onThinking={(level) =>
+              perform(() => window.api.setThinkingLevel(draftKey, level), draftKey)
+            }
           />
         </main>
       </div>

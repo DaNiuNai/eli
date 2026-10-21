@@ -6,17 +6,19 @@ import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-pr
 // Custom APIs for renderer
 const api: PiApi = {
   connect: (restart) => ipcRenderer.invoke(piChannels.connect, restart),
-  prompt: (message) => ipcRenderer.invoke(piChannels.prompt, message),
+  prompt: (sessionKey, message) => ipcRenderer.invoke(piChannels.prompt, sessionKey, message),
   editMessage: (target, message) => ipcRenderer.invoke(piChannels.editMessage, target, message),
   forkMessage: (target) => ipcRenderer.invoke(piChannels.forkMessage, target),
-  abort: () => ipcRenderer.invoke(piChannels.abort),
+  abort: (sessionKey) => ipcRenderer.invoke(piChannels.abort, sessionKey),
   newSession: (cwd) => ipcRenderer.invoke(piChannels.newSession, cwd),
   openSession: (path) => ipcRenderer.invoke(piChannels.openSession, path),
   deleteSession: (path) => ipcRenderer.invoke(piChannels.deleteSession, path),
   getLibrary: () => ipcRenderer.invoke(piChannels.getLibrary),
   readImage: (source) => ipcRenderer.invoke(piChannels.readImage, source),
-  setThinkingLevel: (level) => ipcRenderer.invoke(piChannels.setThinkingLevel, level),
-  setModel: (provider, modelId) => ipcRenderer.invoke(piChannels.setModel, provider, modelId),
+  setThinkingLevel: (sessionKey, level) =>
+    ipcRenderer.invoke(piChannels.setThinkingLevel, sessionKey, level),
+  setModel: (sessionKey, provider, modelId) =>
+    ipcRenderer.invoke(piChannels.setModel, sessionKey, provider, modelId),
   chooseDirectory: (language) => ipcRenderer.invoke(piChannels.chooseDirectory, language),
   onSnapshot: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: PiSnapshot): void =>

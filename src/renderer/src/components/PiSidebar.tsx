@@ -2,7 +2,7 @@ import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { DragDropProvider, KeyboardSensor, PointerSensor } from '@dnd-kit/react'
 import { isSortable } from '@dnd-kit/react/sortable'
 import { Accessibility, PointerActivationConstraints } from '@dnd-kit/dom'
-import { ChevronRightIcon, Code2Icon, MessageCircleIcon, PlusIcon, SearchIcon } from 'lucide-react'
+import { ChevronRightIcon, Code2Icon, PlusIcon, SearchIcon } from 'lucide-react'
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,6 +23,7 @@ import {
   useSidebar
 } from '@renderer/components/ui/sidebar'
 import { Skeleton } from '@renderer/components/ui/skeleton'
+import { Spinner } from '@renderer/components/ui/spinner'
 import { DeleteSessionAction } from '@renderer/components/DeleteSessionAction'
 import { AppMenu } from '@renderer/components/AppMenu'
 import { SortableSidebarItem } from '@renderer/components/SortableSidebarItem'
@@ -105,10 +106,14 @@ export function PiSidebar({
   const [search, setSearch] = useState('')
   const order = useSyncExternalStore(subscribeSidebarOrder, getSidebarOrder)
   const { isMobile, setOpenMobile } = useSidebar()
-  const ready = snapshot?.connection === 'ready'
+  const ready = !!snapshot?.sessionKey
   const groups = new Map<string, SavedSession[]>()
   const query = search.trim().toLocaleLowerCase()
-  for (const session of library?.sessions ?? []) {
+  const sessionsByPath = new Map(
+    (library?.sessions ?? []).map((session) => [session.path, session])
+  )
+  for (const session of snapshot?.liveSessions ?? []) sessionsByPath.set(session.path, session)
+  for (const session of [...sessionsByPath.values()].sort((a, b) => b.created - a.created)) {
     if (query && !`${session.title} ${session.cwd}`.toLocaleLowerCase().includes(query)) continue
     const list = groups.get(session.cwd) ?? []
     list.push(session)
@@ -118,10 +123,19 @@ export function PiSidebar({
   const orderedGroups = orderSidebarItems([...groups], order.workspaces, ([cwd]) => cwd).map(
     ([cwd, sessions]): [string, SavedSession[]] => [
       cwd,
-      orderSidebarItems(sessions, order.sessions[cwd] ?? [], (session) => session.path)
+      orderSidebarItems(
+        sessions,
+        [
+          ...sessions
+            .filter((session) => !order.sessions[cwd]?.includes(session.path))
+            .map((session) => session.path),
+          ...(order.sessions[cwd] ?? [])
+        ],
+        (session) => session.path
+      )
     ]
   )
-  const dragDisabled = !ready || busy || loading || !!query
+  const dragDisabled = !ready || loading || !!query
 
   function navigate(action: () => void): void {
     action()
@@ -137,10 +151,7 @@ export function PiSidebar({
         </div>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              disabled={!ready || busy}
-              onClick={() => navigate(() => onNewSession())}
-            >
+            <SidebarMenuButton disabled={!ready} onClick={() => navigate(() => onNewSession())}>
               <PlusIcon />
               <span>{t('新对话')}</span>
             </SidebarMenuButton>
@@ -232,7 +243,7 @@ export function PiSidebar({
                                 directory: directoryName(cwd)
                               })}
                               title={t('新建对话')}
-                              disabled={!ready || busy}
+                              disabled={!ready}
                               onClick={() => navigate(() => onNewSession(cwd))}
                             >
                               <PlusIcon />
@@ -254,17 +265,35 @@ export function PiSidebar({
                                       <SidebarMenuButton
                                         ref={sessionHandleRef}
                                         className="sidebar-drag-handle"
-                                        isActive={session.path === snapshot?.session?.sessionFile}
-                                        disabled={!ready || busy}
+                                        isActive={
+                                          session.path === snapshot?.session?.sessionFile ||
+                                          session.path === snapshot?.sessionKey
+                                        }
+                                        disabled={!ready}
                                         title={`${session.title}\n${new Date(session.modified).toLocaleString(locale)}\n${t('拖动调整会话顺序')}`}
                                         onClick={() => navigate(() => onOpenSession(session))}
                                       >
-                                        <MessageCircleIcon />
+                                        {snapshot?.liveSessions.some(
+                                          (entry) =>
+                                            entry.path === session.path &&
+                                            (entry.running || entry.pending)
+                                        ) ? (
+                                          <Spinner aria-label={t('正在处理')} />
+                                        ) : (
+                                          <span aria-hidden="true" className="size-4 shrink-0" />
+                                        )}
                                         <span>{session.title}</span>
                                       </SidebarMenuButton>
                                       <DeleteSessionAction
                                         session={session}
-                                        disabled={!ready || busy}
+                                        disabled={
+                                          !ready ||
+                                          !!snapshot?.liveSessions.some(
+                                            (entry) =>
+                                              entry.path === session.path &&
+                                              (entry.running || entry.pending)
+                                          )
+                                        }
                                         onDelete={onDeleteSession}
                                       />
                                     </>
