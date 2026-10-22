@@ -5,6 +5,7 @@
 eli 使用 Electron、React、TypeScript 和 electron-vite，界面使用 Tailwind CSS 和 shadcn/ui。项目自带的示例页面已移除。
 
 - `src/main/`：主进程，管理窗口、生命周期与 IPC。
+- `src/runtime/`：独立 Agent Runtime，直接调用 pi SDK；配置、凭据、资源与会话统一使用 `~/.eli`。
 - `src/preload/`：通过 `contextBridge` 暴露接口；变更接口时同步更新 `index.d.ts`。
 - `src/renderer/src/`：React 界面；组件放在 `components/`，样式和图片放在 `assets/`。
 - `resources/`：运行时资源；`build/`：打包图标与平台配置，并非编译输出。
@@ -38,9 +39,9 @@ shadcn/ui 的组件、样式和工具文件通过官方 CLI 管理，Agent 不�
 
 ## 验证与测试
 
-目前没有测试目录、测试框架、`test` 脚本或覆盖率门槛。代码变更提交前执行 `pnpm lint`、`pnpm typecheck` 和 `pnpm build`，再用 `pnpm dev` 验证相关界面及主进程交互；涉及 IPC 时确认消息收发。
+使用 Node.js 内置 `node:test`，测试位于 `tests/`。`pnpm test` 构建并验证真实 SDK Runtime 与本机模拟模型服务；`pnpm test:electron` 验证 Electron utility process。临时数据限定在 `.tmp`，不得使用真实凭据或访问真实模型服务。代码变更提交前执行 `pnpm lint`、`pnpm typecheck` 和 `pnpm build`；Runtime 变更还需执行以上测试。界面及主进程交互由用户手动启动 `pnpm dev` 后验证。
 
-新增自动化测试前先确认框架，同时补充运行脚本与说明；建议采用 `*.test.ts` 或 `*.test.tsx` 命名。文档修改检查内容和格式即可。
+回归测试使用 `*.test.mjs` 命名，通过 Node.js 原生 TypeScript 转换导入源模块；更换测试框架前先确认，同时补充运行脚本与说明。文档修改检查内容和格式即可。
 
 ## 提交与 Pull Request
 

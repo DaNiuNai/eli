@@ -14,11 +14,11 @@ export class AppConfig {
   private preferences = defaultAppPreferences()
   private pending: Promise<void> = Promise.resolve()
 
-  constructor(readonly path = join(homedir(), '.pi', 'eli', 'config.json')) {}
+  constructor(readonly path = join(homedir(), '.eli', 'config.json')) {}
 
   async load(): Promise<void> {
-    // 必须在写入默认配置创建目录前记录首次启动状态。
-    this.firstLaunch = await stat(dirname(this.path)).then(
+    // Electron profile 可能已创建 ~/.eli；以应用配置文件判断首次启动。
+    this.firstLaunch = await stat(this.path).then(
       () => false,
       (error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error

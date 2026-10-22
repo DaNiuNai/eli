@@ -8,15 +8,15 @@ import {
   PopoverTrigger
 } from '@renderer/components/ui/popover'
 import { Progress } from '@renderer/components/ui/progress'
-import { compactNumber } from '@renderer/lib/pi-display'
+import { compactNumber } from '@renderer/lib/agent-display'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { PiSnapshot } from '../../../shared/pi'
+import type { AgentSnapshot } from '../../../shared/agent'
 
 export function ContextUsageIndicator({
   usage,
   contextWindow
 }: {
-  usage: PiSnapshot['contextUsage']
+  usage: AgentSnapshot['contextUsage']
   contextWindow: number | undefined
 }): React.JSX.Element {
   const { t, locale } = useLanguage()

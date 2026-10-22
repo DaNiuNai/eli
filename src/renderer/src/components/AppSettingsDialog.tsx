@@ -1,4 +1,4 @@
-import { Fragment, useState, useSyncExternalStore, type ComponentProps } from 'react'
+import { useState, useSyncExternalStore, type ComponentProps } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
@@ -26,18 +26,13 @@ import {
   FieldLabel
 } from '@renderer/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/components/ui/input-group'
-import { Switch } from '@renderer/components/ui/switch'
 import { TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
-import {
-  getAppPreferences,
-  subscribeAppPreferences,
-  updateAppPreferences
-} from '@renderer/lib/app-preferences'
-import { PiSettingsPanel } from './PiSettingsPanel'
-import { PiLoginDialog } from './PiLoginDialog'
+import { getAppPreferences, subscribeAppPreferences } from '@renderer/lib/app-preferences'
+import { AgentSettingsPanel } from './AgentSettingsPanel'
+import { AgentLoginDialog } from './AgentLoginDialog'
 import { TerminalSetupDialog } from './TerminalSetupDialog'
 
 const categories = [
@@ -94,7 +89,7 @@ function GeneralSettings({ onOpenLogin }: { onOpenLogin: () => void }): React.JS
             <FieldContent className="min-w-0">
               <FieldLabel htmlFor="settings-login">{t('登录服务')}</FieldLabel>
               <FieldDescription>
-                {t('使用 pi 支持的账号或 API 密钥登录，与 pi 命令行共用凭据。')}
+                {t('使用账号或 API 密钥登录，凭据仅保存在 ~/.eli。')}
               </FieldDescription>
             </FieldContent>
             <Button id="settings-login" variant="outline" size="sm" onClick={onOpenLogin}>
@@ -144,14 +139,13 @@ export function AppSettingsDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  login: ComponentProps<typeof PiLoginDialog>
+  login: ComponentProps<typeof AgentLoginDialog>
 }): React.JSX.Element {
   const { t } = useLanguage()
-  const { showPiSettings } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const [category, setCategory] = useState<(typeof categories)[number]['value']>('general')
   const [query, setQuery] = useState('')
-  const activeCategory = showPiSettings ? category : 'general'
-  const visibleCategories = categories.filter(({ value }) => value === 'general' || showPiSettings)
+  const activeCategory = category
+  const visibleCategories = categories
   const selected = categories.find(({ value }) => value === activeCategory) ?? categories[0]
   const showGeneral = [
     '通用',
@@ -191,7 +185,9 @@ export function AppSettingsDialog({
         className="app-settings-dialog h-[min(820px,90dvh)] w-[min(1120px,94vw)] max-w-none overflow-hidden p-0 sm:max-w-none"
       >
         <DialogTitle className="sr-only">{t('设置')}</DialogTitle>
-        <DialogDescription className="sr-only">{t('管理 eli 界面与 PI 设置。')}</DialogDescription>
+        <DialogDescription className="sr-only">
+          {t('管理 eli 界面与 Agent 设置。')}
+        </DialogDescription>
         {/* 生成的 Tabs 封装未转发 orientation，在调用处使用原生 Root 保留垂直导航语义。 */}
         <TabsPrimitive.Root
           value={activeCategory}
@@ -219,34 +215,16 @@ export function AppSettingsDialog({
               <span className="px-2 text-xs font-semibold text-muted-foreground">Eli</span>
               <TabsList className="settings-tabs w-full bg-transparent p-0">
                 {visibleCategories.map(({ value, label, icon: Icon }) => (
-                  <Fragment key={value}>
-                    {value === 'models' && (
-                      <span className="px-2 pb-2 pt-4 text-xs font-semibold text-muted-foreground">
-                        Pi
-                      </span>
-                    )}
-                    <TabsTrigger value={value} className="settings-tab gap-2.5 px-2.5">
-                      <Icon />
-                      {t(label)}
-                    </TabsTrigger>
-                  </Fragment>
+                  <TabsTrigger key={value} value={value} className="settings-tab gap-2.5 px-2.5">
+                    <Icon />
+                    {t(label)}
+                  </TabsTrigger>
                 ))}
               </TabsList>
             </nav>
-            <FieldGroup className="mt-auto shrink-0 px-2 pb-2">
-              <Field orientation="horizontal">
-                <FieldLabel htmlFor="show-pi-settings">{t('打开Pi原生设置')}</FieldLabel>
-                <Switch
-                  id="show-pi-settings"
-                  size="sm"
-                  checked={showPiSettings}
-                  onCheckedChange={(checked) => {
-                    if (!checked) setCategory('general')
-                    void updateAppPreferences({ showPiSettings: checked })
-                  }}
-                />
-              </Field>
-            </FieldGroup>
+            <p className="mt-auto px-2 pb-2 text-xs text-muted-foreground">
+              {t('配置与数据保存在 ~/.eli')}
+            </p>
           </aside>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <header className="flex shrink-0 flex-col gap-2 px-8 pb-5 pr-14 pt-8">
@@ -254,19 +232,17 @@ export function AppSettingsDialog({
               <p className="text-sm text-muted-foreground">
                 {t(
                   query.trim()
-                    ? showPiSettings
-                      ? '搜索 Eli 与 Pi 设置。'
-                      : '搜索 Eli 设置。'
+                    ? '搜索 Eli 设置。'
                     : activeCategory === 'general'
                       ? '让 eli 更符合你的使用习惯。'
-                      : '管理 PI 在桌面端使用的原生配置。'
+                      : '管理 eli Agent Runtime 的配置。'
                 )}
               </p>
             </header>
             <TabsContent value={activeCategory} className="flex min-h-0 flex-1 flex-col">
               {open ? (
-                <PiSettingsPanel
-                  enabled={showPiSettings}
+                <AgentSettingsPanel
+                  enabled
                   category={activeCategory}
                   query={query}
                   general={
@@ -286,7 +262,7 @@ export function AppSettingsDialog({
         >
           <XIcon />
         </DialogClose>
-        {open && <PiLoginDialog {...login} />}
+        {open && <AgentLoginDialog {...login} />}
       </DialogContent>
     </Dialog>
   )

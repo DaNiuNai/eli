@@ -19,23 +19,23 @@ import {
   TableHeader,
   TableRow
 } from '@renderer/components/ui/table'
-import { compactNumber } from '@renderer/lib/pi-display'
+import { compactNumber } from '@renderer/lib/agent-display'
 import { useLanguage } from '@renderer/hooks/use-language'
 import {
   localDateKey,
   summarizeUsage,
-  type PiLibrary,
+  type AgentLibrary,
   type UsagePeriod
-} from '../../../shared/pi-library'
+} from '../../../shared/agent-library'
 
-const emptyUsage: PiLibrary['usage'] = []
+const emptyUsage: AgentLibrary['usage'] = []
 
 export function UsageDashboard({
   library,
   loading,
   error
 }: {
-  library: PiLibrary | null
+  library: AgentLibrary | null
   loading: boolean
   error: string | null
 }): React.JSX.Element {

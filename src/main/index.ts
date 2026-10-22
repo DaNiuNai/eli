@@ -2,15 +2,27 @@ import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electro
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { PiService } from './pi-service'
+import { AgentService } from './agent-service'
 import { windowAppearanceChannel } from '../shared/window-appearance'
 import { appPreferencesChannels } from '../shared/app-preferences'
 import { AppConfig } from './app-config'
 import { terminalChannels } from '../shared/terminal'
 import { discoverTerminals, validateTerminal } from './terminal'
+import { runtimePaths } from '../runtime/paths'
+import { mkdirSync } from 'node:fs'
 
 const appConfig = new AppConfig()
-let piService: PiService | undefined
+const desktopDirectory = join(runtimePaths().root, 'desktop')
+mkdirSync(desktopDirectory, { recursive: true })
+app.setPath('userData', desktopDirectory)
+const hasInstanceLock = app.requestSingleInstanceLock()
+if (!hasInstanceLock) app.quit()
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows()[0]
+  if (window?.isMinimized()) window.restore()
+  window?.focus()
+})
+let agentService: AgentService | undefined
 const closingServices = new Set<Promise<void>>()
 let quitting = false
 
@@ -37,7 +49,7 @@ function createWindow(): void {
       : {}),
     icon,
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(import.meta.dirname, '../preload/index.js'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
@@ -60,9 +72,9 @@ function createWindow(): void {
     const previousTerminal = JSON.stringify(appConfig.get().terminal)
     await appConfig.set(value)
     if (previousTerminal !== JSON.stringify(appConfig.get().terminal)) {
-      piService?.refreshTerminal()
+      agentService?.refreshTerminal()
     }
-    piService?.refreshApprovalMode()
+    agentService?.refreshApprovalMode()
     nativeTheme.themeSource = appConfig.get().theme
   })
   ipcMain.handle(terminalChannels.discover, (event) => {
@@ -85,25 +97,25 @@ function createWindow(): void {
     mainWindow.setTitleBarOverlay({ symbolColor: dark ? '#fafafa' : '#171717' })
     mainWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff')
   })
-  piService = new PiService(
+  agentService = new AgentService(
     mainWindow,
     appConfig.firstLaunch,
     () => appConfig.get().toolApprovalMode,
     () => appConfig.get().terminal
   )
-  piService.register()
+  agentService.register()
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)
     ipcMain.removeHandler(appPreferencesChannels.set)
     ipcMain.removeHandler(terminalChannels.discover)
     ipcMain.removeHandler(terminalChannels.validate)
     ipcMain.removeHandler(windowAppearanceChannel)
-    if (piService) {
-      const closing = piService.dispose()
+    if (agentService) {
+      const closing = agentService.dispose()
       closingServices.add(closing)
       void closing.finally(() => closingServices.delete(closing))
     }
-    piService = undefined
+    agentService = undefined
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -121,40 +133,41 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(import.meta.dirname, '../renderer/index.html'))
   }
 }
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => {
-  try {
-    await appConfig.load()
-  } catch (error) {
-    dialog.showErrorBox('无法加载 eli 配置', `${appConfig.path}\n${String(error)}`)
-    app.quit()
-    return
-  }
-  nativeTheme.themeSource = appConfig.get().theme
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.eli.desktop')
+if (hasInstanceLock)
+  app.whenReady().then(async () => {
+    try {
+      await appConfig.load()
+    } catch (error) {
+      dialog.showErrorBox('无法加载 eli 配置', `${appConfig.path}\n${String(error)}`)
+      app.quit()
+      return
+    }
+    nativeTheme.themeSource = appConfig.get().theme
+    // Set app user model id for windows
+    electronApp.setAppUserModelId('com.eli.desktop')
 
-  // Default open or close DevTools by F12 in development
-  // and ignore CommandOrControl + R in production.
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+    // Default open or close DevTools by F12 in development
+    // and ignore CommandOrControl + R in production.
+    // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
+
+    createWindow()
+
+    app.on('activate', function () {
+      // On macOS it's common to re-create a window in the app when the
+      // dock icon is clicked and there are no other windows open.
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
-
-  createWindow()
-
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
@@ -169,8 +182,8 @@ app.on('before-quit', (event) => {
   if (quitting) return
   event.preventDefault()
   quitting = true
-  void Promise.allSettled([piService?.dispose(), ...closingServices, appConfig.flush()]).then(() =>
-    app.quit()
+  void Promise.allSettled([agentService?.dispose(), ...closingServices, appConfig.flush()]).then(
+    () => app.quit()
   )
 })
 

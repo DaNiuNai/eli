@@ -103,9 +103,7 @@ export function TerminalSetupDialog({
       <DialogContent showCloseButton={false} className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t(onCancel ? '更改终端' : '选择终端')}</DialogTitle>
-          <DialogDescription>
-            {t('选择 pi 在 eli 中执行命令时使用的终端，仅对 eli 生效。')}
-          </DialogDescription>
+          <DialogDescription>{t('选择 eli 执行命令时使用的终端。')}</DialogDescription>
         </DialogHeader>
         {error && (
           <Alert variant="destructive">
@@ -167,9 +165,7 @@ export function TerminalSetupDialog({
               </FieldDescription>
             </Field>
           )}
-          <FieldDescription>
-            {t('此选择会覆盖 pi 的终端设置，不会修改 pi 的配置文件。')}
-          </FieldDescription>
+          <FieldDescription>{t('终端选择保存在 eli 的独立配置中。')}</FieldDescription>
         </FieldGroup>
         <DialogFooter>
           {onCancel && (

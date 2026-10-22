@@ -13,7 +13,7 @@ import {
 import { InputGroup, InputGroupTextarea } from '@renderer/components/ui/input-group'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
-import { usePiSkills } from '@renderer/hooks/use-pi-skills'
+import { useAgentSkills } from '@renderer/hooks/use-agent-skills'
 import {
   completeSlashCommand,
   filterSlashCommands,
@@ -56,7 +56,7 @@ export function SlashCommandInput({
   const [selected, setSelected] = useState('')
   const query = getSlashCommandQuery(draft, selection.start, selection.end)
   const open = focused && !disabled && !!query && dismissed !== draft
-  const { skills, loading, error, reload } = usePiSkills(sessionKey, open)
+  const { skills, loading, error, reload } = useAgentSkills(sessionKey, open)
   const commandMatches = filterSlashCommands(
     slashCommandRegistry.map((command) => ({ ...command, description: t(command.description) })),
     query?.query ?? ''

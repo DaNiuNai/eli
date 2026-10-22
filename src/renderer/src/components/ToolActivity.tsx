@@ -5,7 +5,7 @@ import {
   TerminalIcon,
   WrenchIcon
 } from 'lucide-react'
-import type { PiToolEvent } from '../../../shared/pi'
+import type { AgentToolEvent } from '../../../shared/agent'
 import {
   Trace,
   TraceCollapsible,
@@ -258,7 +258,7 @@ export function ToolActivity({
 }: {
   parts: TracePart[]
   results: Map<string, ToolResult>
-  tools: Record<string, PiToolEvent>
+  tools: Record<string, AgentToolEvent>
   running: boolean
 }): React.JSX.Element {
   const { t } = useLanguage()

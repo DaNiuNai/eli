@@ -36,7 +36,7 @@ function text(value: unknown, name: string, maxLength: number, trim = true): str
   return trim ? value.trim() : value
 }
 
-/** 在主进程再次校验模型参数，不能仅依赖模型侧的 JSON Schema。 */
+/** 在 Runtime 再次校验模型参数，不能仅依赖模型侧的 JSON Schema。 */
 export function parseUserQuestions(input: unknown): UserQuestion[] {
   const { questions } = record(input)
   if (!Array.isArray(questions) || questions.length < 1 || questions.length > 4) {

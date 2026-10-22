@@ -14,7 +14,7 @@ import {
 import { SidebarMenuAction } from '@renderer/components/ui/sidebar'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { SavedSession } from '../../../shared/pi-library'
+import type { SavedSession } from '../../../shared/agent-library'
 
 export function DeleteSessionAction({
   session,

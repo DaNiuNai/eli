@@ -1,5 +1,5 @@
 import { Minimize2Icon, Settings2Icon, type LucideIcon } from 'lucide-react'
-import type { PiApi, PiSnapshot } from '../../../shared/pi'
+import type { AgentApi, AgentSnapshot } from '../../../shared/agent'
 
 export interface SlashCommandSuggestion {
   name: string
@@ -7,13 +7,13 @@ export interface SlashCommandSuggestion {
 }
 
 export interface SlashCommandAvailability {
-  snapshot: PiSnapshot | null
+  snapshot: AgentSnapshot | null
   busy: boolean
   commandPending: boolean
 }
 
 export interface SlashCommandContext extends SlashCommandAvailability {
-  api: PiApi
+  api: AgentApi
   openSettings: () => void
 }
 

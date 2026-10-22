@@ -3,7 +3,7 @@ import { AppMenu } from '@renderer/components/AppMenu'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { updateAppPreferences } from '@renderer/lib/app-preferences'
 import { cn } from '@renderer/lib/utils'
-import type { PiSnapshot } from '../../../shared/pi'
+import type { AgentSnapshot } from '../../../shared/agent'
 import { sidebarSizing } from '../../../shared/app-preferences'
 
 export function AppTitlebar({
@@ -16,7 +16,7 @@ export function AppTitlebar({
   onOpenSettings
 }: {
   title: string | null
-  snapshot: PiSnapshot | null
+  snapshot: AgentSnapshot | null
   busy: boolean
   onNewSession: () => void
   onChooseDirectory: () => void

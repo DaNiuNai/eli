@@ -1,4 +1,4 @@
-import type { PiToolEvent } from '../../../shared/pi'
+import type { AgentToolEvent } from '../../../shared/agent'
 import type { ToolCall, ToolResult } from './chat-entries'
 
 export interface ToolDiff {
@@ -22,7 +22,7 @@ export interface ToolState {
 
 export function getToolState(
   call: ToolCall,
-  event: PiToolEvent | undefined,
+  event: AgentToolEvent | undefined,
   result: ToolResult | undefined,
   running: boolean,
   draft?: string

@@ -1,13 +1,13 @@
-import type { PiResponsePhase, PiSessionSnapshot } from '../../../shared/pi'
+import type { AgentResponsePhase, AgentSessionSnapshot } from '../../../shared/agent'
 
 export function getResponseDisplay(
   snapshot: Pick<
-    PiSessionSnapshot,
+    AgentSessionSnapshot,
     'response' | 'activity' | 'hideThinkingBlock' | 'toolApprovals' | 'userQuestions'
   > | null,
   sendingId: number | undefined,
   stopping: boolean
-): { phase: PiResponsePhase; active: boolean; status: string | null } {
+): { phase: AgentResponsePhase; active: boolean; status: string | null } {
   // 本地占位只持续到主进程开始这次请求，晚到的接收确认不能让界面倒退。
   const phase =
     sendingId !== undefined && sendingId === snapshot?.response.id

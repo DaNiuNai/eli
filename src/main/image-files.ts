@@ -107,7 +107,7 @@ export async function resolvePromptImages(sources: unknown, cwd: string): Promis
 /** 剪贴板或无本地路径的图片才落盘，按实际格式命名并保留原始字节。 */
 export async function saveImageData(
   bytes: unknown,
-  directory = join(homedir(), '.pi', 'eli', 'tmp')
+  directory = join(homedir(), '.eli', 'images')
 ): Promise<string> {
   if (!(bytes instanceof Uint8Array)) throw new Error('无效的图片数据')
   if (!bytes.byteLength || bytes.byteLength > maxChatImageBytes)

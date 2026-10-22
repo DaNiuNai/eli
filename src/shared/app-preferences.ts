@@ -20,7 +20,6 @@ export interface AppPreferences {
   archivedWorkspaces: string[]
   toolApprovalMode: ToolApprovalMode
   terminal: TerminalPreference | null
-  showPiSettings: boolean
 }
 
 export interface AppPreferencesApi {
@@ -50,8 +49,7 @@ export function defaultAppPreferences(): AppPreferences {
     sidebarOrder: { workspaces: [], sessions: {} },
     archivedWorkspaces: [],
     toolApprovalMode: 'request',
-    terminal: null,
-    showPiSettings: false
+    terminal: null
   }
 }
 
@@ -76,13 +74,10 @@ export function parseAppPreferences(value: unknown): AppPreferences {
   const sidebarWidth = value.sidebarWidth === undefined ? defaults.sidebarWidth : value.sidebarWidth
   const toolApprovalMode =
     value.toolApprovalMode === undefined ? defaults.toolApprovalMode : value.toolApprovalMode
-  const showPiSettings =
-    value.showPiSettings === undefined ? defaults.showPiSettings : value.showPiSettings
   if (!isTheme(theme)) throw new Error('无效的主题设置')
   if (!isUiLanguage(language)) throw new Error('无效的语言设置')
   if (typeof sidebarOpen !== 'boolean') throw new Error('无效的侧栏展开设置')
   if (!isToolApprovalMode(toolApprovalMode)) throw new Error('无效的工具审批挡位')
-  if (typeof showPiSettings !== 'boolean') throw new Error('无效的 Pi 原生设置显示选项')
   if (
     typeof sidebarWidth !== 'number' ||
     !Number.isFinite(sidebarWidth) ||
@@ -120,7 +115,6 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     sidebarOrder,
     archivedWorkspaces,
     toolApprovalMode,
-    terminal: parseTerminalPreference(value.terminal),
-    showPiSettings
+    terminal: parseTerminalPreference(value.terminal)
   }
 }

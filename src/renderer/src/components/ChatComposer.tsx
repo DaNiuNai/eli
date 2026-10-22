@@ -22,7 +22,7 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { InputGroupAddon, InputGroupButton } from '@renderer/components/ui/input-group'
-import { directoryName } from '@renderer/lib/pi-display'
+import { directoryName } from '@renderer/lib/agent-display'
 import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ToolApprovalControl } from '@renderer/components/ToolApprovalControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
@@ -31,12 +31,12 @@ import { ChatImageAttachments } from '@renderer/components/ChatImageAttachments'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { canExecuteSlashCommand, matchSlashCommand } from '@renderer/lib/slash-commands'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { PiSnapshot, PiThinkingLevel } from '../../../shared/pi'
+import type { AgentSnapshot, AgentThinkingLevel } from '../../../shared/agent'
 import type { ToolApprovalMode } from '../../../shared/tool-approval'
 import type { ChatDraftImage } from '../../../shared/chat-images'
 
 interface ChatComposerProps {
-  snapshot: PiSnapshot | null
+  snapshot: AgentSnapshot | null
   hasMessages: boolean
   draft: string
   images: ChatDraftImage[]
@@ -55,7 +55,7 @@ interface ChatComposerProps {
   onChooseDirectory: () => void
   onOpenLogin: () => void
   onModel: (provider: string, id: string) => void
-  onThinking: (level: PiThinkingLevel) => Promise<boolean>
+  onThinking: (level: AgentThinkingLevel) => Promise<boolean>
   onApprovalMode: (mode: ToolApprovalMode) => void
 }
 

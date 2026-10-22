@@ -1,8 +1,8 @@
-import type { PiMessage, PiSnapshot } from '../../../shared/pi'
+import type { AgentMessage, AgentSnapshot } from '../../../shared/agent'
 
-type AssistantMessage = Extract<PiMessage, { role: 'assistant' }>
+type AssistantMessage = Extract<AgentMessage, { role: 'assistant' }>
 export type ToolCall = Extract<AssistantMessage['content'][number], { type: 'toolCall' }>
-export type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
+export type ToolResult = Extract<AgentMessage, { role: 'toolResult' }>
 export type TracePart =
   | { id: string; type: 'toolCall'; call: ToolCall; draft?: string }
   | { id: string; type: 'thinking'; text: string; pending: boolean }
@@ -22,10 +22,10 @@ export interface ChatEntry {
 
 /** 工具结果不打断连续活动；正文、用户消息和错误保持原来的顺序与边界。 */
 export function buildChatEntries(
-  messages: PiMessage[],
-  activeThinking: PiSnapshot['activeThinking'] = null,
+  messages: AgentMessage[],
+  activeThinking: AgentSnapshot['activeThinking'] = null,
   hideThinking = false,
-  toolCallDrafts: PiSnapshot['response']['toolCallDrafts'] = {}
+  toolCallDrafts: AgentSnapshot['response']['toolCallDrafts'] = {}
 ): ChatEntry[] {
   const entries: ChatEntry[] = []
   let current: ChatEntry | undefined

@@ -1,6 +1,6 @@
-import type { SavedSession } from '../../../shared/pi-library'
+import type { SavedSession } from '../../../shared/agent-library'
 import type { SidebarOrder } from '../../../shared/app-preferences'
-import type { PiLiveSession } from '../../../shared/pi'
+import type { AgentLiveSession } from '../../../shared/agent'
 import { getAppPreferences, updateAppPreferences } from './app-preferences'
 
 export { subscribeAppPreferences as subscribeSidebarOrder } from './app-preferences'
@@ -24,7 +24,7 @@ function mergeNew(
   return position === 'start' ? [...added, ...saved] : [...saved, ...added]
 }
 
-export function rememberSidebarSessions(sessions: (SavedSession | PiLiveSession)[]): void {
+export function rememberSidebarSessions(sessions: (SavedSession | AgentLiveSession)[]): void {
   const current = getSidebarOrder()
   const workspaces = mergeNew(
     current.workspaces,

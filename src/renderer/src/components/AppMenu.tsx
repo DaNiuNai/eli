@@ -20,7 +20,7 @@ import {
 import { Button } from '@renderer/components/ui/button'
 import { AppLanguageDialog } from '@renderer/components/AppLanguageDialog'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { PiSnapshot } from '../../../shared/pi'
+import type { AgentSnapshot } from '../../../shared/agent'
 
 export function AppMenu({
   snapshot,
@@ -31,7 +31,7 @@ export function AppMenu({
   onOpenSettings,
   onResetLayout
 }: {
-  snapshot: PiSnapshot | null
+  snapshot: AgentSnapshot | null
   busy: boolean
   onNewSession: () => void
   onChooseDirectory: () => void

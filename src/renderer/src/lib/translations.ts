@@ -4,10 +4,10 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
-  打开Pi原生设置: 'Show native Pi settings',
-  '无效的 Pi 原生设置显示选项': 'Invalid native Pi settings visibility option',
+  '管理 eli 界面与 Agent 设置。': 'Manage the eli interface and agent settings.',
+  '管理 eli Agent Runtime 的配置。': 'Configure the eli Agent Runtime.',
+  '配置与数据保存在 ~/.eli': 'Settings and data are stored in ~/.eli',
   '搜索 Eli 设置。': 'Search Eli settings.',
-  '搜索 Eli 与 Pi 设置。': 'Search Eli and Pi settings.',
   '试试外观、登录或终端等 Eli 设置。': 'Try Eli settings such as appearance, login or terminal.',
   选择终端: 'Choose a terminal',
   更改终端: 'Change terminal',
@@ -17,8 +17,7 @@ const english: Record<string, string> = {
   '仅对 eli 生效，保存后用于后续请求，当前任务继续运行。':
     'Applies only to eli. Future requests use the saved terminal; running tasks continue.',
   终端: 'Terminal',
-  '选择 pi 在 eli 中执行命令时使用的终端，仅对 eli 生效。':
-    'Choose the terminal pi uses to run commands in eli. This applies only to eli.',
+  '选择 eli 执行命令时使用的终端。': 'Choose the terminal eli uses to run commands.',
   终端设置失败: 'Terminal setup failed',
   自定义路径: 'Custom path',
   '正在检测终端…': 'Detecting terminals…',
@@ -27,8 +26,7 @@ const english: Record<string, string> = {
   输入终端可执行文件的完整路径: 'Enter the full path to the terminal executable',
   '支持 powershell、pwsh、bash、zsh 和 sh，可使用 ~ 表示用户目录。':
     'Supports powershell, pwsh, bash, zsh and sh. Use ~ for your home directory.',
-  '此选择会覆盖 pi 的终端设置，不会修改 pi 的配置文件。':
-    'This overrides pi’s terminal settings without changing pi’s configuration files.',
+  '终端选择保存在 eli 的独立配置中。': 'The terminal selection is stored in eli settings.',
   完成设置: 'Finish setup',
   无法保存终端设置: 'Could not save terminal settings',
   无效的终端设置: 'Invalid terminal settings',
@@ -114,8 +112,8 @@ const english: Record<string, string> = {
   '正在登录 {provider}…': 'Logging in to {provider}…',
   '在登录页面输入以下设备码：': 'Enter this device code on the login page:',
   '在浏览器中完成授权后返回此处。': 'Complete authorization in your browser, then return here.',
-  '使用 pi 支持的账号或 API 密钥登录，与 pi 命令行共用凭据。':
-    'Log in with an account or API key supported by pi. Credentials are shared with the pi CLI.',
+  '使用账号或 API 密钥登录，凭据仅保存在 ~/.eli。':
+    'Log in with an account or API key. Credentials are stored only in ~/.eli.',
   '登录账号或配置 API 密钥后即可开始对话。': 'Log in or configure an API key to start chatting.',
   请选择有效的登录服务: 'Choose a valid login provider',
   登录服务已关闭: 'The login service is closed',

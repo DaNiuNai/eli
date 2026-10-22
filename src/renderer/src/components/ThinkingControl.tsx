@@ -10,9 +10,9 @@ import {
   PopoverTrigger
 } from '@renderer/components/ui/popover'
 import { Slider } from '@renderer/components/ui/slider'
-import { thinkingLabels } from '@renderer/lib/pi-display'
+import { thinkingLabels } from '@renderer/lib/agent-display'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { PiThinkingLevel } from '../../../shared/pi'
+import type { AgentThinkingLevel } from '../../../shared/agent'
 
 export function ThinkingControl({
   levels,
@@ -20,15 +20,15 @@ export function ThinkingControl({
   disabled,
   onChange
 }: {
-  levels: PiThinkingLevel[]
-  value: PiThinkingLevel
+  levels: AgentThinkingLevel[]
+  value: AgentThinkingLevel
   disabled: boolean
-  onChange: (level: PiThinkingLevel) => Promise<boolean>
+  onChange: (level: AgentThinkingLevel) => Promise<boolean>
 }): React.JSX.Element {
   const { t } = useLanguage()
   const labelId = useId()
   const descriptionId = useId()
-  const [preview, setPreview] = useState<PiThinkingLevel | null>(null)
+  const [preview, setPreview] = useState<AgentThinkingLevel | null>(null)
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
   const selected = preview && levels.includes(preview) ? preview : value

@@ -1,0 +1,619 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { fork } from 'node:child_process'
+import { mkdir, mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promises'
+import { resolve, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createServer } from 'node:http'
+import { RuntimeConnection } from '../src/runtime/connection.ts'
+import { RuntimeInteractions } from '../src/runtime/interactions.ts'
+
+const project = fileURLToPath(new URL('../', import.meta.url))
+const temporaryRoot = join(project, '.tmp')
+const cleanupByTest = new WeakMap()
+
+async function fixture(t) {
+  await mkdir(temporaryRoot, { recursive: true })
+  const root = await mkdtemp(join(temporaryRoot, 'runtime-test-'))
+  const data = join(root, 'home', '.eli')
+  const cwd = join(root, 'workspace')
+  await Promise.all([mkdir(data, { recursive: true }), mkdir(cwd, { recursive: true })])
+  t.after(async () => {
+    for (const close of cleanupByTest.get(t) ?? []) await close()
+    assert.ok(
+      resolve(root).startsWith(`${resolve(temporaryRoot)}\\`) ||
+        resolve(root).startsWith(`${resolve(temporaryRoot)}/`)
+    )
+    await rm(root, { recursive: true, force: true })
+  })
+  return { root, data, cwd }
+}
+
+function runtime(t) {
+  const child = fork(join(project, 'out/main/runtime.mjs'), [], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    execArgv: [],
+    windowsHide: true
+  })
+  let stderr = ''
+  child.stdout.resume()
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk
+  })
+  const states = []
+  const events = []
+  const failures = []
+  const connection = new RuntimeConnection(
+    {
+      send: (message) => child.send(message),
+      kill: () => child.kill(),
+      onMessage: (listener) => child.on('message', listener),
+      onExit: (listener) =>
+        child.on('exit', (code) => listener(new Error(`exit ${code}: ${stderr}`)))
+    },
+    (event) => {
+      events.push(event)
+      if (event.kind === 'session') states.push(event.state)
+    },
+    (error) => failures.push(error),
+    20000
+  )
+  const close = async () => {
+    await connection.stop()
+    if (child.exitCode === null && child.signalCode === null)
+      await new Promise((resolve) => child.once('exit', resolve))
+  }
+  const cleanups = cleanupByTest.get(t) ?? []
+  cleanups.push(close)
+  cleanupByTest.set(t, cleanups)
+  t.after(close)
+  return { child, connection, states, events, failures }
+}
+
+async function until(predicate, timeout = 10000) {
+  const end = Date.now() + timeout
+  while (Date.now() < end) {
+    const result = predicate()
+    if (result) return result
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error('等待 Runtime 状态超时')
+}
+
+async function modelServer(t, data) {
+  const requests = []
+  const server = createServer(async (req, res) => {
+    let text = ''
+    for await (const chunk of req) text += chunk
+    const body = JSON.parse(text)
+    requests.push(body)
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    const last = body.messages.at(-1)
+    const user = body.messages.findLast((message) => message.role === 'user')
+    const content = typeof user?.content === 'string' ? user.content : JSON.stringify(user?.content)
+    const tool =
+      content?.includes('WRITE_TOOL') && last.role !== 'tool'
+        ? 'write'
+        : content?.includes('ASK_TOOL') && last.role !== 'tool'
+          ? 'ask_user_question'
+          : null
+    const send = (delta, finish_reason = null) =>
+      res.write(
+        `data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: 'local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
+      )
+    send({ role: 'assistant', content: '' })
+    if (content?.includes('WAIT_FOREVER')) return
+    if (tool) {
+      const args =
+        tool === 'write'
+          ? { path: 'approved.txt', content: 'approved' }
+          : {
+              questions: [
+                {
+                  header: '选择',
+                  question: '请选择',
+                  multiSelect: false,
+                  options: [
+                    { label: '甲', description: '甲方案' },
+                    { label: '乙', description: '乙方案' }
+                  ]
+                }
+              ]
+            }
+      send({
+        tool_calls: [
+          {
+            index: 0,
+            id: 'call-local',
+            type: 'function',
+            function: { name: tool, arguments: JSON.stringify(args) }
+          }
+        ]
+      })
+      send({}, 'tool_calls')
+    } else {
+      send({ content: `完成：${content ?? ''}` })
+      send({}, 'stop')
+    }
+    res.end('data: [DONE]\n\n')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => {
+    server.closeAllConnections()
+    server.close()
+  })
+  const port = server.address().port
+  await writeFile(
+    join(data, 'models.json'),
+    JSON.stringify({
+      providers: {
+        'eli-test': {
+          api: 'openai-completions',
+          baseUrl: `http://127.0.0.1:${port}/v1`,
+          apiKey: 'test-only',
+          models: [
+            {
+              id: 'local',
+              name: 'Local test',
+              reasoning: false,
+              input: ['text', 'image'],
+              contextWindow: 32768,
+              maxTokens: 4096,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+            }
+          ]
+        }
+      }
+    })
+  )
+  await writeFile(
+    join(data, 'settings.json'),
+    JSON.stringify({
+      defaultProvider: 'eli-test',
+      enabledModels: ['eli-test/*'],
+      defaultModel: 'local',
+      retry: { enabled: false },
+      cacheWarming: 'off'
+    })
+  )
+  return requests
+}
+
+async function initialize(
+  connection,
+  { data, cwd },
+  key = '11111111-1111-4111-8111-111111111111',
+  sessionFile
+) {
+  return connection.call('initialize', {
+    kind: 'session',
+    root: data,
+    cwd,
+    sessionKey: key,
+    sessionFile,
+    approvalMode: 'request',
+    terminal: { kind: 'powershell', path: 'powershell.exe' }
+  })
+}
+
+test('权限等待支持拒绝、模式切换、取消与跨会话隔离', async () => {
+  const first = new RuntimeInteractions('request', () => {})
+  const second = new RuntimeInteractions('request', () => {})
+  const request = { toolCallId: 'tool', toolName: 'write', input: { path: 'a' } }
+  const waiting = first.approve(request, false)
+  const id = first.toolApprovals[0].id
+  assert.throws(() => second.respondApproval(id, true), /失效/)
+  first.respondApproval(id, false)
+  assert.equal(await waiting, false)
+  const pending = first.approve(request, false)
+  first.setMode('edit')
+  assert.equal(await pending, true)
+  first.setMode('request')
+  const controller = new AbortController()
+  const aborted = first.approve(request, false, controller.signal)
+  controller.abort()
+  assert.equal(await aborted, false)
+  assert.equal(first.toolApprovals.length, 0)
+})
+
+test('协议错误与超时会关闭通道并拒绝所有待处理请求', async () => {
+  let receive
+  let killed = 0
+  const transport = {
+    send: () => {},
+    kill: () => killed++,
+    onMessage: (listener) => {
+      receive = listener
+    },
+    onExit: () => {}
+  }
+  const invalid = new RuntimeConnection(
+    transport,
+    () => {},
+    () => {},
+    100
+  )
+  receive(null)
+  await assert.rejects(invalid.ready, /无效消息/)
+  assert.equal(killed, 1)
+  const timedOut = new RuntimeConnection(
+    transport,
+    () => {},
+    () => {},
+    20
+  )
+  receive({ version: 1, kind: 'ready' })
+  await assert.rejects(timedOut.call('getSettings'), /超时/)
+  await assert.rejects(timedOut.call('getLibrary'), /超时/)
+  assert.equal(killed, 2)
+})
+
+test('独立进程启动、空白会话与 eli 配置隔离', async (t) => {
+  const fixtureData = await fixture(t)
+  await modelServer(t, fixtureData.data)
+  await mkdir(join(fixtureData.cwd, '.pi'), { recursive: true })
+  await writeFile(join(fixtureData.cwd, '.pi/settings.json'), '{ invalid old settings')
+  const { connection, child } = runtime(t)
+  const state = await initialize(connection, fixtureData)
+  assert.notEqual(child.pid, process.pid)
+  assert.equal(state.snapshot.connection, 'ready')
+  assert.equal(state.snapshot.model.provider, 'eli-test')
+  assert.equal(state.persistedFile, undefined)
+  assert.equal(state.summary, null)
+  assert.ok(state.snapshot.session.sessionFile.startsWith(join(fixtureData.data, 'sessions')))
+})
+
+test('默认模型在启用范围内选择，项目扩展注册的模型也参与选择', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const config = JSON.parse(await readFile(join(f.data, 'models.json'), 'utf8'))
+  const provider = config.providers['eli-test']
+  provider.models.push({ ...provider.models[0], id: 'outside' })
+  await writeFile(join(f.data, 'models.json'), JSON.stringify(config))
+  const settings = JSON.parse(await readFile(join(f.data, 'settings.json'), 'utf8'))
+  await writeFile(
+    join(f.data, 'settings.json'),
+    JSON.stringify({ ...settings, defaultModel: 'outside', enabledModels: ['eli-test/local'] })
+  )
+  const first = runtime(t)
+  assert.equal((await initialize(first.connection, f)).snapshot.model.id, 'local')
+  await first.connection.stop()
+  await mkdir(join(f.cwd, '.eli/extensions'), { recursive: true })
+  await writeFile(
+    join(f.cwd, '.eli/extensions/provider.ts'),
+    `export default function(pi) { pi.registerProvider('eli-extension', ${JSON.stringify(provider)}) }`
+  )
+  await writeFile(
+    join(f.data, 'settings.json'),
+    JSON.stringify({
+      ...settings,
+      defaultProvider: 'eli-extension',
+      enabledModels: ['eli-extension/local']
+    })
+  )
+  const second = runtime(t)
+  const loaded = await initialize(second.connection, f)
+  assert.equal(loaded.snapshot.model.provider, 'eli-extension')
+  assert.equal(loaded.snapshot.model.id, 'local')
+  assert.deepEqual(
+    loaded.snapshot.models.map(({ provider }) => provider),
+    ['eli-extension']
+  )
+})
+
+test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const first = runtime(t)
+  await initialize(first.connection, f)
+  await first.connection.call('prompt', '第一条')
+  const finished = await until(() =>
+    first.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'assistant')
+    )
+  )
+  assert.equal(finished.snapshot.error, null)
+  assert.equal(
+    finished.snapshot.messages.findLast((message) => message.role === 'assistant').stopReason,
+    'stop'
+  )
+  assert.ok(finished.persistedFile)
+  const assistantIndex = finished.snapshot.messages.findIndex(
+    (message) => message.role === 'assistant'
+  )
+  const assistantEntry = finished.snapshot.messageEntryIds[assistantIndex]
+  assert.ok(assistantEntry)
+  const forkPath = await first.connection.call('forkMessage', {
+    sessionId: finished.snapshot.session.sessionId,
+    entryId: assistantEntry
+  })
+  assert.notEqual(forkPath, finished.persistedFile)
+  const userIndex = finished.snapshot.messages.findIndex((message) => message.role === 'user')
+  await first.connection.call(
+    'editMessage',
+    {
+      sessionId: finished.snapshot.session.sessionId,
+      entryId: finished.snapshot.messageEntryIds[userIndex]
+    },
+    '修改后的消息'
+  )
+  const edited = await until(() =>
+    first.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some(
+          (message) =>
+            message.role === 'user' &&
+            message.content.some?.((part) => part.text === '修改后的消息')
+        )
+    )
+  )
+  assert.equal(edited.snapshot.messages.filter((message) => message.role === 'user').length, 1)
+  await first.connection.stop()
+  const restored = runtime(t)
+  const loaded = await initialize(
+    restored.connection,
+    f,
+    '22222222-2222-4222-8222-222222222222',
+    finished.persistedFile
+  )
+  assert.equal(loaded.snapshot.session.sessionId, finished.snapshot.session.sessionId)
+  assert.deepEqual(loaded.snapshot.messages, edited.snapshot.messages)
+  const forked = runtime(t)
+  const forkState = await initialize(
+    forked.connection,
+    f,
+    '33333333-3333-4333-8333-333333333333',
+    forkPath
+  )
+  assert.notEqual(forkState.snapshot.session.sessionId, finished.snapshot.session.sessionId)
+  assert.equal(forkState.snapshot.messages.length, finished.snapshot.messages.length)
+})
+
+test('真实工具审批、提问和中止不会跨会话放行', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const first = runtime(t)
+  await initialize(first.connection, f)
+  await first.connection.call('prompt', 'WRITE_TOOL')
+  const pending = await until(() =>
+    first.states.findLast((state) => state.snapshot.toolApprovals.length)
+  ).catch((error) => {
+    t.diagnostic(
+      JSON.stringify(
+        first.states.at(-1)?.snapshot.messages.filter((message) => message.role === 'assistant')
+      )
+    )
+    throw error
+  })
+  const approval = pending.snapshot.toolApprovals[0]
+  assert.ok(pending.snapshot.contextUsage?.tokens > 0, '等待工具审批时应已更新本轮上下文用量')
+  await assert.rejects(readFile(join(f.cwd, 'approved.txt')), { code: 'ENOENT' })
+  await first.connection.call('approve', approval.id, true)
+  await until(() =>
+    first.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'toolResult')
+    )
+  )
+  assert.equal(await readFile(join(f.cwd, 'approved.txt'), 'utf8'), 'approved')
+  first.states.length = 0
+  await first.connection.call('prompt', 'ASK_TOOL')
+  const asking = await until(() =>
+    first.states.findLast((state) => state.snapshot.userQuestions.length)
+  )
+  await first.connection.call('answer', asking.snapshot.userQuestions[0].id, [
+    { selectedOptions: [1] }
+  ])
+  await until(() => first.states.findLast((state) => !state.snapshot.running))
+  first.states.length = 0
+  await first.connection.call('prompt', 'WRITE_TOOL')
+  const again = await until(() =>
+    first.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  await first.connection.call('abort')
+  await assert.rejects(
+    first.connection.call('approve', again.snapshot.toolApprovals[0].id, true),
+    /失效/
+  )
+  first.states.length = 0
+  await first.connection.call('prompt', 'WAIT_FOREVER')
+  await first.connection.call('abort')
+  const aborted = await until(() => first.states.findLast((state) => !state.snapshot.running))
+  assert.equal(aborted.snapshot.activity, '已停止')
+})
+
+test('管理进程只索引 ~/.eli 会话，设置按字段持久化', async (t) => {
+  const f = await fixture(t)
+  const { connection } = runtime(t)
+  await connection.call('initialize', {
+    kind: 'control',
+    root: f.data,
+    cwd: f.cwd,
+    firstLaunch: true
+  })
+  assert.deepEqual((await connection.call('getLibrary')).sessions, [])
+  const settings = await connection.call('saveSettings', [
+    { key: 'defaultThinkingLevel', value: 'high' }
+  ])
+  assert.equal(settings.values.defaultThinkingLevel, 'high')
+  await assert.rejects(
+    connection.call('saveSettings', [{ key: 'defaultThinkingLevel', value: 'low' }]),
+    /其他操作/
+  )
+  await assert.rejects(
+    connection.call('saveSettings', [{ key: 'sessionDir', value: '../old' }]),
+    /无效的设置项/
+  )
+  assert.ok((await readdir(f.data)).includes('settings.json'))
+})
+
+test('进程崩溃立即使待处理请求失败', async (t) => {
+  const f = await fixture(t)
+  const { connection, child, failures } = runtime(t)
+  await connection.call('initialize', {
+    kind: 'control',
+    root: f.data,
+    cwd: f.cwd,
+    firstLaunch: true
+  })
+  child.kill()
+  await until(() => failures.length)
+  await assert.rejects(connection.call('getSettings'), /exit/)
+})
+
+test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const projectData = join(f.cwd, '.eli')
+  for (const directory of [
+    join(f.data, 'skills/global'),
+    join(projectData, 'skills/project'),
+    join(projectData, 'extensions'),
+    join(projectData, 'prompts'),
+    join(f.cwd, '.pi/extensions'),
+    join(f.cwd, '.agents/skills/unwanted')
+  ])
+    await mkdir(directory, { recursive: true })
+  await writeFile(
+    join(f.data, 'skills/global/SKILL.md'),
+    '---\nname: global\ndescription: Global fixture\n---\nGlobal skill'
+  )
+  await writeFile(
+    join(projectData, 'skills/project/SKILL.md'),
+    '---\nname: project\ndescription: Project fixture\n---\nProject skill'
+  )
+  await writeFile(
+    join(f.cwd, '.agents/skills/unwanted/SKILL.md'),
+    '---\nname: unwanted\ndescription: Must not load\n---\nNot an eli resource'
+  )
+  await writeFile(
+    join(f.cwd, '.pi/extensions/broken.ts'),
+    'throw new Error("pi extension must not load")'
+  )
+  await writeFile(join(projectData, 'settings.json'), JSON.stringify({ hideThinkingBlock: true }))
+  await writeFile(
+    join(projectData, 'prompts/greet.md'),
+    '---\ndescription: Greet fixture\n---\nHello $1'
+  )
+  await writeFile(
+    join(projectData, 'extensions/local.ts'),
+    `
+    import { writeFileSync } from 'node:fs'
+    import { join } from 'node:path'
+    export default function(pi) {
+      pi.on('session_start', () => writeFileSync(join(process.cwd(), 'extension-loaded.txt'), 'loaded'))
+      pi.on('session_shutdown', (event) => writeFileSync(join(process.cwd(), 'extension-closed.txt'), event.reason))
+      pi.registerCommand('local-command', { description: 'Fixture', handler: async (_args, ctx) => ctx.ui.notify('extension command completed') })
+    }
+  `
+  )
+  const r = runtime(t)
+  const state = await initialize(r.connection, f)
+  assert.equal(state.snapshot.hideThinkingBlock, true)
+  assert.equal(await readFile(join(f.cwd, 'extension-loaded.txt'), 'utf8'), 'loaded')
+  assert.deepEqual((await r.connection.call('getSkills')).map(({ name }) => name).sort(), [
+    'skill:global',
+    'skill:project'
+  ])
+  await r.connection.call('prompt', '/local-command')
+  const handled = await until(() =>
+    r.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.error === 'extension command completed'
+    )
+  )
+  assert.equal(
+    handled.snapshot.messages.filter((message) => message.role === 'assistant').length,
+    0
+  )
+  r.states.length = 0
+  await r.connection.call('prompt', '/greet world')
+  const done = await until(() =>
+    r.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'assistant')
+    )
+  )
+  assert.ok(JSON.stringify(done.snapshot.messages).includes('Hello world'))
+  await r.connection.stop()
+  assert.equal(await readFile(join(f.cwd, 'extension-closed.txt'), 'utf8'), 'quit')
+})
+
+test('等待审批时关闭 Runtime 会取消等待；其他会话继续工作', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const first = runtime(t)
+  const second = runtime(t)
+  await Promise.all([
+    initialize(first.connection, f),
+    initialize(second.connection, f, '44444444-4444-4444-8444-444444444444')
+  ])
+  await first.connection.call('prompt', 'WRITE_TOOL')
+  const pending = await until(() =>
+    first.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  await assert.rejects(
+    second.connection.call('approve', pending.snapshot.toolApprovals[0].id, true),
+    /失效/
+  )
+  await first.connection.stop()
+  await assert.rejects(readFile(join(f.cwd, 'approved.txt')), { code: 'ENOENT' })
+  await second.connection.call('prompt', '仍可运行')
+  const done = await until(() =>
+    second.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'assistant')
+    )
+  )
+  assert.equal(
+    done.snapshot.messages.findLast((message) => message.role === 'assistant').stopReason,
+    'stop'
+  )
+})
+
+test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const saved = JSON.parse(await readFile(join(f.data, 'settings.json'), 'utf8'))
+  await writeFile(
+    join(f.data, 'settings.json'),
+    JSON.stringify({
+      ...saved,
+      compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 128 }
+    })
+  )
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  await r.connection.call('compact')
+  const empty = await until(() => r.states.findLast((state) => !state.snapshot.running))
+  assert.equal(empty.snapshot.connection, 'ready')
+  assert.equal(empty.snapshot.error, null)
+  for (let i = 0; i < 3; i++) {
+    r.states.length = 0
+    await r.connection.call('prompt', `message ${i}: ${'context '.repeat(100)}`)
+    await until(() =>
+      r.states.findLast(
+        (state) =>
+          !state.snapshot.running &&
+          state.snapshot.messages.filter((message) => message.role === 'assistant').length === i + 1
+      )
+    )
+  }
+  r.states.length = 0
+  const accepted = await r.connection.call('compact', 'WAIT_FOREVER')
+  assert.equal(accepted.snapshot.running, true)
+  await r.connection.call('abort')
+  const stopped = await until(() => r.states.findLast((state) => !state.snapshot.running))
+  assert.equal(stopped.snapshot.activity, '已停止')
+  r.states.length = 0
+  await r.connection.call('compact', 'Summarize the completed work')
+  const compacted = await until(() => r.states.findLast((state) => !state.snapshot.running))
+  assert.equal(compacted.snapshot.activity, '上下文压缩完成')
+  assert.equal(compacted.snapshot.error, null)
+  assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction"'))
+})

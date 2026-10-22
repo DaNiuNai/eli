@@ -13,19 +13,19 @@ import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
-import { PiLoginDialog } from '@renderer/components/PiLoginDialog'
+import { AgentLoginDialog } from '@renderer/components/AgentLoginDialog'
 import { TerminalSetupDialog } from '@renderer/components/TerminalSetupDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
 import { UserQuestionPanel } from '@renderer/components/UserQuestionPanel'
-import { PiSidebar } from '@renderer/components/PiSidebar'
+import { AgentSidebar } from '@renderer/components/AgentSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
-import { usePi } from '@renderer/hooks/use-pi'
+import { useAgent } from '@renderer/hooks/use-agent'
 import { useChatImages } from '@renderer/hooks/use-chat-images'
-import { usePiAuth } from '@renderer/hooks/use-pi-auth'
-import { usePiLibrary } from '@renderer/hooks/use-pi-library'
+import { useAgentAuth } from '@renderer/hooks/use-agent-auth'
+import { useAgentLibrary } from '@renderer/hooks/use-agent-library'
 import { useUserQuestions } from '@renderer/hooks/use-user-questions'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
@@ -42,27 +42,27 @@ import {
   subscribeAppPreferences,
   updateAppPreferences
 } from '@renderer/lib/app-preferences'
-import type { SavedSession } from '../../shared/pi-library'
-import type { PiMessageTarget } from '../../shared/pi'
+import type { SavedSession } from '../../shared/agent-library'
+import type { AgentMessageTarget } from '../../shared/agent'
 import './assets/chat.css'
 
 function App(): React.JSX.Element {
   const { t, language } = useLanguage()
   const { sidebarOpen } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const preferencesError = useSyncExternalStore(subscribeAppPreferences, getAppPreferencesError)
-  const { snapshot, error, perform } = usePi()
+  const { snapshot, error, perform } = useAgent()
   const userQuestions = useUserQuestions((sessionKey, id, answers) =>
     perform(() => window.api.respondToUserQuestion(sessionKey, id, answers), sessionKey)
   )
-  const auth = usePiAuth()
-  const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
+  const auth = useAgentAuth()
+  const { library, loading, error: libraryError } = useAgentLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const [sendingSessions, setSendingSessions] = useState<Record<string, number>>({})
   const [commandSessions, setCommandSessions] = useState<Set<string>>(new Set())
   const [stoppingSessions, setStoppingSessions] = useState<Set<string>>(new Set())
-  const [editing, setEditing] = useState<{ target: PiMessageTarget; text: string } | null>(null)
+  const [editing, setEditing] = useState<{ target: AgentMessageTarget; text: string } | null>(null)
   const [messageActions, setMessageActions] = useState<Record<string, 'edit' | 'fork'>>({})
   const textarea = useRef<HTMLTextAreaElement>(null)
   const sendingRef = useRef(new Set<string>())
@@ -251,7 +251,7 @@ function App(): React.JSX.Element {
     }
   }
 
-  async function forkMessage(target: PiMessageTarget): Promise<void> {
+  async function forkMessage(target: AgentMessageTarget): Promise<void> {
     if (await messageAction('fork', () => window.api.forkMessage(target))) {
       setEditing((current) => (current?.target.sessionId === target.sessionId ? null : current))
       if (selectedSessionRef.current === draftKey) textarea.current?.focus()
@@ -312,11 +312,11 @@ function App(): React.JSX.Element {
       {auth.terminalSetupOpen ? (
         <TerminalSetupDialog onComplete={auth.completeTerminalSetup} />
       ) : (
-        !settingsOpen && <PiLoginDialog {...auth} />
+        !settingsOpen && <AgentLoginDialog {...auth} />
       )}
       <WorkspaceLayout
         sidebar={
-          <PiSidebar
+          <AgentSidebar
             snapshot={snapshot}
             library={library}
             loading={loading}

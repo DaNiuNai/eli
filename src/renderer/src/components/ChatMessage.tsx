@@ -1,4 +1,4 @@
-import type { PiToolEvent } from '../../../shared/pi'
+import type { AgentToolEvent } from '../../../shared/agent'
 import { Bubble, BubbleContent } from '@renderer/components/ui/bubble'
 import { Message, MessageContent } from '@renderer/components/ui/message'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
@@ -27,7 +27,7 @@ export function ChatMessage({
 }: {
   entry: ChatEntry
   results: Map<string, ToolResult>
-  tools: Record<string, PiToolEvent>
+  tools: Record<string, AgentToolEvent>
   running: boolean
   responseStatus?: string | null
   actionDisabled?: boolean
