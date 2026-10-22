@@ -5,6 +5,11 @@ import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-pr
 import { agentAuthChannels, type AgentAuthApi, type AgentAuthSnapshot } from '../shared/agent-auth'
 import { providersChannels, type ProvidersApi } from '../shared/providers'
 import { terminalChannels, type TerminalApi } from '../shared/terminal'
+import {
+  appUpdatesChannels,
+  type AppUpdatesApi,
+  type AppUpdateSnapshot
+} from '../shared/app-updates'
 
 // Custom APIs for renderer
 const api: AgentApi = {
@@ -78,6 +83,20 @@ const appPreferences: AppPreferencesApi = {
 }
 
 contextBridge.exposeInMainWorld('appPreferences', appPreferences)
+
+const appUpdates: AppUpdatesApi = {
+  get: () => ipcRenderer.invoke(appUpdatesChannels.get),
+  check: () => ipcRenderer.invoke(appUpdatesChannels.check),
+  openRelease: () => ipcRenderer.invoke(appUpdatesChannels.openRelease),
+  onSnapshot: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: AppUpdateSnapshot): void =>
+      listener(snapshot)
+    ipcRenderer.on(appUpdatesChannels.snapshot, handler)
+    return () => ipcRenderer.removeListener(appUpdatesChannels.snapshot, handler)
+  }
+}
+
+contextBridge.exposeInMainWorld('appUpdates', appUpdates)
 
 const terminal: TerminalApi = {
   discover: () => ipcRenderer.invoke(terminalChannels.discover),

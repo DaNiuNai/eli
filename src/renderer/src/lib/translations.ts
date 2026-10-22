@@ -4,6 +4,33 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  关于: 'About',
+  软件更新: 'Software updates',
+  检查更新: 'Check for updates',
+  '专注对话，从容完成任务。': 'Focused conversations. Tasks handled with ease.',
+  '查看 eli 版本与软件更新。': 'View the eli version and software updates.',
+  '当前版本：{version}': 'Current version: {version}',
+  '检查新版本，并前往 GitHub 发行页下载安装包。':
+    'Check for a new version and download an installer from GitHub Releases.',
+  '正在检查…': 'Checking…',
+  '正在检查新版本…': 'Checking for a new version…',
+  '当前已是最新版本。': 'You are up to date.',
+  '发现新版本 {version}': 'Version {version} is available',
+  '前往发行页查看更新说明，选择适合系统的安装包。':
+    'View the release notes and choose an installer for your system.',
+  前往下载: 'Go to download',
+  '无法读取版本信息，请重试。': 'Could not read version information. Please try again.',
+  '检查更新失败，请重试。': 'Could not check for updates. Please try again.',
+  '无法打开发行页，请重试。': 'Could not open the release page. Please try again.',
+  '暂时没有可用的正式版本。': 'No stable release is available yet.',
+  '更新服务暂时限制了请求，请稍后重试。':
+    'The update service is temporarily limiting requests. Please try again later.',
+  '更新服务暂时不可用，请稍后重试。':
+    'The update service is temporarily unavailable. Please try again later.',
+  '更新服务返回了无效的版本信息。': 'The update service returned invalid version information.',
+  '检查更新超时，请稍后重试。': 'The update check timed out. Please try again later.',
+  '无法连接更新服务，请检查网络后重试。':
+    'Could not connect to the update service. Check your connection and try again.',
   模型供应商: 'Model providers',
   添加模型供应商: 'Add model provider',
   '连接兼容的模型 API，凭据仅保存在 eli。':

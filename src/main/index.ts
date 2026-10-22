@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow, dialog, ipcMain, nativeTheme, net } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -10,6 +10,8 @@ import { terminalChannels } from '../shared/terminal'
 import { discoverTerminals, validateTerminal } from './terminal'
 import { runtimePaths } from '../runtime/paths'
 import { mkdirSync } from 'node:fs'
+import { AppUpdates } from './app-updates'
+import { appUpdatesChannels } from '../shared/app-updates'
 
 const appConfig = new AppConfig()
 const desktopDirectory = join(runtimePaths().root, 'desktop')
@@ -25,6 +27,18 @@ app.on('second-instance', () => {
 let agentService: AgentService | undefined
 const closingServices = new Set<Promise<void>>()
 let quitting = false
+const appUpdates = new AppUpdates({
+  currentVersion: app.getVersion(),
+  fetch: (url, init) => net.fetch(url, init),
+  openExternal: (url) => shell.openExternal(url),
+  publish: (snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(appUpdatesChannels.snapshot, snapshot)
+      }
+    }
+  }
+})
 
 function createWindow(): void {
   // Create the browser window.
@@ -67,6 +81,18 @@ function createWindow(): void {
     assertSender(event)
     return appConfig.get()
   })
+  ipcMain.handle(appUpdatesChannels.get, (event) => {
+    assertSender(event)
+    return appUpdates.get()
+  })
+  ipcMain.handle(appUpdatesChannels.check, (event) => {
+    assertSender(event)
+    return appUpdates.check()
+  })
+  ipcMain.handle(appUpdatesChannels.openRelease, (event) => {
+    assertSender(event)
+    return appUpdates.openRelease()
+  })
   ipcMain.handle(appPreferencesChannels.set, async (event, value: unknown) => {
     assertSender(event)
     const previousTerminal = JSON.stringify(appConfig.get().terminal)
@@ -107,6 +133,9 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)
     ipcMain.removeHandler(appPreferencesChannels.set)
+    ipcMain.removeHandler(appUpdatesChannels.get)
+    ipcMain.removeHandler(appUpdatesChannels.check)
+    ipcMain.removeHandler(appUpdatesChannels.openRelease)
     ipcMain.removeHandler(terminalChannels.discover)
     ipcMain.removeHandler(terminalChannels.validate)
     ipcMain.removeHandler(windowAppearanceChannel)

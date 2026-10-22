@@ -5,6 +5,7 @@ import {
   PlugIcon,
   BoxesIcon,
   GlobeIcon,
+  InfoIcon,
   SearchIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
@@ -37,6 +38,7 @@ import { ProviderAuthDialog } from './ProviderAuthDialog'
 import { ProviderSettingsPanel } from './ProviderSettingsPanel'
 import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { TerminalSetupDialog } from './TerminalSetupDialog'
+import { AboutSettings } from './AboutSettings'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
@@ -45,7 +47,8 @@ const categories = [
   { value: 'context', label: '上下文压缩', icon: SlidersHorizontalIcon },
   { value: 'network', label: '网络与重试', icon: GlobeIcon },
   { value: 'tools', label: '工具与 Shell', icon: TerminalIcon },
-  { value: 'resources', label: '资源与技能', icon: BoxesIcon }
+  { value: 'resources', label: '资源与技能', icon: BoxesIcon },
+  { value: 'about', label: '关于', icon: InfoIcon }
 ] as const
 
 const themeOptions = [
@@ -161,6 +164,24 @@ export function AppSettingsDialog({
       t(word).toLowerCase().includes(query.trim().toLowerCase()) || word.includes(query.trim())
   )
   const title = query.trim() ? t('搜索设置') : t(selected.label)
+  const showAbout = [
+    '关于',
+    '软件更新',
+    '检查更新',
+    '版本',
+    '下载',
+    'about',
+    'update',
+    'version',
+    'download',
+    'github'
+  ].some(
+    (word) =>
+      t(word).toLowerCase().includes(query.trim().toLowerCase()) || word.includes(query.trim())
+  )
+  const includeGeneral =
+    (activeCategory === 'general' && !query.trim()) || (showGeneral && !!query.trim())
+  const includeAbout = showAbout && !!query.trim()
 
   return (
     <Dialog
@@ -225,22 +246,34 @@ export function AppSettingsDialog({
                     ? '搜索 Eli 设置。'
                     : activeCategory === 'general'
                       ? '让 eli 更符合你的使用习惯。'
-                      : '管理 eli Agent Runtime 的配置。'
+                      : activeCategory === 'about'
+                        ? '查看 eli 版本与软件更新。'
+                        : '管理 eli Agent Runtime 的配置。'
                 )}
               </p>
             </header>
             <TabsContent value={activeCategory} className="flex min-h-0 flex-1 flex-col">
               {open && activeCategory === 'providers' && !query.trim() ? (
                 <ProviderSettingsPanel auth={login} />
+              ) : open && activeCategory === 'about' && !query.trim() ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+                  <AboutSettings />
+                </div>
               ) : open ? (
                 <AgentSettingsPanel
                   enabled
-                  category={activeCategory === 'providers' ? 'general' : activeCategory}
+                  category={
+                    activeCategory === 'providers' || activeCategory === 'about'
+                      ? 'general'
+                      : activeCategory
+                  }
                   query={query}
                   general={
-                    (activeCategory === 'general' && !query.trim()) ||
-                    (showGeneral && !!query.trim()) ? (
-                      <GeneralSettings />
+                    includeGeneral || includeAbout ? (
+                      <div className="flex flex-col gap-8">
+                        {includeGeneral && <GeneralSettings />}
+                        {includeAbout && <AboutSettings />}
+                      </div>
                     ) : null
                   }
                 />
