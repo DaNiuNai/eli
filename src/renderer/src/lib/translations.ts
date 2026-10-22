@@ -381,7 +381,6 @@ const english: Record<string, string> = {
   '列出 {count} 次目录': 'Listed directories {count} times',
   '{count} 次 {name} 调用': '{count} {name} calls',
   '另有 {count} 次操作': '{count} more actions',
-  '{count} 次失败': '{count} failed',
   '新增或写入 {added} 行；覆盖前的删除行数未知':
     '{added} lines added or written; deletions before overwrite are unknown',
   '新增 {added} 行，删除 {removed} 行': '{added} lines added, {removed} lines removed',

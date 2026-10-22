@@ -264,7 +264,6 @@ export function ToolActivity({
   const { t } = useLanguage()
   const calls = new Map<string, ToolItem>()
   const counts = new Map<string, number>()
-  let failures = 0
   let active = false
   let streaming = false
   let pending = false
@@ -284,7 +283,6 @@ export function ToolActivity({
     )
     calls.set(call.id, { call, state, diff })
     counts.set(call.name, (counts.get(call.name) ?? 0) + 1)
-    if (state.failed) failures++
     if (state.active) active = true
     if (state.phase === 'streaming') streaming = true
     if (state.phase === 'pending') pending = true
@@ -325,25 +323,16 @@ export function ToolActivity({
         ? 'pending'
         : incomplete
           ? 'incomplete'
-          : failures
-            ? 'error'
-            : 'success'
+          : 'success'
 
   return (
     <Trace className="tool-activity">
       <TraceCollapsible defaultOpen={false}>
         <TraceCollapsibleTrigger className="tool-activity-trigger">
-          <TraceLine
-            status={active ? 'running' : pending ? 'pending' : failures ? 'error' : undefined}
-          >
+          <TraceLine status={active ? 'running' : pending ? 'pending' : undefined}>
             <TraceTitle title={summary.join('，')}>
               {t(toolPhaseLabels[phase])} · {summary.join('，')}
             </TraceTitle>
-            {failures > 0 && (
-              <TraceDescription className="tool-failure-count">
-                {t('{count} 次失败', { count: failures })}
-              </TraceDescription>
-            )}
             {hasDiff && <DiffStats added={added} removed={removed} />}
           </TraceLine>
         </TraceCollapsibleTrigger>

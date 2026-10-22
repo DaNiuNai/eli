@@ -599,8 +599,7 @@
   color: var(--tool-added-foreground);
 }
 
-.tool-diff-stats [data-diff='removed'],
-.tool-failure-count {
+.tool-diff-stats [data-diff='removed'] {
   color: var(--destructive);
 }
 
