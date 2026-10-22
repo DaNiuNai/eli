@@ -1,4 +1,37 @@
 /* 应用样式独立于 CLI 生成的 shadcn 文件。 */
+.user-question-item[hidden] {
+  display: none;
+}
+
+.user-question-preview {
+  max-height: 26rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.user-question-preview > * + * {
+  margin-top: 0.75rem;
+}
+
+.user-question-preview pre {
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.user-question-preview code {
+  font: inherit;
+}
+
+.user-question-preview table {
+  border-collapse: collapse;
+}
+
+.user-question-preview th,
+.user-question-preview td {
+  padding: 0.375rem;
+  border: 1px solid var(--border);
+}
+
 .composer-command {
   position: relative;
   height: auto;

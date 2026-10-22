@@ -17,12 +17,14 @@ import { PiLoginDialog } from '@renderer/components/PiLoginDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
+import { UserQuestionPanel } from '@renderer/components/UserQuestionPanel'
 import { PiSidebar } from '@renderer/components/PiSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { usePi } from '@renderer/hooks/use-pi'
 import { usePiAuth } from '@renderer/hooks/use-pi-auth'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
+import { useUserQuestions } from '@renderer/hooks/use-user-questions'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
 import { getResponseDisplay } from '@renderer/lib/response-display'
@@ -47,6 +49,9 @@ function App(): React.JSX.Element {
   const { sidebarOpen } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const preferencesError = useSyncExternalStore(subscribeAppPreferences, getAppPreferencesError)
   const { snapshot, error, perform } = usePi()
+  const userQuestions = useUserQuestions((sessionKey, id, answers) =>
+    perform(() => window.api.respondToUserQuestion(sessionKey, id, answers), sessionKey)
+  )
   const auth = usePiAuth()
   const { library, loading, error: libraryError } = usePiLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -355,7 +360,10 @@ function App(): React.JSX.Element {
                                 entry === visibleMessages.at(-1)
                               }
                               responseStatus={
-                                entry === visibleMessages.at(-1) ? responseStatus : null
+                                entry === visibleMessages.at(-1) &&
+                                (!snapshot?.userQuestions.length || stopping)
+                                  ? responseStatus
+                                  : null
                               }
                               actionDisabled={
                                 !target ||
@@ -380,6 +388,23 @@ function App(): React.JSX.Element {
                           </MessageScrollerItem>
                         )
                       })}
+                      {snapshot?.userQuestions.map((request) => (
+                        <MessageScrollerItem key={request.id} messageId={`question:${request.id}`}>
+                          <UserQuestionPanel
+                            request={request}
+                            state={userQuestions.stateFor(request)}
+                            disabled={!ready || stopping || workspaceUnavailable}
+                            onDraft={(index, draft) =>
+                              userQuestions.updateDraft(request, index, draft)
+                            }
+                            onItemChange={(item) => userQuestions.setItem(request, item)}
+                            onSubmit={() => {
+                              if (ready && !stopping && !workspaceUnavailable)
+                                void userQuestions.submit(draftKey, request)
+                            }}
+                          />
+                        </MessageScrollerItem>
+                      ))}
                     </MessageScrollerContent>
                   </MessageScrollerViewport>
                   <MessageScrollerButton aria-label={t('跳转到最新消息')}>

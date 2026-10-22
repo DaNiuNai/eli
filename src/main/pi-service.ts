@@ -123,6 +123,11 @@ export class PiService {
       if (approved === true) await this.requireWorkspace(session.snapshot.cwd)
       session.respondToToolApproval(id, approved)
     })
+    handle(piChannels.respondToUserQuestion, async (key, id, answers) => {
+      const session = this.session(key)
+      await this.requireWorkspace(session.snapshot.cwd)
+      session.respondToUserQuestion(id, answers)
+    })
     handle(piChannels.getLibrary, async () => {
       const library = await this.library.load(this.libraryVersion)
       for (const session of library.sessions) {

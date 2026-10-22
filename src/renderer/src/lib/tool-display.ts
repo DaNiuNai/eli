@@ -67,6 +67,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 export function getToolTarget(call: ToolCall, args: Record<string, unknown>): string {
+  if (call.name === 'ask_user_question' && Array.isArray(args.questions)) {
+    const question = asRecord(args.questions[0])
+    if (typeof question.question === 'string') return question.question
+  }
   for (const key of ['path', 'file_path', 'command', 'pattern', 'query', 'url']) {
     if (typeof args[key] === 'string' && args[key]) return args[key]
   }

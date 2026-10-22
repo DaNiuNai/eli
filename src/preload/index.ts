@@ -15,6 +15,8 @@ const api: PiApi = {
   abort: (sessionKey) => ipcRenderer.invoke(piChannels.abort, sessionKey),
   respondToToolApproval: (sessionKey, id, approved) =>
     ipcRenderer.invoke(piChannels.respondToToolApproval, sessionKey, id, approved),
+  respondToUserQuestion: (sessionKey, id, answers) =>
+    ipcRenderer.invoke(piChannels.respondToUserQuestion, sessionKey, id, answers),
   newSession: (cwd) => ipcRenderer.invoke(piChannels.newSession, cwd),
   openSession: (path) => ipcRenderer.invoke(piChannels.openSession, path),
   deleteSession: (path) => ipcRenderer.invoke(piChannels.deleteSession, path),

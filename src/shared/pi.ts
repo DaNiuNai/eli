@@ -9,6 +9,7 @@ import type { PiLibrary, SavedSession } from './pi-library'
 import type { UiLanguage } from './app-preferences'
 import type { PiSettingsChange, PiSettingsSnapshot } from './pi-settings'
 import type { ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
+import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 
 // 消息、模型和 RPC 事件直接使用 pi 的类型，只定义桌面端的状态与 IPC 边界。
 export type PiMessage = Awaited<ReturnType<RpcClient['getMessages']>>[number]
@@ -56,6 +57,7 @@ export interface PiSessionSnapshot {
   response: PiResponseState
   tools: Record<string, PiToolEvent>
   toolApprovals: ToolApprovalRequest[]
+  userQuestions: UserQuestionRequest[]
   running: boolean
   pending: boolean
   activity: string
@@ -68,6 +70,7 @@ export interface PiLiveSession extends SavedSession {
   running: boolean
   pending: boolean
   approvalCount: number
+  questionCount: number
 }
 
 export interface PiSnapshot extends PiSessionSnapshot {
@@ -87,6 +90,11 @@ export interface PiApi {
   forkMessage(target: PiMessageTarget): Promise<void>
   abort(sessionKey: string): Promise<void>
   respondToToolApproval(sessionKey: string, id: string, approved: boolean): Promise<void>
+  respondToUserQuestion(
+    sessionKey: string,
+    id: string,
+    answers: UserQuestionAnswer[]
+  ): Promise<void>
   newSession(cwd?: string): Promise<void>
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
@@ -109,6 +117,7 @@ export const piChannels = {
   forkMessage: 'pi:fork-message',
   abort: 'pi:abort',
   respondToToolApproval: 'pi:respond-to-tool-approval',
+  respondToUserQuestion: 'pi:respond-to-user-question',
   newSession: 'pi:new-session',
   openSession: 'pi:open-session',
   deleteSession: 'pi:delete-session',

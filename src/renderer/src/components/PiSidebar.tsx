@@ -7,6 +7,7 @@ import {
   ChevronRightIcon,
   Code2Icon,
   EllipsisIcon,
+  MessageCircleQuestionIcon,
   PlusIcon,
   SearchIcon,
   ShieldQuestionIcon
@@ -335,8 +336,15 @@ export function PiSidebar({
                                       >
                                         {snapshot?.liveSessions.some(
                                           (entry) =>
-                                            entry.path === session.path && entry.approvalCount > 0
+                                            entry.path === session.path && entry.questionCount > 0
                                         ) ? (
+                                          <MessageCircleQuestionIcon
+                                            aria-label={t('等待你的回答')}
+                                          />
+                                        ) : snapshot?.liveSessions.some(
+                                            (entry) =>
+                                              entry.path === session.path && entry.approvalCount > 0
+                                          ) ? (
                                           <ShieldQuestionIcon aria-label={t('等待工具审批')} />
                                         ) : snapshot?.liveSessions.some(
                                             (entry) =>

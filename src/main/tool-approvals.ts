@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createServer, type Server, type Socket } from 'node:net'
+import { UserQuestions } from './user-questions'
 import {
   automaticallyApproveTool,
   type ToolApprovalMode,
@@ -23,7 +24,8 @@ export class ToolApprovals {
 
   constructor(
     private readonly mode: () => ToolApprovalMode,
-    private readonly changed: (requests: ToolApprovalRequest[]) => void
+    private readonly changed: (requests: ToolApprovalRequest[]) => void,
+    private readonly questions: UserQuestions
   ) {}
 
   async start(): Promise<string> {
@@ -74,6 +76,12 @@ export class ToolApprovals {
           this.reply(socket, true)
           return
         }
+        if (value.type === 'user_question') {
+          if (this.cancelled || !this.ready) {
+            socket.end(`${JSON.stringify({ cancelled: true })}\n`)
+          } else this.questions.ask(value.toolCallId, value.input, socket)
+          return
+        }
         if (
           value.type !== 'tool' ||
           typeof value.toolCallId !== 'string' ||
@@ -102,13 +110,16 @@ export class ToolApprovals {
         }
         this.pending.set(request.id, { request, readOnly: value.readOnly, socket })
         this.publish()
-      } catch {
-        this.reply(socket, false)
+      } catch (error) {
+        socket.end(
+          `${JSON.stringify({ approved: false, error: error instanceof Error ? error.message : '无效的工具请求' })}\n`
+        )
       }
     })
     socket.on('error', () => socket.destroy())
     socket.on('close', () => {
       this.sockets.delete(socket)
+      this.questions.disconnect(socket)
       for (const [id, approval] of this.pending) {
         if (approval.socket === socket) {
           this.pending.delete(id)
@@ -140,6 +151,7 @@ export class ToolApprovals {
 
   cancel(): void {
     this.cancelled = true
+    this.questions.cancel()
     for (const { socket } of this.pending.values()) this.reply(socket, false)
     this.pending.clear()
     this.publish()

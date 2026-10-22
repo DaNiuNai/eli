@@ -1,4 +1,10 @@
-import { FilePenLineIcon, SearchIcon, TerminalIcon, WrenchIcon } from 'lucide-react'
+import {
+  FilePenLineIcon,
+  MessageCircleQuestionIcon,
+  SearchIcon,
+  TerminalIcon,
+  WrenchIcon
+} from 'lucide-react'
 import type { PiToolEvent } from '../../../shared/pi'
 import {
   Trace,
@@ -25,6 +31,7 @@ import { getToolDiff, getToolState, getToolTarget, type ToolDiff } from '@render
 import { ChatMarkdown } from './ChatMarkdown'
 
 const toolActions: Record<string, string> = {
+  ask_user_question: '询问用户',
   bash: '运行命令',
   read: '读取文件',
   write: '写入文件',
@@ -35,6 +42,7 @@ const toolActions: Record<string, string> = {
 }
 
 const summaryActions: Record<string, string> = {
+  ask_user_question: '询问用户 {count} 次',
   bash: '运行 {count} 条命令',
   read: '读取 {count} 个文件',
   write: '写入 {count} 个文件',
@@ -142,13 +150,15 @@ function ToolCallView({ call, state, diff }: ToolItem): React.JSX.Element {
   const action = t(toolActions[call.name] ?? '调用工具')
   const label = `${t(toolPhaseLabels[state.phase])} · ${action}`
   const Icon =
-    call.name === 'bash'
-      ? TerminalIcon
-      : call.name === 'write' || call.name === 'edit'
-        ? FilePenLineIcon
-        : call.name === 'grep' || call.name === 'find'
-          ? SearchIcon
-          : WrenchIcon
+    call.name === 'ask_user_question'
+      ? MessageCircleQuestionIcon
+      : call.name === 'bash'
+        ? TerminalIcon
+        : call.name === 'write' || call.name === 'edit'
+          ? FilePenLineIcon
+          : call.name === 'grep' || call.name === 'find'
+            ? SearchIcon
+            : WrenchIcon
   const output = state.output
 
   return (

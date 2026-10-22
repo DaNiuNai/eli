@@ -30,6 +30,7 @@ import {
 } from './pi-history'
 import { compactContext, compactionSkipReason } from './pi-compaction'
 import { ToolApprovals } from './tool-approvals'
+import { UserQuestions } from './user-questions'
 import type { ToolApprovalMode } from '../shared/tool-approval'
 import approvalExtensionPath from '../../resources/tool-approval.ts?asset&asarUnpack'
 
@@ -64,6 +65,7 @@ export class PiSession {
   private settingsVersion = 0
   private appliedSettingsVersion = 0
   private approvals: ToolApprovals
+  private questions: UserQuestions
   readonly snapshot: PiSessionSnapshot
 
   constructor(
@@ -88,16 +90,25 @@ export class PiSession {
       response: { id: 0, messageIndex: 0, phase: 'idle', toolCallDrafts: {} },
       tools: {},
       toolApprovals: [],
+      userQuestions: [],
       running: false,
       pending: false,
       activity: '',
       error: null,
       hideThinkingBlock: false
     }
-    this.approvals = new ToolApprovals(approvalMode, (requests) => {
-      this.snapshot.toolApprovals = requests
+    this.questions = new UserQuestions((requests) => {
+      this.snapshot.userQuestions = requests
       this.changed()
     })
+    this.approvals = new ToolApprovals(
+      approvalMode,
+      (requests) => {
+        this.snapshot.toolApprovals = requests
+        this.changed()
+      },
+      this.questions
+    )
   }
 
   async load(): Promise<void> {
@@ -217,7 +228,8 @@ export class PiSession {
       messageCount: this.snapshot.messages.length,
       running: this.snapshot.running,
       pending: this.snapshot.pending,
-      approvalCount: this.snapshot.toolApprovals.length
+      approvalCount: this.snapshot.toolApprovals.length,
+      questionCount: this.snapshot.userQuestions.length
     }
   }
 
@@ -227,6 +239,10 @@ export class PiSession {
 
   respondToToolApproval(id: unknown, approved: unknown): void {
     this.approvals.respond(id, approved)
+  }
+
+  respondToUserQuestion(id: unknown, answers: unknown): void {
+    this.questions.respond(id, answers)
   }
 
   refreshApprovalMode(): void {

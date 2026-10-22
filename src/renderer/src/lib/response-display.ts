@@ -3,7 +3,7 @@ import type { PiResponsePhase, PiSessionSnapshot } from '../../../shared/pi'
 export function getResponseDisplay(
   snapshot: Pick<
     PiSessionSnapshot,
-    'response' | 'activity' | 'hideThinkingBlock' | 'toolApprovals'
+    'response' | 'activity' | 'hideThinkingBlock' | 'toolApprovals' | 'userQuestions'
   > | null,
   sendingId: number | undefined,
   stopping: boolean
@@ -17,16 +17,18 @@ export function getResponseDisplay(
   const compacting = snapshot?.activity === '正在整理上下文'
   const status = isStopping
     ? '正在停止'
-    : snapshot?.toolApprovals.length
-      ? '等待工具审批'
-      : compacting
-        ? null
-        : phase === 'sending'
-          ? '正在发送消息'
-          : phase === 'waiting'
-            ? '正在等待回复'
-            : phase === 'thinking' && snapshot?.hideThinkingBlock
-              ? '正在思考'
-              : null
+    : snapshot?.userQuestions.length
+      ? '等待你的回答'
+      : snapshot?.toolApprovals.length
+        ? '等待工具审批'
+        : compacting
+          ? null
+          : phase === 'sending'
+            ? '正在发送消息'
+            : phase === 'waiting'
+              ? '正在等待回复'
+              : phase === 'thinking' && snapshot?.hideThinkingBlock
+                ? '正在思考'
+                : null
   return { phase, active: phase !== 'idle' && !isStopping && !compacting, status }
 }
