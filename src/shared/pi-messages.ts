@@ -1,35 +1,46 @@
 import type { JsonAgentSessionEvent } from '@earendil-works/pi-coding-agent'
-import type { PiMessage, PiSnapshot } from './pi'
+import type { PiMessage, PiResponsePhase, PiResponseState, PiSnapshot } from './pi'
 
 type MessageUpdate = Extract<JsonAgentSessionEvent, { type: 'message_update' }>
 
-export function updateResponseActivity(
-  current: string,
-  event: MessageUpdate,
-  toolsRunning: boolean
-): string {
-  if (current === '正在停止') return current
+export function updateResponsePhase(
+  current: PiResponsePhase,
+  event: MessageUpdate
+): PiResponsePhase {
   switch (event.assistantMessageEvent.type) {
     case 'thinking_start':
     case 'thinking_delta':
-      return '正在思考'
+      return 'thinking'
     case 'text_start':
-      return toolsRunning ? '正在调用工具' : '正在处理'
     case 'text_delta':
-      if (!event.assistantMessageEvent.delta.trim() && current !== '正在回复') {
-        return toolsRunning ? '正在调用工具' : '正在处理'
-      }
-      return '正在回复'
+      return 'text'
     case 'toolcall_start':
     case 'toolcall_delta':
-      return '正在调用工具'
-    case 'thinking_end':
-    case 'text_end':
-    case 'toolcall_end':
-      return toolsRunning ? '正在调用工具' : '正在处理'
+      return 'tool-call'
     default:
       return current
   }
+}
+
+export function updateToolCallDrafts(
+  current: PiResponseState['toolCallDrafts'],
+  message: PiMessage,
+  event: MessageUpdate
+): PiResponseState['toolCallDrafts'] {
+  const update = event.assistantMessageEvent
+  if (update.type === 'toolcall_start') return { ...current, [update.id]: '' }
+  if (update.type === 'toolcall_end') {
+    const next = { ...current }
+    delete next[update.toolCall.id]
+    return next
+  }
+  if (update.type === 'toolcall_delta' && message.role === 'assistant') {
+    const block = message.content[update.contentIndex]
+    if (block?.type === 'toolCall') {
+      return { ...current, [block.id]: (current[block.id] ?? '') + update.delta }
+    }
+  }
+  return current
 }
 
 /** 用块级事件区分思考结束与整条助手消息结束，正文仍可能继续流式输出。 */

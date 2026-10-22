@@ -15,7 +15,7 @@ export function ChatMessage({
   results,
   tools,
   running,
-  processing = false,
+  responseStatus = null,
   actionDisabled = true,
   editing,
   onStartEdit = () => {},
@@ -28,7 +28,7 @@ export function ChatMessage({
   results: Map<string, ToolResult>
   tools: Record<string, PiToolEvent>
   running: boolean
-  processing?: boolean
+  responseStatus?: string | null
   actionDisabled?: boolean
   editing?: { text: string; busy: boolean }
   onStartEdit?: (text: string) => void
@@ -98,10 +98,10 @@ export function ChatMessage({
             }
           })
         )}
-        {processing && (
+        {responseStatus && (
           <Trace role="status" aria-live="polite">
-            <TraceLine>
-              <TraceTitle>{t('正在处理')}</TraceTitle>
+            <TraceLine status="running">
+              <TraceTitle>{t(responseStatus)}</TraceTitle>
             </TraceLine>
           </Trace>
         )}

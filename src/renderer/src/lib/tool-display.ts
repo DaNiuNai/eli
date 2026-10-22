@@ -10,19 +10,22 @@ export interface ToolDiff {
 }
 
 export interface ToolState {
+  phase: 'streaming' | 'pending' | 'running' | 'success' | 'error' | 'incomplete'
   args: ToolCall['arguments']
   output: Pick<ToolResult, 'content' | 'details'> | undefined
   finished: boolean
   failed: boolean
   active: boolean
-  status: 'error' | 'running' | undefined
+  draft?: string
+  status: 'error' | 'running' | 'pending' | undefined
 }
 
 export function getToolState(
   call: ToolCall,
   event: PiToolEvent | undefined,
   result: ToolResult | undefined,
-  running: boolean
+  running: boolean,
+  draft?: string
 ): ToolState {
   const output: Pick<ToolResult, 'content' | 'details'> | undefined =
     result ??
@@ -32,16 +35,28 @@ export function getToolState(
         ? event.partialResult
         : undefined)
   const finished = !!result || event?.type === 'tool_execution_end'
-  const failed = result?.isError || (event?.type === 'tool_execution_end' && event.isError) || false
-  // 仅收到执行事件后标记运行中，避免把尚未开始或历史中断的调用标为运行。
-  const active = !finished && running && !!event
+  const failed = result ? result.isError : event?.type === 'tool_execution_end' && event.isError
+  const phase: ToolState['phase'] = failed
+    ? 'error'
+    : finished
+      ? 'success'
+      : !running
+        ? 'incomplete'
+        : event
+          ? 'running'
+          : draft !== undefined
+            ? 'streaming'
+            : 'pending'
+  const active = phase === 'streaming' || phase === 'running'
   return {
+    phase,
     args: event && 'args' in event ? event.args : call.arguments,
     output,
     finished,
     failed,
     active,
-    status: failed ? ('error' as const) : active ? ('running' as const) : undefined
+    draft,
+    status: failed ? 'error' : active ? 'running' : phase === 'pending' ? 'pending' : undefined
   }
 }
 

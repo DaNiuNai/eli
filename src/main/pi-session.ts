@@ -19,7 +19,8 @@ import type {
 import {
   updateActiveThinking,
   updateAssistantMessage,
-  updateResponseActivity
+  updateResponsePhase,
+  updateToolCallDrafts
 } from '../shared/pi-messages'
 import {
   mapMessageEntryIds,
@@ -79,6 +80,7 @@ export class PiSession {
       messages: [],
       messageEntryIds: [],
       activeThinking: null,
+      response: { id: 0, messageIndex: 0, phase: 'idle', toolCallDrafts: {} },
       tools: {},
       running: false,
       pending: false,
@@ -89,6 +91,8 @@ export class PiSession {
   }
 
   async load(): Promise<void> {
+    this.snapshot.running = false
+    this.finishResponse()
     const { SessionManager, SettingsManager } = await import('@earendil-works/pi-coding-agent')
     const path = this.persisted ? this.snapshot.session?.sessionFile : undefined
     let savedModel: { provider: string; modelId: string } | null = null
@@ -247,13 +251,17 @@ export class PiSession {
 
   async prompt(text: string): Promise<void> {
     await this.exclusive(async () => {
+      this.beginResponse()
       if (!this.submitted) {
         this.submitted = true
         this.title = text
         // 先发布占位会话，pi 初始化期间也能切走或创建另一个会话。
         this.changed(true)
       }
-      const client = await this.ensureClient()
+      const client = await this.ensureClient().catch((error: unknown) => {
+        this.fail(error)
+        throw error
+      })
       await this.sendPrompt(client, text)
     })
   }
@@ -304,6 +312,7 @@ export class PiSession {
         if (this.compaction === controller) this.compaction = undefined
         if (this.client === client && !this.disposed) {
           this.snapshot.running = false
+          this.finishResponse()
           this.snapshot.activity = activity
           this.changed()
         }
@@ -396,23 +405,49 @@ export class PiSession {
     text: string,
     images?: Parameters<RpcClient['prompt']>[1]
   ): Promise<void> {
-    if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
-    this.snapshot.error = null
+    const responseId = this.snapshot.response.id
     this.snapshot.running = true
-    this.snapshot.activity = '正在处理'
-    this.modified = Date.now()
     this.changed()
     try {
       const disposition = await client.prompt(text, images)
+      // 接收确认可能晚于首个 token，甚至晚于快速完成，不能覆盖已经推进的阶段。
+      if (this.snapshot.response.id !== responseId || !this.snapshot.running) return
       if (disposition === 'handled') {
         await this.refresh(client)
         this.snapshot.running = false
+        this.finishResponse()
         this.snapshot.activity = ''
+      } else if (this.snapshot.response.phase === 'sending') {
+        this.snapshot.response.phase = 'waiting'
       }
+      this.changed()
     } catch (error) {
       this.fail(error)
       throw error
     }
+  }
+
+  private beginResponse(): void {
+    if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
+    this.snapshot.response = {
+      id: this.snapshot.response.id + 1,
+      messageIndex: this.snapshot.messages.length,
+      phase: 'sending',
+      toolCallDrafts: {}
+    }
+    this.snapshot.activeThinking = null
+    this.activeTools.clear()
+    this.snapshot.activity = ''
+    this.snapshot.error = null
+    this.modified = Date.now()
+    this.changed()
+  }
+
+  private finishResponse(): void {
+    this.snapshot.response.phase = 'idle'
+    this.snapshot.response.toolCallDrafts = {}
+    this.snapshot.activeThinking = null
+    this.activeTools.clear()
   }
 
   async abort(): Promise<void> {
@@ -497,6 +532,7 @@ export class PiSession {
           await client.setThinkingLevel(thinkingLevel)
         }
         await this.refresh(client)
+        this.beginResponse()
         await this.sendPrompt(client, text, rewound.images.length ? rewound.images : undefined)
       } catch (error) {
         await this.stopClient()
@@ -549,29 +585,49 @@ export class PiSession {
         this.snapshot.running = true
         this.snapshot.activeThinking = null
         this.activeTools.clear()
-        this.snapshot.activity = '正在处理'
+        if (this.snapshot.response.phase === 'idle') this.snapshot.response.phase = 'waiting'
+        break
+      case 'turn_start':
+        // 工具结果触发下一轮模型请求；首轮仍等待 prompt 的接收确认。
+        if (
+          this.snapshot.response.phase !== 'idle' &&
+          this.snapshot.response.phase !== 'sending' &&
+          this.snapshot.activity !== '正在停止'
+        ) {
+          this.snapshot.response.phase = 'waiting'
+        }
         break
       case 'message_start':
         this.snapshot.activeThinking = null
         this.activeMessage = this.snapshot.messages.length
         this.snapshot.messages.push(event.message)
         this.snapshot.messageEntryIds.push(null)
+        if (
+          event.message.role === 'assistant' &&
+          this.snapshot.response.phase !== 'idle' &&
+          this.snapshot.activity !== '正在停止'
+        ) {
+          this.snapshot.response.phase = 'waiting'
+        }
         if (event.message.role === 'user') this.changed(true)
         break
       case 'message_update': {
         const message = this.snapshot.messages[this.activeMessage]
         if (message) {
+          this.snapshot.response.toolCallDrafts = updateToolCallDrafts(
+            this.snapshot.response.toolCallDrafts,
+            message,
+            event
+          )
           this.snapshot.messages[this.activeMessage] = updateAssistantMessage(message, event)
           this.snapshot.activeThinking = updateActiveThinking(
             this.snapshot.activeThinking,
             event,
             this.activeMessage
           )
-          this.snapshot.activity = updateResponseActivity(
-            this.snapshot.activity,
-            event,
-            this.activeTools.size > 0
-          )
+          if (this.snapshot.response.phase !== 'idle' && this.snapshot.activity !== '正在停止') {
+            this.snapshot.response.phase = updateResponsePhase(this.snapshot.response.phase, event)
+          }
         }
         break
       }
@@ -579,9 +635,7 @@ export class PiSession {
         if (event.message.role === 'user' || event.message.role === 'assistant')
           this.persisted = true
         this.snapshot.activeThinking = null
-        if (this.snapshot.running && this.snapshot.activity !== '正在停止') {
-          this.snapshot.activity = this.activeTools.size ? '正在调用工具' : '正在处理'
-        }
+        if (event.message.role === 'assistant') this.snapshot.response.toolCallDrafts = {}
         if (this.activeMessage >= 0) this.snapshot.messages[this.activeMessage] = event.message
         else {
           this.snapshot.messages.push(event.message)
@@ -591,19 +645,26 @@ export class PiSession {
         break
       case 'tool_execution_start':
       case 'tool_execution_update':
-      case 'tool_execution_end':
+      case 'tool_execution_end': {
+        const previous = this.snapshot.tools[event.toolCallId]
+        if (previous?.type === 'tool_execution_end' && event.type !== 'tool_execution_end') break
         this.snapshot.tools[event.toolCallId] = event
         if (event.type === 'tool_execution_end') this.activeTools.delete(event.toolCallId)
         else this.activeTools.add(event.toolCallId)
-        if (this.snapshot.activity !== '正在停止') {
-          this.snapshot.activity = this.activeTools.size ? '正在调用工具' : '正在处理'
+        if (this.snapshot.response.phase !== 'idle' && this.snapshot.activity !== '正在停止') {
+          // 并行工具的进度不能覆盖正在输出的新消息。
+          const message = this.snapshot.messages[this.activeMessage]
+          if (message?.role !== 'assistant') {
+            this.snapshot.response.phase = this.activeTools.size ? 'tool-running' : 'waiting'
+          }
         }
         break
+      }
       case 'agent_settled': {
         // 手动压缩会先中止 pi 的当前运行，由 compact() 统一刷新和解除状态。
         if (this.compaction) break
-        this.snapshot.activeThinking = null
-        this.activeTools.clear()
+        // settled 才代表本轮不再输出或调用工具；刷新历史期间也不再显示忙碌动画。
+        this.finishResponse()
         const client = this.client
         if (!client) break
         // 最终消息同步完再开始空闲倒计时，不能在 agent_end 时提前回收自动重试。
@@ -621,10 +682,15 @@ export class PiSession {
         break
       }
       case 'compaction_start':
-        this.snapshot.activity = this.compaction ? '正在整理上下文' : '正在处理'
+        if (this.snapshot.activity !== '正在停止') this.snapshot.activity = '正在整理上下文'
+        this.snapshot.activeThinking = null
+        if (!this.compaction && this.snapshot.activity !== '正在停止') {
+          this.snapshot.response.phase = 'waiting'
+        }
         this.snapshot.contextUsage = null
         break
       case 'compaction_end':
+        if (!this.compaction && this.snapshot.activity !== '正在停止') this.snapshot.activity = ''
         this.snapshot.contextUsage = null
         if (
           event.errorMessage &&
@@ -637,7 +703,11 @@ export class PiSession {
           this.snapshot.error = event.errorMessage
         break
       case 'auto_retry_start':
-        this.snapshot.activity = '正在处理'
+        if (this.snapshot.response.phase !== 'idle' && this.snapshot.activity !== '正在停止') {
+          this.snapshot.response.phase = 'waiting'
+          this.snapshot.activeThinking = null
+          this.snapshot.response.toolCallDrafts = {}
+        }
         break
       case 'auto_retry_end':
         if (event.finalError) this.snapshot.error = event.finalError
@@ -655,8 +725,7 @@ export class PiSession {
   private fail(error: unknown): void {
     this.snapshot.connection = 'error'
     this.snapshot.running = false
-    this.snapshot.activeThinking = null
-    this.activeTools.clear()
+    this.finishResponse()
     this.snapshot.activity = ''
     this.snapshot.error = error instanceof Error ? error.message : String(error)
     void this.stopClient().catch(() => {})
@@ -683,6 +752,7 @@ export class PiSession {
     this.client = null
     this.activeMessage = -1
     this.snapshot.activeThinking = null
+    this.snapshot.response.toolCallDrafts = {}
     this.activeTools.clear()
     this.stopping = (async () => {
       await client?.stop()

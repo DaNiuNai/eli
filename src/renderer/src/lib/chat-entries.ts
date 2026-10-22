@@ -4,7 +4,7 @@ type AssistantMessage = Extract<PiMessage, { role: 'assistant' }>
 export type ToolCall = Extract<AssistantMessage['content'][number], { type: 'toolCall' }>
 export type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
 export type TracePart =
-  | { id: string; type: 'toolCall'; call: ToolCall }
+  | { id: string; type: 'toolCall'; call: ToolCall; draft?: string }
   | { id: string; type: 'thinking'; text: string; pending: boolean }
 
 type ContentGroup =
@@ -24,7 +24,8 @@ export interface ChatEntry {
 export function buildChatEntries(
   messages: PiMessage[],
   activeThinking: PiSnapshot['activeThinking'] = null,
-  hideThinking = false
+  hideThinking = false,
+  toolCallDrafts: PiSnapshot['response']['toolCallDrafts'] = {}
 ): ChatEntry[] {
   const entries: ChatEntry[] = []
   let current: ChatEntry | undefined
@@ -67,7 +68,7 @@ export function buildChatEntries(
           return
         const tracePart: TracePart =
           part.type === 'toolCall'
-            ? { id: part.id, type: 'toolCall', call: part }
+            ? { id: part.id, type: 'toolCall', call: part, draft: toolCallDrafts[part.id] }
             : {
                 id,
                 type: 'thinking',

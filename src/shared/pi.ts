@@ -21,6 +21,18 @@ export type PiToolEvent = Extract<
   { type: 'tool_execution_start' | 'tool_execution_update' | 'tool_execution_end' }
 >
 
+/** 回复阶段由真实事件推进；内容块结束不代表整轮回复结束。 */
+export type PiResponsePhase =
+  'idle' | 'sending' | 'waiting' | 'thinking' | 'tool-call' | 'text' | 'tool-running'
+
+export interface PiResponseState {
+  id: number
+  messageIndex: number
+  phase: PiResponsePhase
+  /** 只保留还在生成参数的调用，完整调用以消息中的 arguments 为准。 */
+  toolCallDrafts: Record<string, string>
+}
+
 export interface PiMessageTarget {
   sessionId: string
   entryId: string
@@ -40,6 +52,7 @@ export interface PiSessionSnapshot {
   messages: PiMessage[]
   messageEntryIds: (string | null)[]
   activeThinking: { messageIndex: number; contentIndex: number } | null
+  response: PiResponseState
   tools: Record<string, PiToolEvent>
   running: boolean
   pending: boolean

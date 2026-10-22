@@ -5,7 +5,7 @@ import type { PiAuthApi } from '../shared/pi-auth'
 
 declare global {
   interface Window {
-    api: PiApi // 包括按会话压缩上下文、查询技能、工作目录可用状态，以及选择目录后返回的路径。
+    api: PiApi // 会话快照包含回复阶段、请求序号和流式工具参数；接收确认以本机 pi 为准。
     appPreferences: AppPreferencesApi // 包括归档工作目录的持久化设置。
     piAuth: PiAuthApi // pi 登录交互；凭据由主进程中的 SDK 保存。
     windowAppearance?: WindowAppearanceApi

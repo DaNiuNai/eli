@@ -24,6 +24,7 @@ import { usePiAuth } from '@renderer/hooks/use-pi-auth'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { buildChatEntries, type ToolResult } from '@renderer/lib/chat-entries'
+import { getResponseDisplay } from '@renderer/lib/response-display'
 import { restoreWorkspace } from '@renderer/lib/workspace-archive'
 import {
   canExecuteSlashCommand,
@@ -50,7 +51,7 @@ function App(): React.JSX.Element {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
-  const [sendingSessions, setSendingSessions] = useState<Set<string>>(new Set())
+  const [sendingSessions, setSendingSessions] = useState<Record<string, number>>({})
   const [commandSessions, setCommandSessions] = useState<Set<string>>(new Set())
   const [stoppingSessions, setStoppingSessions] = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState<{ target: PiMessageTarget; text: string } | null>(null)
@@ -64,7 +65,7 @@ function App(): React.JSX.Element {
   useEffect(() => {
     selectedSessionRef.current = draftKey
   }, [draftKey])
-  const sending = sendingSessions.has(draftKey)
+  const sending = sendingSessions[draftKey] !== undefined
   const commandPending = commandSessions.has(draftKey)
   const stopping = stoppingSessions.has(draftKey)
   const messageActionKind = messageActions[draftKey]
@@ -78,17 +79,37 @@ function App(): React.JSX.Element {
     commandPending ||
     messageActionKind
   )
-  const processing =
-    !stopping &&
-    (snapshot?.running ? snapshot.activity === '正在处理' : sending || messageActionKind === 'edit')
+  const {
+    phase: responsePhase,
+    active: responseActive,
+    status: responseStatus
+  } = getResponseDisplay(snapshot, sendingSessions[draftKey], stopping)
   const messages = snapshot?.messages ?? []
   const visibleMessages = buildChatEntries(
     messages,
-    snapshot?.running ? snapshot.activeThinking : null,
-    snapshot?.hideThinkingBlock
+    responseActive ? snapshot?.activeThinking : null,
+    snapshot?.hideThinkingBlock,
+    responseActive ? snapshot?.response.toolCallDrafts : undefined
   )
-  if (processing && visibleMessages.at(-1)?.role !== 'assistant') {
-    visibleMessages.push({ id: 'processing', lastMessageIndex: -1, role: 'assistant', groups: [] })
+  if (
+    responseStatus &&
+    (visibleMessages.at(-1)?.role !== 'assistant' ||
+      responsePhase === 'sending' ||
+      (visibleMessages.at(-1)?.lastMessageIndex ?? -1) < (snapshot?.response.messageIndex ?? 0))
+  ) {
+    visibleMessages.push({
+      // 提前使用即将到来的助手消息位置，让占位与正文共用同一个滚动条目。
+      id: String(
+        messages.length +
+          (sendingSessions[draftKey] === snapshot?.response.id ||
+          messages.length === snapshot?.response.messageIndex
+            ? 1
+            : 0)
+      ),
+      lastMessageIndex: -1,
+      role: 'assistant',
+      groups: []
+    })
   }
   const toolResults = new Map<string, ToolResult>()
   for (const message of messages) {
@@ -149,15 +170,15 @@ function App(): React.JSX.Element {
     )
       return
     sendingRef.current.add(draftKey)
-    setSendingSessions((current) => new Set(current).add(draftKey))
+    setSendingSessions((current) => ({ ...current, [draftKey]: snapshot?.response.id ?? 0 }))
     const text = draft
     updateDraft('')
     const success = await perform(() => window.api.prompt(draftKey, text), draftKey)
     if (!success) setDrafts((current) => ({ ...current, [draftKey]: current[draftKey] || text }))
     sendingRef.current.delete(draftKey)
     setSendingSessions((current) => {
-      const next = new Set(current)
-      next.delete(draftKey)
+      const next = { ...current }
+      delete next[draftKey]
       return next
     })
     if (selectedSessionRef.current === draftKey) textarea.current?.focus()
@@ -181,10 +202,20 @@ function App(): React.JSX.Element {
       return false
     messageActionRef.current.add(draftKey)
     setMessageActions((current) => ({ ...current, [draftKey]: kind }))
+    if (kind === 'edit') {
+      setSendingSessions((current) => ({ ...current, [draftKey]: snapshot?.response.id ?? 0 }))
+    }
     try {
       return await perform(action, draftKey)
     } finally {
       messageActionRef.current.delete(draftKey)
+      if (kind === 'edit') {
+        setSendingSessions((current) => {
+          const next = { ...current }
+          delete next[draftKey]
+          return next
+        })
+      }
       setMessageActions((current) => {
         const next = { ...current }
         delete next[draftKey]
@@ -317,8 +348,14 @@ function App(): React.JSX.Element {
                               entry={entry}
                               results={toolResults}
                               tools={snapshot?.tools ?? {}}
-                              running={!!snapshot?.running && entry === visibleMessages.at(-1)}
-                              processing={processing && entry === visibleMessages.at(-1)}
+                              running={
+                                responseActive &&
+                                entry.lastMessageIndex >= (snapshot?.response.messageIndex ?? 0) &&
+                                entry === visibleMessages.at(-1)
+                              }
+                              responseStatus={
+                                entry === visibleMessages.at(-1) ? responseStatus : null
+                              }
                               actionDisabled={
                                 !target ||
                                 busy ||

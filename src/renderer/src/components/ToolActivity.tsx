@@ -127,15 +127,20 @@ interface ToolItem {
   diff: ToolDiff | null
 }
 
+const toolPhaseLabels: Record<ToolState['phase'], string> = {
+  streaming: '正在生成工具调用',
+  pending: '等待执行',
+  running: '正在执行',
+  success: '已执行',
+  error: '执行失败',
+  incomplete: '未完成'
+}
+
 function ToolCallView({ call, state, diff }: ToolItem): React.JSX.Element {
   const { t } = useLanguage()
   const target = getToolTarget(call, state.args)
   const action = t(toolActions[call.name] ?? '调用工具')
-  const label = state.failed
-    ? `${t('执行失败')} · ${action}`
-    : state.finished
-      ? action
-      : `${t(state.active ? '正在执行' : '未完成')} · ${action}`
+  const label = `${t(toolPhaseLabels[state.phase])} · ${action}`
   const Icon =
     call.name === 'bash'
       ? TerminalIcon
@@ -164,12 +169,14 @@ function ToolCallView({ call, state, diff }: ToolItem): React.JSX.Element {
           {diff && <ToolDiffView diff={diff} path={target} />}
           <ToolCode
             title={`${t('调用参数')} · ${call.name}`}
-            value={JSON.stringify(state.args, null, 2)}
+            value={
+              state.draft !== undefined ? state.draft || '…' : JSON.stringify(state.args, null, 2)
+            }
           />
           {output ? (
             <>
               <ToolCode
-                title={t(state.active ? '实时输出' : '返回结果')}
+                title={t(state.phase === 'running' ? '实时输出' : '返回结果')}
                 value={
                   output.content
                     .filter((part) => part.type === 'text')
@@ -194,7 +201,15 @@ function ToolCallView({ call, state, diff }: ToolItem): React.JSX.Element {
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {t(state.active ? '等待工具返回结果…' : '暂无工具返回结果')}
+              {t(
+                state.phase === 'streaming'
+                  ? '正在生成工具调用参数…'
+                  : state.phase === 'pending'
+                    ? '工具调用已生成，等待执行…'
+                    : state.phase === 'running'
+                      ? '等待工具返回结果…'
+                      : '暂无工具返回结果'
+              )}
             </p>
           )}
         </div>
@@ -241,13 +256,16 @@ export function ToolActivity({
   const counts = new Map<string, number>()
   let failures = 0
   let active = false
+  let streaming = false
+  let pending = false
+  let incomplete = false
   let added = 0
   let removed: number | null = 0
   let hasDiff = false
   for (const part of parts) {
     if (part.type !== 'toolCall') continue
     const { call } = part
-    const state = getToolState(call, tools[call.id], results.get(call.id), running)
+    const state = getToolState(call, tools[call.id], results.get(call.id), running, part.draft)
     const diff = getToolDiff(
       call,
       state.args,
@@ -258,6 +276,9 @@ export function ToolActivity({
     counts.set(call.name, (counts.get(call.name) ?? 0) + 1)
     if (state.failed) failures++
     if (state.active) active = true
+    if (state.phase === 'streaming') streaming = true
+    if (state.phase === 'pending') pending = true
+    if (state.phase === 'incomplete') incomplete = true
     if (diff) {
       hasDiff = true
       added += diff.added
@@ -286,15 +307,27 @@ export function ToolActivity({
     .map(([name, count]) => t(summaryActions[name] ?? '{count} 次 {name} 调用', { count, name }))
   const remaining = [...counts.values()].slice(3).reduce((sum, count) => sum + count, 0)
   if (remaining) summary.push(t('另有 {count} 次操作', { count: remaining }))
+  const phase: ToolState['phase'] = streaming
+    ? 'streaming'
+    : active
+      ? 'running'
+      : pending
+        ? 'pending'
+        : incomplete
+          ? 'incomplete'
+          : failures
+            ? 'error'
+            : 'success'
 
   return (
     <Trace className="tool-activity">
       <TraceCollapsible defaultOpen={false}>
         <TraceCollapsibleTrigger className="tool-activity-trigger">
-          <TraceLine status={active ? 'running' : undefined}>
+          <TraceLine
+            status={active ? 'running' : pending ? 'pending' : failures ? 'error' : undefined}
+          >
             <TraceTitle title={summary.join('，')}>
-              {active && `${t('正在调用工具')} · `}
-              {summary.join('，')}
+              {t(toolPhaseLabels[phase])} · {summary.join('，')}
             </TraceTitle>
             {failures > 0 && (
               <TraceDescription className="tool-failure-count">
