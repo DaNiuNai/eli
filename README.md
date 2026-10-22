@@ -145,7 +145,10 @@ $ pnpm build:linux
 工作流位于 `.github/workflows/release.yml`，改编自
 [electron-builder 官方示例](https://github.com/electron-userland/electron-builder/blob/master/website/docs/github-actions.md)。
 推送 `v` 开头的版本标签后，会使用 Node.js 24、pnpm 12.14.0 和锁文件安装依赖，
-执行 lint、类型检查和应用编译，再在对应系统上生成安装包并上传到 GitHub Release 草稿：
+执行 lint、类型检查和应用编译，再在对应系统上生成安装包并上传到 GitHub Release 草稿。
+
+工作流先校验标签版本并统一创建发布草稿，再并行构建三个平台，避免并发创建同名草稿导致附件分散。
+各平台产物如下：
 
 | 平台    | 架构  | 安装包         |
 | ------- | ----- | -------------- |

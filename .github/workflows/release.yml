@@ -15,8 +15,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-release:
+    name: Prepare release draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Check tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const { version } = require('./package.json')
+          const expected = `v${version}`
+          if (process.env.RELEASE_TAG !== expected) {
+            throw new Error(`Tag ${process.env.RELEASE_TAG} must match package.json version: ${expected}`)
+          }
+          NODE
+
+      # Create the draft once before parallel publishers look it up.
+      - name: Ensure release draft exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPO: ${{ github.repository }}
+        run: |
+          if is_draft=$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPO" --json isDraft --jq '.isDraft'); then
+            if [ "$is_draft" != 'true' ]; then
+              echo 'The release is already published; refusing to replace its assets.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --repo "$RELEASE_REPO" --draft --verify-tag --title "$RELEASE_TAG"
+          fi
+
   build:
     name: Build (${{ matrix.platform }})
+    needs: prepare-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -48,18 +93,6 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
-
-      - name: Check tag version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          node <<'NODE'
-          const { version } = require('./package.json')
-          const expected = `v${version}`
-          if (process.env.RELEASE_TAG !== expected) {
-            throw new Error(`Tag ${process.env.RELEASE_TAG} must match package.json version: ${expected}`)
-          }
-          NODE
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
