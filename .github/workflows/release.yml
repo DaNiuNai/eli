@@ -1,0 +1,83 @@
+# Adapted from electron-builder's official GitHub Actions example:
+# https://github.com/electron-userland/electron-builder/blob/master/website/docs/github-actions.md
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            args: --win --x64
+          - platform: macOS
+            os: macos-latest
+            args: --mac --arm64
+          - platform: Linux
+            os: ubuntu-latest
+            args: --linux AppImage deb --x64
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Check tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const { version } = require('./package.json')
+          const expected = `v${version}`
+          if (process.env.RELEASE_TAG !== expected) {
+            throw new Error(`Tag ${process.env.RELEASE_TAG} must match package.json version: ${expected}`)
+          }
+          NODE
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.14.0
+          cache: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck and build
+        run: pnpm build
+
+      - name: Package and upload to GitHub Release
+        run: pnpm exec electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'

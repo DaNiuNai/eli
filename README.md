@@ -140,6 +140,36 @@ $ pnpm build:mac
 $ pnpm build:linux
 ```
 
+### GitHub Actions 自动构建
+
+工作流位于 `.github/workflows/release.yml`，改编自
+[electron-builder 官方示例](https://github.com/electron-userland/electron-builder/blob/master/website/docs/github-actions.md)。
+推送 `v` 开头的版本标签后，会使用 Node.js 24、pnpm 12.14.0 和锁文件安装依赖，
+执行 lint、类型检查和应用编译，再在对应系统上生成安装包并上传到 GitHub Release 草稿：
+
+| 平台    | 架构  | 安装包         |
+| ------- | ----- | -------------- |
+| Windows | x64   | NSIS `.exe`    |
+| macOS   | arm64 | `.dmg`、`.zip` |
+| Linux   | x64   | AppImage、deb  |
+
+CI 的 Linux 构建显式选择 AppImage 和 deb；本地 `pnpm build:linux` 仍保留 Snap 目标。
+安装包名称包含系统和架构，Release 还会包含 electron-builder 生成的更新元数据与 blockmap。
+工作流仅使用 GitHub 自动提供的 `GITHUB_TOKEN`，通过 `contents: write` 权限上传产物，
+无需额外配置个人访问令牌。当前未配置代码签名或 macOS 公证，生成的安装包未签名。
+
+发布前先更新并提交 `package.json` 中的版本，标签必须与版本完全一致。
+例如版本为 `1.0.0`，在包含工作流和版本修改的提交已推送后运行：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+在 GitHub 的 Actions 页面确认三个平台的任务均已成功，再到 Releases 检查草稿中的安装包，
+填写发布说明并手动发布。单个平台失败时，草稿可能已经包含其他平台上传的产物；
+请修复失败后再发布草稿。
+
 ### 验证
 
 ```bash
