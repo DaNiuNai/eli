@@ -9,7 +9,7 @@ files:
   - resources/**
 asarUnpack:
   - resources/**
-  # RpcClient 使用系统 Node 启动 CLI，Node 无法读取 Electron 的 asar 虚拟文件系统。
+  # SDK 的 WASM、worker 等运行时资源保持解包，模块仍通过 ASAR 包路径加载。
   - node_modules/@earendil-works/**
   - node_modules/@silvia-odwyer/**
 win:

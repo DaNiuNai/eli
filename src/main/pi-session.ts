@@ -6,7 +6,6 @@ import type {
   JsonAgentSessionEvent,
   ModelInfo,
   ModelRuntime,
-  RpcClient,
   RpcExtensionUIRequest,
   SettingsManager
 } from '@earendil-works/pi-coding-agent'
@@ -29,6 +28,7 @@ import {
   rewindSessionBefore
 } from './pi-history'
 import { compactContext, compactionSkipReason } from './pi-compaction'
+import { PiRpcClient } from './pi-rpc-client'
 import { ToolApprovals } from './tool-approvals'
 import { UserQuestions } from './user-questions'
 import type { ToolApprovalMode } from '../shared/tool-approval'
@@ -41,7 +41,7 @@ function modelInfo({ provider, id, contextWindow, reasoning }: ModelInfo): Model
   return { provider, id, contextWindow, reasoning }
 }
 
-/** 一个会话独占一个官方 RpcClient；加载历史与配置不启动子进程。 */
+/** 一个会话独占一个 pi RPC 进程；加载历史与配置不启动子进程。 */
 export class PiSession {
   readonly key = randomUUID()
   private created = Date.now()
@@ -49,9 +49,9 @@ export class PiSession {
   private title = ''
   private submitted = false
   private persisted = false
-  private client: RpcClient | null = null
+  private client: PiRpcClient | null = null
   private unsubscribe?: () => void
-  private connecting?: Promise<RpcClient>
+  private connecting?: Promise<PiRpcClient>
   private compaction?: AbortController
   private stopping?: Promise<void>
   private disposing?: Promise<void>
@@ -304,7 +304,7 @@ export class PiSession {
   }
 
   async getSkills(): Promise<PiSkillCommand[]> {
-    const read = async (client: RpcClient): Promise<PiSkillCommand[]> =>
+    const read = async (client: PiRpcClient): Promise<PiSkillCommand[]> =>
       (await client.getCommands())
         .filter((command) => command.source === 'skill')
         .map(({ name, description }) => ({ name, description }))
@@ -357,7 +357,7 @@ export class PiSession {
     })
   }
 
-  private ensureClient(): Promise<RpcClient> {
+  private ensureClient(): Promise<PiRpcClient> {
     if (this.connecting) return this.connecting
     this.connecting = this.startClient().finally(() => {
       this.connecting = undefined
@@ -365,7 +365,7 @@ export class PiSession {
     return this.connecting
   }
 
-  private async startClient(): Promise<RpcClient> {
+  private async startClient(): Promise<PiRpcClient> {
     await this.stopping
     if (this.disposed) throw new Error('会话已关闭')
     if (this.settingsVersion !== this.appliedSettingsVersion) {
@@ -376,7 +376,7 @@ export class PiSession {
       this.appliedSettingsVersion = version
     }
     if (this.client) return this.client
-    const { RpcClient, getPackageDir } = await import('@earendil-works/pi-coding-agent')
+    const { getPackageDir } = await import('@earendil-works/pi-coding-agent')
     if (this.disposed) throw new Error('会话已关闭')
     const desiredModel = this.snapshot.model
     const thinkingLevel = this.snapshot.session?.thinkingLevel
@@ -384,11 +384,9 @@ export class PiSession {
     this.snapshot.error = null
     this.changed()
     const approvalChannel = await this.approvals.start()
-    const client = new RpcClient({
-      cliPath: join(getPackageDir(), 'dist', 'bundle', 'cli.js').replace(
-        'app.asar',
-        'app.asar.unpacked'
-      ),
+    const client = new PiRpcClient({
+      // Electron 支持 ASAR；保留虚拟包路径才能解析同归档内的 jiti 等依赖。
+      cliPath: join(getPackageDir(), 'dist', 'bundle', 'rpc-entry.js'),
       cwd: this.snapshot.cwd,
       provider: desiredModel?.provider,
       model: desiredModel?.id,
@@ -446,9 +444,9 @@ export class PiSession {
   }
 
   private async sendPrompt(
-    client: RpcClient,
+    client: PiRpcClient,
     text: string,
-    images?: Parameters<RpcClient['prompt']>[1]
+    images?: Parameters<PiRpcClient['prompt']>[1]
   ): Promise<void> {
     const responseId = this.snapshot.response.id
     this.snapshot.running = true
@@ -591,7 +589,7 @@ export class PiSession {
     })
   }
 
-  private async refresh(client: RpcClient): Promise<void> {
+  private async refresh(client: PiRpcClient): Promise<void> {
     const [state, messages, models, thinkingLevels, stats, history] = await Promise.all([
       client.getState(),
       client.getMessages(),

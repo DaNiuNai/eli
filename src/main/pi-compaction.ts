@@ -1,4 +1,4 @@
-import type { RpcClient } from '@earendil-works/pi-coding-agent'
+import type { PiRpcClient } from './pi-rpc-client'
 
 export type CompactionOutcome = 'compacted' | 'cancelled' | 'too-small' | 'already-compacted'
 
@@ -12,9 +12,9 @@ export function compactionSkipReason(error: unknown): 'too-small' | 'already-com
   return null
 }
 
-/** 压缩可能超过 RpcClient 固定的 30 秒响应等待，结束事件仍可确认结果。 */
+/** 压缩可能超过 RPC 的 30 秒响应等待，结束事件仍可确认结果。 */
 export function compactContext(
-  client: RpcClient,
+  client: PiRpcClient,
   instructions: string | undefined,
   signal: AbortSignal
 ): Promise<CompactionOutcome> {
