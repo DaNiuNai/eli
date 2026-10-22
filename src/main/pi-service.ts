@@ -6,7 +6,8 @@ import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { piChannels, type PiSnapshot, type PiThinkingLevel } from '../shared/pi'
 import { PiLibraryService } from './pi-library'
 import { PiSession } from './pi-session'
-import { readLocalImage } from './image-files'
+import { readLocalImage, resolvePromptImages, saveImageData } from './image-files'
+import { formatChatImageMessage } from '../shared/chat-images'
 import { copySessionThrough } from './pi-history'
 import { PiSettingsService } from './pi-settings'
 import { PiAuthService } from './pi-auth'
@@ -82,10 +83,18 @@ export class PiService {
     handle(piAuthChannels.cancel, () => this.auth.cancel())
     handle(piAuthChannels.openLink, (url) => this.auth.openLink(url))
     handle(piChannels.connect, (restart) => this.connect(restart === true))
-    handle(piChannels.prompt, async (key, message) => {
+    handle(piChannels.prompt, async (key, message, imagePaths = []) => {
       const session = this.session(key)
       await this.requireWorkspace(session.snapshot.cwd)
-      await session.prompt(promptText(message))
+      if (session.busy) throw new Error('请等待当前操作完成')
+      if (typeof message !== 'string' || message.length > 100_000)
+        throw new Error('请输入 1 至 100000 个字符的消息')
+      if (!Array.isArray(imagePaths)) throw new Error('无效的图片列表')
+      if (!message.trim() && !imagePaths.length) throw new Error('请输入消息或添加图片')
+      await session.prompt(message, async () => {
+        const paths = await resolvePromptImages(imagePaths, session.snapshot.cwd)
+        return promptText(formatChatImageMessage(message, paths))
+      })
     })
     handle(piChannels.compact, async (key, instructions) => {
       if (
@@ -157,6 +166,22 @@ export class PiService {
       return result
     })
     handle(piChannels.readImage, (source) => readLocalImage(source, this.active().snapshot.cwd))
+    handle(piChannels.saveImageData, (bytes) => saveImageData(bytes))
+    handle(piChannels.chooseImages, async (language) => {
+      if (language !== undefined && language !== 'zh-CN' && language !== 'en')
+        throw new Error('无效的界面语言')
+      const result = await dialog.showOpenDialog(this.window, {
+        title: language === 'en' ? 'Add images' : '添加图片',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: language === 'en' ? 'Images' : '图片',
+            extensions: ['png', 'jpg', 'jpeg', 'jfif', 'webp', 'gif', 'avif', 'bmp', 'ico', 'svg']
+          }
+        ]
+      })
+      return result.canceled ? [] : result.filePaths
+    })
     handle(piChannels.openSession, (path) =>
       this.navigate(async () => {
         if (typeof path !== 'string') throw new Error('请选择有效的历史会话')

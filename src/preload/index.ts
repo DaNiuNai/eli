@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { piChannels, type PiApi, type PiSnapshot } from '../shared/pi'
 import { windowAppearanceChannel, type WindowAppearanceApi } from '../shared/window-appearance'
 import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-preferences'
@@ -7,7 +7,8 @@ import { piAuthChannels, type PiAuthApi, type PiAuthSnapshot } from '../shared/p
 // Custom APIs for renderer
 const api: PiApi = {
   connect: (restart) => ipcRenderer.invoke(piChannels.connect, restart),
-  prompt: (sessionKey, message) => ipcRenderer.invoke(piChannels.prompt, sessionKey, message),
+  prompt: (sessionKey, message, imagePaths) =>
+    ipcRenderer.invoke(piChannels.prompt, sessionKey, message, imagePaths),
   compact: (sessionKey, instructions) =>
     ipcRenderer.invoke(piChannels.compact, sessionKey, instructions),
   editMessage: (target, message) => ipcRenderer.invoke(piChannels.editMessage, target, message),
@@ -25,6 +26,9 @@ const api: PiApi = {
   getSettings: () => ipcRenderer.invoke(piChannels.getSettings),
   saveSettings: (changes) => ipcRenderer.invoke(piChannels.saveSettings, changes),
   readImage: (source) => ipcRenderer.invoke(piChannels.readImage, source),
+  chooseImages: (language) => ipcRenderer.invoke(piChannels.chooseImages, language),
+  saveImageData: (bytes) => ipcRenderer.invoke(piChannels.saveImageData, bytes),
+  getImagePath: (file) => webUtils.getPathForFile(file),
   setThinkingLevel: (sessionKey, level) =>
     ipcRenderer.invoke(piChannels.setThinkingLevel, sessionKey, level),
   setModel: (sessionKey, provider, modelId) =>

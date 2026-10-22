@@ -5,6 +5,8 @@ import {
   FolderOpenIcon,
   FolderXIcon,
   LaptopIcon,
+  ImagePlusIcon,
+  PlusIcon,
   SquareIcon
 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
@@ -13,6 +15,8 @@ import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger
@@ -23,21 +27,29 @@ import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ToolApprovalControl } from '@renderer/components/ToolApprovalControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
 import { SlashCommandInput } from '@renderer/components/SlashCommandInput'
+import { ChatImageAttachments } from '@renderer/components/ChatImageAttachments'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { canExecuteSlashCommand, matchSlashCommand } from '@renderer/lib/slash-commands'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot, PiThinkingLevel } from '../../../shared/pi'
 import type { ToolApprovalMode } from '../../../shared/tool-approval'
+import type { ChatDraftImage } from '../../../shared/chat-images'
 
 interface ChatComposerProps {
   snapshot: PiSnapshot | null
   hasMessages: boolean
   draft: string
+  images: ChatDraftImage[]
+  addingImages: boolean
   busy: boolean
   commandPending: boolean
   stopping: boolean
   textarea: RefObject<HTMLTextAreaElement | null>
   onDraft: (text: string) => void
+  onChooseImages: () => void
+  onDropImages: (files: File[]) => void
+  onPasteImages: (files: File[]) => void
+  onRemoveImage: (id: string) => void
   onSend: () => void
   onStop: () => void
   onChooseDirectory: () => void
@@ -51,11 +63,17 @@ export function ChatComposer({
   snapshot,
   hasMessages,
   draft,
+  images,
+  addingImages,
   busy,
   commandPending,
   stopping,
   textarea,
   onDraft,
+  onChooseImages,
+  onDropImages,
+  onPasteImages,
+  onRemoveImage,
   onSend,
   onStop,
   onChooseDirectory,
@@ -155,9 +173,38 @@ export function ChatComposer({
         draft={draft}
         textarea={textarea}
         disabled={!snapshot?.session}
+        onDropImages={onDropImages}
+        onPasteImages={onPasteImages}
+        header={
+          images.length > 0 && (
+            <InputGroupAddon align="block-start" className="composer-image-addon">
+              <ChatImageAttachments images={images} onRemove={onRemoveImage} />
+            </InputGroupAddon>
+          )
+        }
         onDraft={onDraft}
         onSend={onSend}
       >
+        <InputGroupAddon align="inline-start" className="composer-add-addon self-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<InputGroupButton variant="ghost" size="icon-sm" />}
+              aria-label={t('添加附件')}
+              title={t('添加附件')}
+              disabled={!snapshot?.session || addingImages}
+            >
+              {addingImages ? <Spinner /> : <PlusIcon />}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={onChooseImages}>
+                  <ImagePlusIcon />
+                  {t('添加图片')}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </InputGroupAddon>
         <InputGroupAddon align="inline-end" className="self-end px-2 py-2">
           {snapshot?.running && !command ? (
             <InputGroupButton
@@ -180,7 +227,9 @@ export function ChatComposer({
               aria-label={t('发送消息')}
               title={t('发送消息')}
               disabled={
-                !draft.trim() || (command ? !commandAvailable : !ready || busy || !hasModel)
+                addingImages ||
+                (!draft.trim() && !images.length) ||
+                (command ? !commandAvailable : !ready || busy || !hasModel)
               }
             >
               <CornerDownLeftIcon />

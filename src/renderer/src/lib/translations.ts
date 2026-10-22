@@ -4,6 +4,19 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  添加附件: 'Add attachments',
+  添加图片: 'Add images',
+  已添加的图片: 'Attached images',
+  '图片{number}': 'Image {number}',
+  '移除图片{number}': 'Remove image {number}',
+  请选择本机图片文件: 'Choose local image files',
+  无效的图片列表: 'Invalid image list',
+  无效的图片数据: 'Invalid image data',
+  '图片为空或超过 32 MB': 'The image is empty or larger than 32 MB',
+  文件不是支持的图片: 'The file is not a supported image',
+  请输入消息或添加图片: 'Enter a message or add images',
+  展开更多: 'Show more',
+  收起: 'Show less',
   等待你的回答: 'Waiting for your answer',
   回答问题: 'Answer questions',
   切换问题: 'Switch question',

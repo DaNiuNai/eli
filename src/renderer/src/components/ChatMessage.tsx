@@ -9,6 +9,7 @@ import { ToolActivity } from './ToolActivity'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { MessageActions } from './MessageActions'
 import { MessageEditor } from './MessageEditor'
+import { UserMessageContent } from './UserMessageContent'
 
 export function ChatMessage({
   entry,
@@ -58,6 +59,7 @@ export function ChatMessage({
           entry.groups.map((group) => {
             switch (group.kind) {
               case 'text':
+                if (user) return <UserMessageContent key={group.id} text={group.text} />
                 return (
                   <Bubble
                     key={group.id}
@@ -65,11 +67,7 @@ export function ChatMessage({
                     align={user ? 'end' : 'start'}
                   >
                     <BubbleContent>
-                      {user ? (
-                        <div className="whitespace-pre-wrap">{group.text}</div>
-                      ) : (
-                        <ChatMarkdown text={group.text} />
-                      )}
+                      <ChatMarkdown text={group.text} />
                     </BubbleContent>
                   </Bubble>
                 )

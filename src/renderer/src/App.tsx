@@ -22,6 +22,7 @@ import { PiSidebar } from '@renderer/components/PiSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { usePi } from '@renderer/hooks/use-pi'
+import { useChatImages } from '@renderer/hooks/use-chat-images'
 import { usePiAuth } from '@renderer/hooks/use-pi-auth'
 import { usePiLibrary } from '@renderer/hooks/use-pi-library'
 import { useUserQuestions } from '@renderer/hooks/use-user-questions'
@@ -67,6 +68,7 @@ function App(): React.JSX.Element {
   const commandRef = useRef(new Set<string>())
   const messageActionRef = useRef(new Set<string>())
   const draftKey = snapshot?.sessionKey ?? ''
+  const chatImages = useChatImages(draftKey, perform)
   const selectedSessionRef = useRef(draftKey)
   useEffect(() => {
     selectedSessionRef.current = draftKey
@@ -131,6 +133,7 @@ function App(): React.JSX.Element {
   }
 
   async function send(): Promise<void> {
+    if (chatImages.adding) return
     const command = matchSlashCommand(draft)
     if (command) {
       if (
@@ -167,7 +170,7 @@ function App(): React.JSX.Element {
       return
     }
     if (
-      !draft.trim() ||
+      (!draft.trim() && !chatImages.images.length) ||
       !ready ||
       workspaceUnavailable ||
       busy ||
@@ -178,8 +181,18 @@ function App(): React.JSX.Element {
     sendingRef.current.add(draftKey)
     setSendingSessions((current) => ({ ...current, [draftKey]: snapshot?.response.id ?? 0 }))
     const text = draft
+    const images = chatImages.images
     updateDraft('')
-    const success = await perform(() => window.api.prompt(draftKey, text), draftKey)
+    const success = await perform(
+      () =>
+        window.api.prompt(
+          draftKey,
+          text,
+          images.map((image) => image.path)
+        ),
+      draftKey
+    )
+    if (success) chatImages.remove(images.map((image) => image.id))
     if (!success) setDrafts((current) => ({ ...current, [draftKey]: current[draftKey] || text }))
     sendingRef.current.delete(draftKey)
     setSendingSessions((current) => {
@@ -262,6 +275,8 @@ function App(): React.JSX.Element {
       if (key) delete next[key]
       return next
     })
+    const key = snapshot?.liveSessions.find((entry) => entry.path === session.path)?.key
+    if (key) chatImages.discard(key)
   }
 
   async function chooseDirectory(): Promise<void> {
@@ -430,11 +445,17 @@ function App(): React.JSX.Element {
             snapshot={snapshot}
             hasMessages={visibleMessages.length > 0}
             draft={draft}
+            images={chatImages.images}
+            addingImages={chatImages.adding}
             busy={busy}
             commandPending={commandPending}
             stopping={stopping}
             textarea={textarea}
             onDraft={updateDraft}
+            onChooseImages={() => void chatImages.choose()}
+            onDropImages={chatImages.addFiles}
+            onPasteImages={(files) => chatImages.addFiles(files, true)}
+            onRemoveImage={(id) => chatImages.remove([id])}
             onSend={() => void send()}
             onStop={() => void stop()}
             onChooseDirectory={() => void chooseDirectory()}

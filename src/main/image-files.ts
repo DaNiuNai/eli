@@ -1,9 +1,9 @@
-import { open, realpath } from 'node:fs/promises'
-import { extname, resolve } from 'node:path'
+import { mkdir, open, realpath, unlink } from 'node:fs/promises'
+import { extname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { imageExtension } from '../shared/chat-images'
-
-const maxImageBytes = 32 * 1024 * 1024
+import { imageExtension, maxChatImageBytes } from '../shared/chat-images'
 
 function localPath(source: string, cwd: string): string {
   let path = source.trim()
@@ -48,7 +48,10 @@ function imageMime(bytes: Buffer, extension: string): string | null {
   return null
 }
 
-export async function readLocalImage(source: unknown, cwd: string): Promise<string> {
+async function readImageFile(
+  source: unknown,
+  cwd: string
+): Promise<{ content: Buffer; mime: string; path: string }> {
   if (typeof source !== 'string' || !source.trim() || source.length > 16384)
     throw new Error('无效的图片路径')
   const path = localPath(source, cwd)
@@ -66,7 +69,7 @@ export async function readLocalImage(source: unknown, cwd: string): Promise<stri
   const file = await open(resolved, 'r')
   try {
     const info = await file.stat()
-    if (!info.isFile() || info.size === 0 || info.size > maxImageBytes)
+    if (!info.isFile() || info.size === 0 || info.size > maxChatImageBytes)
       throw new Error('图片为空或超过 32 MB')
     const bytes = Buffer.alloc(info.size)
     let offset = 0
@@ -78,8 +81,60 @@ export async function readLocalImage(source: unknown, cwd: string): Promise<stri
     const content = bytes.subarray(0, offset)
     const mime = imageMime(content, extname(resolved).toLowerCase())
     if (!mime) throw new Error('文件不是支持的图片')
-    return `data:${mime};base64,${content.toString('base64')}`
+    return { content, mime, path: resolved }
   } finally {
     await file.close()
   }
+}
+
+export async function readLocalImage(source: unknown, cwd: string): Promise<string> {
+  const { content, mime } = await readImageFile(source, cwd)
+  return `data:${mime};base64,${content.toString('base64')}`
+}
+
+/** 已有路径的图片直接引用源文件，按数组顺序校验。 */
+export async function resolvePromptImages(sources: unknown, cwd: string): Promise<string[]> {
+  if (!Array.isArray(sources) || sources.some((source) => typeof source !== 'string'))
+    throw new Error('无效的图片列表')
+  const paths: string[] = []
+  for (const source of sources) {
+    const image = await readImageFile(source, cwd)
+    paths.push(image.path)
+  }
+  return paths
+}
+
+/** 剪贴板或无本地路径的图片才落盘，按实际格式命名并保留原始字节。 */
+export async function saveImageData(
+  bytes: unknown,
+  directory = join(homedir(), '.pi', 'eli', 'tmp')
+): Promise<string> {
+  if (!(bytes instanceof Uint8Array)) throw new Error('无效的图片数据')
+  if (!bytes.byteLength || bytes.byteLength > maxChatImageBytes)
+    throw new Error('图片为空或超过 32 MB')
+  const content = Buffer.from(bytes)
+  const mime = imageMime(content, '.svg')
+  if (!mime) throw new Error('文件不是支持的图片')
+  const extensions: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/bmp': '.bmp',
+    'image/x-icon': '.ico',
+    'image/avif': '.avif',
+    'image/svg+xml': '.svg'
+  }
+  await mkdir(directory, { recursive: true })
+  const path = join(directory, `${randomUUID()}${extensions[mime]}`)
+  const file = await open(path, 'wx')
+  try {
+    await file.writeFile(content)
+  } catch (error) {
+    await file.close()
+    await unlink(path).catch(() => {})
+    throw error
+  }
+  await file.close()
+  return path
 }

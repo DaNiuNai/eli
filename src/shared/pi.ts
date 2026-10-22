@@ -84,7 +84,7 @@ export interface PiSnapshot extends PiSessionSnapshot {
 
 export interface PiApi {
   connect(restart?: boolean): Promise<PiSnapshot>
-  prompt(sessionKey: string, message: string): Promise<void>
+  prompt(sessionKey: string, message: string, imagePaths?: string[]): Promise<void>
   compact(sessionKey: string, instructions?: string): Promise<void>
   editMessage(target: PiMessageTarget, message: string): Promise<void>
   forkMessage(target: PiMessageTarget): Promise<void>
@@ -103,6 +103,9 @@ export interface PiApi {
   getSettings(): Promise<PiSettingsSnapshot>
   saveSettings(changes: PiSettingsChange[]): Promise<PiSettingsSnapshot>
   readImage(source: string): Promise<string>
+  chooseImages(language?: UiLanguage): Promise<string[]>
+  saveImageData(bytes: Uint8Array): Promise<string>
+  getImagePath(file: File): string
   setThinkingLevel(sessionKey: string, level: PiThinkingLevel): Promise<void>
   setModel(sessionKey: string, provider: string, modelId: string): Promise<void>
   chooseDirectory(language?: UiLanguage): Promise<string | undefined>
@@ -126,6 +129,8 @@ export const piChannels = {
   getSettings: 'pi:get-settings',
   saveSettings: 'pi:save-settings',
   readImage: 'pi:read-image',
+  chooseImages: 'pi:choose-images',
+  saveImageData: 'pi:save-image-data',
   setThinkingLevel: 'pi:set-thinking-level',
   setModel: 'pi:set-model',
   chooseDirectory: 'pi:choose-directory',

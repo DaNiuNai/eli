@@ -284,8 +284,10 @@ export class PiSession {
     }
   }
 
-  async prompt(text: string): Promise<void> {
+  async prompt(text: string, prepareText?: () => Promise<string>): Promise<void> {
     await this.exclusive(async () => {
+      // 图片校验也占用会话锁，避免准备期间其他请求抢先提交或切换模型。
+      if (prepareText) text = await prepareText()
       this.beginResponse()
       if (!this.submitted) {
         this.submitted = true

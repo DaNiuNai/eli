@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type RefObject } from 'react'
+import { useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Command as CommandPrimitive } from 'cmdk'
 import { SparklesIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
@@ -27,6 +27,9 @@ interface SlashCommandInputProps {
   draft: string
   textarea: RefObject<HTMLTextAreaElement | null>
   disabled: boolean
+  header?: ReactNode
+  onDropImages?: (files: File[]) => void
+  onPasteImages?: (files: File[]) => void
   onDraft: (text: string) => void
   onSend: () => void
   children: ReactNode
@@ -37,12 +40,17 @@ export function SlashCommandInput({
   draft,
   textarea,
   disabled,
+  header,
+  onDropImages,
+  onPasteImages,
   onDraft,
   onSend,
   children
 }: SlashCommandInputProps): React.JSX.Element {
   const { t } = useLanguage()
   const [focused, setFocused] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
   const [selection, setSelection] = useState({ start: 0, end: 0 })
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [selected, setSelected] = useState('')
@@ -179,7 +187,45 @@ export function SlashCommandInput({
             </p>
           </CommandList>
         )}
-        <InputGroup className="rounded-2xl">
+        <InputGroup
+          className="chat-composer-input rounded-2xl"
+          data-dragging={dragging || undefined}
+          onDragEnter={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            dragDepth.current++
+            if (!disabled) setDragging(true)
+          }}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = disabled ? 'none' : 'copy'
+          }}
+          onDragLeave={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            dragDepth.current = Math.max(0, dragDepth.current - 1)
+            if (!dragDepth.current) setDragging(false)
+          }}
+          onDrop={(event) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            event.stopPropagation()
+            dragDepth.current = 0
+            setDragging(false)
+            if (!disabled) onDropImages?.(Array.from(event.dataTransfer.files))
+          }}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => !!file)
+            if (!files.length || disabled) return
+            event.preventDefault()
+            event.stopPropagation()
+            onPasteImages?.(files)
+          }}
+        >
           <CommandPrimitive.Input
             asChild
             value={draft}
@@ -193,7 +239,7 @@ export function SlashCommandInput({
               aria-label={t('消息')}
               aria-expanded={open}
               placeholder={t('描述一个任务，输入 / 选择命令或技能…')}
-              className="max-h-40 min-h-12 px-4 py-3"
+              className="composer-textarea min-h-12 py-3"
               disabled={disabled}
               maxLength={100000}
               onChange={(event) =>
@@ -249,6 +295,7 @@ export function SlashCommandInput({
               }}
             />
           </CommandPrimitive.Input>
+          {header}
           {children}
         </InputGroup>
       </Command>
