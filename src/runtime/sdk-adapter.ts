@@ -9,25 +9,45 @@ import { getPackageDir } from '@earendil-works/pi-coding-agent'
 export async function sdkModules() {
   const moduleUrl = (path: string): string =>
     pathToFileURL(join(getPackageDir(), 'dist', path)).href
-  const [settings, extensions, prompts, mcp, oauth, auth] = await Promise.all([
-    import(moduleUrl('core/settings-manager.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js')
-    >,
-    import(moduleUrl('core/extensions/loader.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js')
-    >,
-    import(moduleUrl('core/prompt-templates.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js')
-    >,
-    import(moduleUrl('extensions/mcp/config.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js')
-    >,
-    import(moduleUrl('extensions/mcp/oauth.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/oauth.js')
-    >,
-    import(moduleUrl('core/auth-storage.js')) as Promise<
-      typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js')
-    >
-  ])
-  return { ...settings, ...extensions, ...prompts, ...mcp, ...oauth, ...auth }
+  const [settings, extensions, prompts, mcp, oauth, auth, composer, modelConfig, modelStore] =
+    await Promise.all([
+      import(moduleUrl('core/settings-manager.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js')
+      >,
+      import(moduleUrl('core/extensions/loader.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js')
+      >,
+      import(moduleUrl('core/prompt-templates.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js')
+      >,
+      import(moduleUrl('extensions/mcp/config.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js')
+      >,
+      import(moduleUrl('extensions/mcp/oauth.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/oauth.js')
+      >,
+      import(moduleUrl('core/auth-storage.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/auth-storage.js')
+      >,
+      import(moduleUrl('core/provider-composer.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/provider-composer.js')
+      >,
+      import(moduleUrl('core/model-config.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/model-config.js')
+      >,
+      import(moduleUrl('core/models-store.js')) as Promise<
+        typeof import('../../node_modules/@earendil-works/pi-coding-agent/dist/core/models-store.js')
+      >
+    ])
+  return {
+    ...settings,
+    ...extensions,
+    ...prompts,
+    ...mcp,
+    ...oauth,
+    ...auth,
+    ...composer,
+    ...modelConfig,
+    ...modelStore
+  }
 }

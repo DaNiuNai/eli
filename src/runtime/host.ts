@@ -1,7 +1,8 @@
 import type { RuntimeInit, RuntimeRequest, RuntimeMessage } from '../shared/runtime'
 import { mainAgentId, runtimeProtocolVersion } from '../shared/runtime'
 import { isToolApprovalMode } from '../shared/tool-approval'
-import { RuntimeCoordinator, createModels } from './coordinator'
+import { RuntimeCoordinator } from './coordinator'
+import { ProvidersService } from './providers'
 import { AgentLibraryService } from './library'
 import { AgentSettingsService } from './settings-service'
 import { AgentAuthService } from './auth'
@@ -13,6 +14,7 @@ export class RuntimeHost {
   private library?: AgentLibraryService
   private settings?: AgentSettingsService
   private auth?: AgentAuthService
+  private providers?: ProvidersService
   private initialized = false
   private closing = false
   private init?: Promise<void>
@@ -57,15 +59,14 @@ export class RuntimeHost {
       } else if (options.kind === 'control') {
         this.library = new AgentLibraryService(runtimePaths(options.root).sessions)
         this.settings = new AgentSettingsService(options.root)
-        let models: ReturnType<typeof createModels> | undefined
+        this.providers = new ProvidersService(options.root, () => {
+          this.emit({ version: runtimeProtocolVersion, kind: 'providers_changed' })
+        })
         this.auth = new AgentAuthService(
           options.root,
           (snapshot) => this.emit({ version: runtimeProtocolVersion, kind: 'auth', snapshot }),
           options.firstLaunch,
-          () => (models ??= createModels(options.root)),
-          async () => {
-            this.emit({ version: runtimeProtocolVersion, kind: 'authenticated' })
-          }
+          this.providers
         )
       } else throw new Error('无效的 Runtime 类型')
       this.initialized = true
@@ -145,6 +146,10 @@ export class RuntimeHost {
       return session.state()
     }
     switch (request.method) {
+      case 'getProviders':
+        return this.providers!.get()
+      case 'changeProvider':
+        return this.providers!.change(...request.args)
       case 'getLibrary':
         return this.library!.load(...request.args)
       case 'findSession':

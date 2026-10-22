@@ -14,6 +14,7 @@ import type { AgentAuthSnapshot } from '../shared/agent-auth'
 import type { ToolApprovalMode } from '../shared/tool-approval'
 import type { TerminalPreference } from '../shared/terminal'
 import { resolveTerminal } from './terminal'
+import { providersChannels } from '../shared/providers'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -58,9 +59,12 @@ export class AgentService {
         (message) => {
           if (this.disposed || this.window.isDestroyed()) return
           if (message.kind === 'auth') this.publishAuth(message.snapshot)
-          if (message.kind === 'authenticated') {
+          if (message.kind === 'providers_changed') {
+            this.window.webContents.send(providersChannels.changed)
             void this.navigate(async () => {
-              await Promise.all([...this.sessions.values()].map((session) => session.refreshAuth()))
+              await Promise.all(
+                [...this.sessions.values()].map((session) => session.refreshProviders())
+              )
               this.publish()
             }).catch((error: unknown) => {
               if (this.current) this.current.snapshot.error = String(error)
@@ -136,6 +140,8 @@ export class AgentService {
     }
 
     handle(agentAuthChannels.get, async () => this.publishAuth(await this.request('getAuth')))
+    handle(providersChannels.get, () => this.request('getProviders'))
+    handle(providersChannels.change, (change) => this.request('changeProvider', change))
     handle(agentAuthChannels.login, (providerId, type) => this.request('login', providerId, type))
     handle(agentAuthChannels.respond, async (id, value) => this.request('respondLogin', id, value))
     handle(agentAuthChannels.cancel, () => this.request('cancelLogin'))
@@ -503,6 +509,7 @@ export class AgentService {
     this.window.removeListener('focus', this.refreshWorkspaces)
     for (const channel of Object.values(agentChannels)) ipcMain.removeHandler(channel)
     for (const channel of Object.values(agentAuthChannels)) ipcMain.removeHandler(channel)
+    for (const channel of Object.values(providersChannels)) ipcMain.removeHandler(channel)
     const sessions = [...this.sessions.values()]
     this.disposing = (async () => {
       // 包括正在启动的进程；每个会话的 dispose 可重复调用并等待同一次清理。

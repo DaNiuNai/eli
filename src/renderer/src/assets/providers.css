@@ -1,0 +1,17 @@
+.provider-layout {
+  container-type: inline-size;
+}
+.provider-split {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+@container (max-width: 570px) {
+  .provider-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 160px minmax(0, 1fr);
+  }
+  .provider-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

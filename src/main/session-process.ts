@@ -31,7 +31,7 @@ export class SessionProcess {
   private locked = false
   private version = 0
   private appliedVersion = 0
-  private authRefreshPending = false
+  private providerRefreshPending = false
 
   constructor(
     cwd: string,
@@ -224,13 +224,13 @@ export class SessionProcess {
   invalidateSettings(): void {
     this.version++
   }
-  async refreshAuth(): Promise<void> {
+  async refreshProviders(): Promise<void> {
     this.invalidateSettings()
     if (this.busy || this.starting) {
-      this.authRefreshPending = true
+      this.providerRefreshPending = true
       return
     }
-    this.authRefreshPending = false
+    this.providerRefreshPending = false
     await this.exclusive(async () => {
       await this.ensureClient()
     })
@@ -258,9 +258,9 @@ export class SessionProcess {
   private scheduleIdle(): void {
     clearTimeout(this.idleTimer)
     if (this.busy || !this.client || this.disposed) return
-    if (this.authRefreshPending && !this.starting) {
-      this.authRefreshPending = false
-      void this.refreshAuth().catch((error: unknown) => this.fail(error))
+    if (this.providerRefreshPending && !this.starting) {
+      this.providerRefreshPending = false
+      void this.refreshProviders().catch((error: unknown) => this.fail(error))
       return
     }
     this.idleTimer = setTimeout(

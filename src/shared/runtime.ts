@@ -11,6 +11,7 @@ import type { AgentSettingsSnapshot, AgentSettingsChange } from './agent-setting
 import type { ToolApprovalMode } from './tool-approval'
 import type { TerminalPreference } from './terminal'
 import type { UserQuestionAnswer } from './user-question'
+import type { ProviderChange, ProvidersSnapshot } from './providers'
 
 export const runtimeProtocolVersion = 1
 export const mainAgentId = 'main'
@@ -38,6 +39,8 @@ export interface RuntimeSessionState {
 
 /** 应用自有协议。agentId 是团队成员的路由边界，本次只开放 main。 */
 export interface RuntimeMethods {
+  getProviders: { args: []; result: ProvidersSnapshot }
+  changeProvider: { args: [ProviderChange]; result: ProvidersSnapshot }
   initialize: { args: [RuntimeInit]; result: RuntimeSessionState | null }
   shutdown: { args: []; result: void }
   prompt: { args: [string]; result: RuntimeSessionState }
@@ -85,5 +88,5 @@ export type RuntimeMessage =
       libraryChanged: boolean
     }
   | { version: number; kind: 'auth'; snapshot: AgentAuthSnapshot }
-  | { version: number; kind: 'authenticated' }
+  | { version: number; kind: 'providers_changed' }
   | { version: number; kind: 'fatal'; error: string }

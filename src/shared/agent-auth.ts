@@ -1,12 +1,5 @@
 import type { AuthEvent, AuthPrompt, AuthType } from '@earendil-works/pi-ai'
 
-export interface AgentLoginProvider {
-  id: string
-  name: string
-  type: AuthType
-  configured: boolean
-}
-
 // AbortSignal 留在 Runtime，跨 IPC 只传递展示所需的数据。
 type SerializablePrompt<T> = T extends AuthPrompt ? Omit<T, 'signal'> : never
 export type AgentLoginPrompt = SerializablePrompt<AuthPrompt> & { id: string }
@@ -14,7 +7,6 @@ export type AgentLoginPrompt = SerializablePrompt<AuthPrompt> & { id: string }
 export interface AgentAuthSnapshot {
   revision: number
   firstLaunch: boolean
-  providers: AgentLoginProvider[]
   status: 'idle' | 'logging-in' | 'success' | 'error'
   providerId?: string
   notice?: AuthEvent

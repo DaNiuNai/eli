@@ -1,7 +1,8 @@
-import { useState, useSyncExternalStore, type ComponentProps } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
+  PlugIcon,
   BoxesIcon,
   GlobeIcon,
   SearchIcon,
@@ -32,11 +33,14 @@ import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
 import { getAppPreferences, subscribeAppPreferences } from '@renderer/lib/app-preferences'
 import { AgentSettingsPanel } from './AgentSettingsPanel'
-import { AgentLoginDialog } from './AgentLoginDialog'
+import { ProviderAuthDialog } from './ProviderAuthDialog'
+import { ProviderSettingsPanel } from './ProviderSettingsPanel'
+import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { TerminalSetupDialog } from './TerminalSetupDialog'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
+  { value: 'providers', label: '模型供应商', icon: PlugIcon },
   { value: 'models', label: '模型与思考', icon: BrainCircuitIcon },
   { value: 'context', label: '上下文压缩', icon: SlidersHorizontalIcon },
   { value: 'network', label: '网络与重试', icon: GlobeIcon },
@@ -50,7 +54,7 @@ const themeOptions = [
   { value: 'system', label: '跟随系统' }
 ]
 
-function GeneralSettings({ onOpenLogin }: { onOpenLogin: () => void }): React.JSX.Element {
+function GeneralSettings(): React.JSX.Element {
   const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
   const { terminal } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
@@ -79,22 +83,6 @@ function GeneralSettings({ onOpenLogin }: { onOpenLogin: () => void }): React.JS
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
-          </Field>
-        </FieldGroup>
-      </section>
-      <section className="flex flex-col gap-6">
-        <h3 className="text-sm font-semibold">{t('账号与登录')}</h3>
-        <FieldGroup className="gap-0">
-          <Field orientation="responsive" className="settings-row">
-            <FieldContent className="min-w-0">
-              <FieldLabel htmlFor="settings-login">{t('登录服务')}</FieldLabel>
-              <FieldDescription>
-                {t('使用账号或 API 密钥登录，凭据仅保存在 ~/.eli。')}
-              </FieldDescription>
-            </FieldContent>
-            <Button id="settings-login" variant="outline" size="sm" onClick={onOpenLogin}>
-              {t('登录')}
-            </Button>
           </Field>
         </FieldGroup>
       </section>
@@ -139,10 +127,12 @@ export function AppSettingsDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  login: ComponentProps<typeof AgentLoginDialog>
+  login: ReturnType<typeof useAgentAuth>
 }): React.JSX.Element {
   const { t } = useLanguage()
-  const [category, setCategory] = useState<(typeof categories)[number]['value']>('general')
+  const [category, setCategory] = useState<(typeof categories)[number]['value']>(
+    login.open ? 'providers' : 'general'
+  )
   const [query, setQuery] = useState('')
   const activeCategory = category
   const visibleCategories = categories
@@ -240,15 +230,17 @@ export function AppSettingsDialog({
               </p>
             </header>
             <TabsContent value={activeCategory} className="flex min-h-0 flex-1 flex-col">
-              {open ? (
+              {open && activeCategory === 'providers' && !query.trim() ? (
+                <ProviderSettingsPanel auth={login} />
+              ) : open ? (
                 <AgentSettingsPanel
                   enabled
-                  category={activeCategory}
+                  category={activeCategory === 'providers' ? 'general' : activeCategory}
                   query={query}
                   general={
                     (activeCategory === 'general' && !query.trim()) ||
                     (showGeneral && !!query.trim()) ? (
-                      <GeneralSettings onOpenLogin={() => login.onOpenChange(true)} />
+                      <GeneralSettings />
                     ) : null
                   }
                 />
@@ -262,7 +254,7 @@ export function AppSettingsDialog({
         >
           <XIcon />
         </DialogClose>
-        {open && <AgentLoginDialog {...login} />}
+        {open && <ProviderAuthDialog snapshot={login.snapshot} perform={login.perform} />}
       </DialogContent>
     </Dialog>
   )

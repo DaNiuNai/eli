@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import {
   createAgentSession,
-  ModelRuntime,
+  type ModelRuntime,
   SessionManager,
   resolveModelScopeWithDiagnostics,
   type AgentSession,
@@ -14,7 +14,8 @@ import type { AgentMessageTarget, AgentModelInfo, AgentThinkingLevel } from '../
 import { emptySessionSnapshot } from '../shared/agent-state'
 import type { RuntimeInit, RuntimeSessionState } from '../shared/runtime'
 import { createSettings } from './settings'
-import { runtimePaths, workspaceSessionDirectory } from './paths'
+import { workspaceSessionDirectory } from './paths'
+import { createModels } from './models'
 import { EliResourceLoader } from './resources'
 import { RuntimeInteractions } from './interactions'
 import { hostExtension } from './host-extension'
@@ -29,15 +30,6 @@ export function modelInfo({
   reasoning
 }: AgentModelInfo): AgentModelInfo {
   return { provider, id, contextWindow, reasoning }
-}
-
-export async function createModels(root: string): Promise<ModelRuntime> {
-  const paths = runtimePaths(root)
-  return ModelRuntime.create({
-    authPath: paths.auth,
-    modelsPath: paths.models,
-    modelsStorePath: paths.modelCache
-  })
 }
 
 /** 一个用户会话的调度边界。只持有 main；后续成员、任务与模式在此扩展，不进入 Electron。 */
@@ -106,7 +98,7 @@ export class RuntimeCoordinator {
       hostExtension(this.interactions, this.options.terminal)
     )
     await this.loader.reload()
-    const { session, modelFallbackMessage } = await createAgentSession({
+    const { session } = await createAgentSession({
       cwd: this.options.cwd,
       agentDir: this.options.root,
       modelRuntime: this.models,
@@ -135,6 +127,7 @@ export class RuntimeCoordinator {
       }
     })
     // 扩展绑定完成后再解析范围，它们可能注册自定义提供商或模型。
+    await this.models.refresh({ allowNetwork: false })
     const patterns = this.settings.getEnabledModels()
     const scoped = patterns?.length
       ? (await resolveModelScopeWithDiagnostics(patterns, this.models)).scopedModels
@@ -164,7 +157,8 @@ export class RuntimeCoordinator {
       )
     }
     this.snapshot.models = available.map(modelInfo)
-    if (!selected && modelFallbackMessage) this.snapshot.error = modelFallbackMessage
+    if (!selected && previous.messages.length)
+      this.snapshot.error = '请在模型供应商中配置当前会话可用的模型与凭据。'
     else if (selected && previous.model && !preferredModel) {
       this.snapshot.error = `原模型 ${previous.model.provider}/${previous.model.modelId} 当前不可用，已改用 ${selected.provider}/${selected.id}`
     }

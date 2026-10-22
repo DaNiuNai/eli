@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createSettings } from './settings'
 import { configureNetwork } from './network'
 import type { AuthEvent, AuthPrompt, AuthType } from '@earendil-works/pi-ai'
-import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
+import type { ProvidersService } from './providers'
 import { type AgentAuthSnapshot } from '../shared/agent-auth'
 
 export class AgentAuthService {
@@ -16,39 +16,12 @@ export class AgentAuthService {
     private readonly root: string,
     private readonly changed: (snapshot: AgentAuthSnapshot) => void,
     firstLaunch: boolean,
-    private readonly models: () => Promise<ModelRuntime>,
-    private readonly authenticated: () => Promise<void>
+    private readonly providers: ProvidersService
   ) {
-    this.snapshot = { revision: 0, firstLaunch, providers: [], status: 'idle' }
+    this.snapshot = { revision: 0, firstLaunch, status: 'idle' }
   }
 
   async get(): Promise<AgentAuthSnapshot> {
-    this.publish()
-    const runtime = await this.models()
-    this.snapshot.providers = runtime
-      .getProviders()
-      .flatMap((provider) => {
-        const configured = runtime.hasConfiguredAuth(provider.id)
-        const options: AgentAuthSnapshot['providers'] = []
-        if (provider.auth.oauth) {
-          options.push({
-            id: provider.id,
-            name: provider.auth.oauth.name,
-            type: 'oauth',
-            configured
-          })
-        }
-        if (provider.auth.apiKey?.login) {
-          options.push({
-            id: provider.id,
-            name: provider.name,
-            type: 'api_key',
-            configured
-          })
-        }
-        return options
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
     this.publish()
     return this.snapshot
   }
@@ -59,12 +32,12 @@ export class AgentAuthService {
     }
     if (this.disposed) throw new Error('登录服务已关闭')
     if (this.operation) throw new Error('请先取消当前登录')
+    this.providers.beginLogin(providerId)
     const controller = new AbortController()
     this.controller = controller
     this.snapshot = {
       revision: this.snapshot.revision,
       firstLaunch: this.snapshot.firstLaunch,
-      providers: this.snapshot.providers,
       status: 'logging-in',
       providerId
     }
@@ -75,6 +48,7 @@ export class AgentAuthService {
       this.controller = undefined
       this.pending = undefined
       this.operation = undefined
+      this.providers.endLogin()
     })
   }
 
@@ -84,7 +58,7 @@ export class AgentAuthService {
     controller: AbortController
   ): Promise<void> {
     try {
-      const runtime = await this.models()
+      const { runtime } = await this.providers.models(type)
       controller.signal.throwIfAborted()
       const provider = runtime.getProvider(providerId)
       const method = type === 'oauth' ? provider?.auth.oauth : provider?.auth.apiKey
@@ -103,15 +77,12 @@ export class AgentAuthService {
             this.publish()
           }
         },
-        { getDeviceId: () => settings.getOrCreateDeviceId() }
+        { getDeviceId: () => settings.getOrCreateDeviceId(), agentName: 'eli' }
       )
       await settings.flush()
-      await this.authenticated()
+      await this.providers.authenticated(providerId, type)
       this.snapshot.status = 'success'
       this.snapshot.firstLaunch = false
-      this.snapshot.providers = this.snapshot.providers.map((provider) =>
-        provider.id === providerId ? { ...provider, configured: true } : provider
-      )
       this.snapshot.notice = undefined
       this.snapshot.prompt = undefined
     } catch (error) {

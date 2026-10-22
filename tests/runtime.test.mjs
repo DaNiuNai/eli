@@ -263,6 +263,16 @@ test('独立进程启动、空白会话与 eli 配置隔离', async (t) => {
   assert.ok(state.snapshot.session.sessionFile.startsWith(join(fixtureData.data, 'sessions')))
 })
 
+test('未配置 eli 凭据时不会借用环境凭据，也不会把正常空白页显示为错误', async (t) => {
+  const f = await fixture(t)
+  const r = runtime(t)
+  const state = await initialize(r.connection, f)
+  assert.equal(state.snapshot.model, null)
+  assert.deepEqual(state.snapshot.models, [])
+  assert.equal(state.snapshot.error, null)
+  await assert.rejects(r.connection.call('prompt', 'must not reach any provider'), /配置模型/)
+})
+
 test('默认模型在启用范围内选择，项目扩展注册的模型也参与选择', async (t) => {
   const f = await fixture(t)
   await modelServer(t, f.data)

@@ -27,13 +27,6 @@ export function useAgentAuth(): {
       firstLogin.current = true
       setOpen(true)
     }
-    if (next.status === 'success' && previous?.status !== 'success') {
-      setOpen(false)
-      if (firstLogin.current) {
-        firstLogin.current = false
-        setTerminalSetupOpen(true)
-      }
-    }
     setSnapshot(next)
   }, [])
 

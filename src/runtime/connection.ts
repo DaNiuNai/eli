@@ -48,7 +48,7 @@ export class RuntimeConnection {
           !value ||
           typeof value !== 'object' ||
           !('kind' in value) ||
-          !['ready', 'response', 'session', 'auth', 'authenticated', 'fatal'].includes(
+          !['ready', 'response', 'session', 'auth', 'providers_changed', 'fatal'].includes(
             String(value.kind)
           )
         ) {

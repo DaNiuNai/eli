@@ -4,6 +4,80 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  模型供应商: 'Model providers',
+  添加模型供应商: 'Add model provider',
+  '连接兼容的模型 API，凭据仅保存在 eli。':
+    'Connect a compatible model API. Credentials stay in eli.',
+  供应商名称: 'Provider name',
+  '供应商 ID': 'Provider ID',
+  '使用小写字母、数字、连字符或下划线。': 'Use lowercase letters, digits, hyphens or underscores.',
+  'API 协议': 'API protocol',
+  'API 地址': 'API endpoint',
+  添加模型: 'Add model',
+  编辑模型: 'Edit model',
+  '填写供应商实际支持的模型 ID 与能力。':
+    'Enter a model ID and capabilities supported by this provider.',
+  '模型 ID': 'Model ID',
+  显示名称: 'Display name',
+  上下文窗口: 'Context window',
+  '最大输出 token': 'Maximum output tokens',
+  支持思考: 'Supports reasoning',
+  支持图片输入: 'Supports image input',
+  '订阅 / OAuth': 'Subscription / OAuth',
+  自定义供应商: 'Custom provider',
+  内置供应商: 'Built-in provider',
+  已启用: 'Enabled',
+  已停用: 'Disabled',
+  启用供应商: 'Enable provider',
+  使用的认证方式: 'Active authentication',
+  由供应商授权决定: 'Managed by provider authorization',
+  '两种凭据独立保存，模型请求仅使用当前选择。':
+    'Both credentials are stored separately. Requests use only the selected method.',
+  未配置: 'Not configured',
+  '输入新密钥以替换，已保存的密钥不回显': 'Enter a replacement key. Saved keys are never shown.',
+  '输入 API Key': 'Enter API key',
+  保存密钥: 'Save key',
+  引导配置: 'Guided setup',
+  移除密钥: 'Remove key',
+  已授权: 'Authorized',
+  未登录: 'Not signed in',
+  '授权状态独立于 API Key，令牌刷新由供应商 SDK 处理。':
+    'Authorization is separate from API keys. The provider SDK refreshes tokens.',
+  重新授权: 'Authorize again',
+  登录订阅: 'Sign in to subscription',
+  退出登录: 'Sign out',
+  '此供应商仅支持外部凭据发现，eli 已禁用该方式。请添加显式配置的兼容供应商。':
+    'This provider only supports external credential discovery, which eli disables. Add an explicitly configured compatible provider instead.',
+  '订阅授权使用供应商官方地址，不会发送至自定义 API 地址。':
+    'Subscription credentials use the official provider endpoint, never a custom API endpoint.',
+  '填写 API 根地址；OpenAI 兼容接口通常以 /v1 结尾。':
+    'Enter the API base URL. OpenAI-compatible endpoints usually end with /v1.',
+  同步模型: 'Sync models',
+  搜索模型: 'Search models',
+  暂无模型: 'No models yet',
+  '同步模型列表，或手动添加模型 ID。': 'Sync the model list or add a model ID manually.',
+  启用模型: 'Enable model',
+  移除模型: 'Remove model',
+  '同步接口未提供能力信息时使用默认 token 上限，可在模型编辑中调整。':
+    'When the endpoint omits capabilities, default token limits are used. Adjust them in the model editor.',
+  删除供应商: 'Delete provider',
+  确认移除: 'Confirm removal',
+  '删除此供应商及其在 eli 中保存的凭据与模型配置。':
+    'Delete this provider and its credentials and model settings from eli.',
+  '仅移除选中的凭据，另一种登录方式保持不变。':
+    'Remove only the selected credential. The other authentication method is retained.',
+  '此模型将从可用模型中移除，可通过同步或重新启用恢复。':
+    'Remove this model from the available list. Sync or enable it again to restore it.',
+  移除: 'Remove',
+  '正在加载供应商…': 'Loading providers…',
+  搜索供应商: 'Search providers',
+  添加供应商: 'Add provider',
+  未找到供应商: 'No providers found',
+  '正在更新供应商…': 'Updating provider…',
+  完成供应商授权: 'Complete provider authorization',
+  '按供应商提示完成授权，凭据将保存在 eli。':
+    'Follow the provider instructions. Credentials will be saved in eli.',
+  '正在等待授权…': 'Waiting for authorization…',
   '管理 eli 界面与 Agent 设置。': 'Manage the eli interface and agent settings.',
   '管理 eli Agent Runtime 的配置。': 'Configure the eli Agent Runtime.',
   '配置与数据保存在 ~/.eli': 'Settings and data are stored in ~/.eli',

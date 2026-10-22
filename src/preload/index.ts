@@ -3,6 +3,7 @@ import { agentChannels, type AgentApi, type AgentSnapshot } from '../shared/agen
 import { windowAppearanceChannel, type WindowAppearanceApi } from '../shared/window-appearance'
 import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-preferences'
 import { agentAuthChannels, type AgentAuthApi, type AgentAuthSnapshot } from '../shared/agent-auth'
+import { providersChannels, type ProvidersApi } from '../shared/providers'
 import { terminalChannels, type TerminalApi } from '../shared/terminal'
 
 // Custom APIs for renderer
@@ -60,6 +61,16 @@ const agentAuth: AgentAuthApi = {
 }
 
 contextBridge.exposeInMainWorld('agentAuth', agentAuth)
+const providers: ProvidersApi = {
+  get: () => ipcRenderer.invoke(providersChannels.get),
+  change: (change) => ipcRenderer.invoke(providersChannels.change, change),
+  onChanged: (listener) => {
+    const handler = (): void => listener()
+    ipcRenderer.on(providersChannels.changed, handler)
+    return () => ipcRenderer.removeListener(providersChannels.changed, handler)
+  }
+}
+contextBridge.exposeInMainWorld('providers', providers)
 
 const appPreferences: AppPreferencesApi = {
   get: () => ipcRenderer.invoke(appPreferencesChannels.get),

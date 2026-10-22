@@ -13,7 +13,6 @@ import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
-import { AgentLoginDialog } from '@renderer/components/AgentLoginDialog'
 import { TerminalSetupDialog } from '@renderer/components/TerminalSetupDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
@@ -308,12 +307,16 @@ function App(): React.JSX.Element {
         onReconnect={() => void perform(() => window.api.connect(true))}
         onOpenSettings={openSettings}
       />
-      <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} login={auth} />
-      {auth.terminalSetupOpen ? (
-        <TerminalSetupDialog onComplete={auth.completeTerminalSetup} />
-      ) : (
-        !settingsOpen && <AgentLoginDialog {...auth} />
-      )}
+      <AppSettingsDialog
+        key={auth.open ? 'providers' : 'settings'}
+        open={settingsOpen || auth.open}
+        onOpenChange={(open) => {
+          setSettingsOpen(open)
+          if (!open) auth.onOpenChange(false)
+        }}
+        login={auth}
+      />
+      {auth.terminalSetupOpen && <TerminalSetupDialog onComplete={auth.completeTerminalSetup} />}
       <WorkspaceLayout
         sidebar={
           <AgentSidebar
