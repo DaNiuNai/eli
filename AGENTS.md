@@ -24,9 +24,11 @@ eli 基于 Electron、React、TypeScript 和 electron-vite，界面使用 Tailwi
 - 功能变更完成静态检查、类型检查和构建；Runtime 变更同时完成运行时与 Electron 集成测试。
 - 测试使用 Node.js 内置测试工具，放在 tests，采用 .test.mjs 后缀，使用本机模拟服务、虚拟凭据和 .tmp 临时数据。
 - 开发预览由用户手动启动，界面及主进程交互由用户验证。
+- 未经用户明确要求，禁止随意修改文档。
 - 文档修改检查内容与格式。
 
 ## 提交与交付
 
-- 每次提交聚焦一个目的，提交说明采用“类型：简短说明”。
+- 提交消息使用中文 Conventional Commits，格式为 `<type>: <description>`，也可加模块范围：`<type>(<scope>): <description>`，描述使用中文。
+- 提交类型使用 `feat`（新功能）、`fix`（修复）、`refactor`（重构）、`chore`（维护）、`docs`（文档）。
 - PR 说明变更原因、行为变化及验证结果；界面变更附截图，打包变更注明平台，相关任务关联 issue。
