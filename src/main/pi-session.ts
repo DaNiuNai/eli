@@ -32,6 +32,8 @@ import { PiRpcClient } from './pi-rpc-client'
 import { ToolApprovals } from './tool-approvals'
 import { UserQuestions } from './user-questions'
 import type { ToolApprovalMode } from '../shared/tool-approval'
+import type { TerminalPreference } from '../shared/terminal'
+import { resolveTerminal } from './terminal'
 import approvalExtensionPath from '../../resources/tool-approval.ts?asset&asarUnpack'
 
 const idleTimeout = 5 * 60 * 1000
@@ -73,6 +75,7 @@ export class PiSession {
     private readonly models: () => Promise<ModelRuntime>,
     private readonly changed: (libraryChanged?: boolean) => void,
     approvalMode: () => ToolApprovalMode,
+    private readonly terminal: () => TerminalPreference | null,
     sessionFile?: string
   ) {
     this.persisted = !!sessionFile
@@ -383,6 +386,7 @@ export class PiSession {
     this.snapshot.connection = 'connecting'
     this.snapshot.error = null
     this.changed()
+    const terminal = await resolveTerminal(this.terminal())
     const approvalChannel = await this.approvals.start()
     const client = new PiRpcClient({
       // Electron 支持 ASAR；保留虚拟包路径才能解析同归档内的 jiti 等依赖。
@@ -396,6 +400,8 @@ export class PiSession {
         approvalExtensionPath,
         '--eli-approval-channel',
         approvalChannel,
+        '--eli-terminal',
+        JSON.stringify(terminal),
         ...(this.persistedFile
           ? ['--session', this.persistedFile]
           : [

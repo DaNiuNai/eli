@@ -4,6 +4,39 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  打开Pi原生设置: 'Show native Pi settings',
+  '无效的 Pi 原生设置显示选项': 'Invalid native Pi settings visibility option',
+  '搜索 Eli 设置。': 'Search Eli settings.',
+  '搜索 Eli 与 Pi 设置。': 'Search Eli and Pi settings.',
+  '试试外观、登录或终端等 Eli 设置。': 'Try Eli settings such as appearance, login or terminal.',
+  选择终端: 'Choose a terminal',
+  更改终端: 'Change terminal',
+  保存终端: 'Save terminal',
+  命令执行终端: 'Command terminal',
+  使用系统默认终端: 'Using the system default terminal',
+  '仅对 eli 生效，保存后用于后续请求，当前任务继续运行。':
+    'Applies only to eli. Future requests use the saved terminal; running tasks continue.',
+  终端: 'Terminal',
+  '选择 pi 在 eli 中执行命令时使用的终端，仅对 eli 生效。':
+    'Choose the terminal pi uses to run commands in eli. This applies only to eli.',
+  终端设置失败: 'Terminal setup failed',
+  自定义路径: 'Custom path',
+  '正在检测终端…': 'Detecting terminals…',
+  系统默认: 'System default',
+  可执行文件路径: 'Executable path',
+  输入终端可执行文件的完整路径: 'Enter the full path to the terminal executable',
+  '支持 powershell、pwsh、bash、zsh 和 sh，可使用 ~ 表示用户目录。':
+    'Supports powershell, pwsh, bash, zsh and sh. Use ~ for your home directory.',
+  '此选择会覆盖 pi 的终端设置，不会修改 pi 的配置文件。':
+    'This overrides pi’s terminal settings without changing pi’s configuration files.',
+  完成设置: 'Finish setup',
+  无法保存终端设置: 'Could not save terminal settings',
+  无效的终端设置: 'Invalid terminal settings',
+  无效的终端类型: 'Invalid terminal type',
+  请输入终端可执行文件路径: 'Enter the terminal executable path',
+  '请选择 powershell、pwsh、bash、zsh 或 sh 可执行文件':
+    'Choose a powershell, pwsh, bash, zsh or sh executable',
+  终端可执行文件不存在或不可执行: 'The terminal executable does not exist or cannot be executed',
   添加附件: 'Add attachments',
   添加图片: 'Add images',
   已添加的图片: 'Attached images',
@@ -63,6 +96,7 @@ const english: Record<string, string> = {
   '工具审批扩展未加载，请重新连接':
     'The tool approval extension did not load. Reconnect to try again.',
   登录: 'Log in',
+  账号与登录: 'Account and login',
   稍后登录: 'Maybe later',
   取消登录: 'Cancel login',
   重新登录: 'Try again',

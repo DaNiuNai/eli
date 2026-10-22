@@ -1,4 +1,5 @@
 import { isToolApprovalMode, type ToolApprovalMode } from './tool-approval'
+import { parseTerminalPreference, type TerminalPreference } from './terminal'
 
 export type UiLanguage = 'zh-CN' | 'en'
 export type Theme = 'light' | 'dark' | 'system'
@@ -18,6 +19,8 @@ export interface AppPreferences {
   sidebarOrder: SidebarOrder
   archivedWorkspaces: string[]
   toolApprovalMode: ToolApprovalMode
+  terminal: TerminalPreference | null
+  showPiSettings: boolean
 }
 
 export interface AppPreferencesApi {
@@ -46,7 +49,9 @@ export function defaultAppPreferences(): AppPreferences {
     sidebarWidth: sidebarSizing.defaultWidth,
     sidebarOrder: { workspaces: [], sessions: {} },
     archivedWorkspaces: [],
-    toolApprovalMode: 'request'
+    toolApprovalMode: 'request',
+    terminal: null,
+    showPiSettings: false
   }
 }
 
@@ -71,10 +76,13 @@ export function parseAppPreferences(value: unknown): AppPreferences {
   const sidebarWidth = value.sidebarWidth === undefined ? defaults.sidebarWidth : value.sidebarWidth
   const toolApprovalMode =
     value.toolApprovalMode === undefined ? defaults.toolApprovalMode : value.toolApprovalMode
+  const showPiSettings =
+    value.showPiSettings === undefined ? defaults.showPiSettings : value.showPiSettings
   if (!isTheme(theme)) throw new Error('无效的主题设置')
   if (!isUiLanguage(language)) throw new Error('无效的语言设置')
   if (typeof sidebarOpen !== 'boolean') throw new Error('无效的侧栏展开设置')
   if (!isToolApprovalMode(toolApprovalMode)) throw new Error('无效的工具审批挡位')
+  if (typeof showPiSettings !== 'boolean') throw new Error('无效的 Pi 原生设置显示选项')
   if (
     typeof sidebarWidth !== 'number' ||
     !Number.isFinite(sidebarWidth) ||
@@ -111,6 +119,8 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     sidebarWidth,
     sidebarOrder,
     archivedWorkspaces,
-    toolApprovalMode
+    toolApprovalMode,
+    terminal: parseTerminalPreference(value.terminal),
+    showPiSettings
   }
 }

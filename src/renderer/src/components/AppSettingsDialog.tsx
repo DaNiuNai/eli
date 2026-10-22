@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useState, useSyncExternalStore, type ComponentProps } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
@@ -26,11 +26,19 @@ import {
   FieldLabel
 } from '@renderer/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/components/ui/input-group'
+import { Switch } from '@renderer/components/ui/switch'
 import { TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
+import {
+  getAppPreferences,
+  subscribeAppPreferences,
+  updateAppPreferences
+} from '@renderer/lib/app-preferences'
 import { PiSettingsPanel } from './PiSettingsPanel'
+import { PiLoginDialog } from './PiLoginDialog'
+import { TerminalSetupDialog } from './TerminalSetupDialog'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
@@ -47,50 +55,124 @@ const themeOptions = [
   { value: 'system', label: '跟随系统' }
 ]
 
-function GeneralSettings(): React.JSX.Element {
+function GeneralSettings({ onOpenLogin }: { onOpenLogin: () => void }): React.JSX.Element {
   const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
+  const { terminal } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   return (
-    <section className="flex flex-col gap-6">
-      <h3 className="text-sm font-semibold">{t('外观')}</h3>
-      <FieldGroup className="gap-0">
-        <Field orientation="responsive" className="settings-row">
-          <FieldContent>
-            <FieldLabel id="settings-theme-label">{t('外观')}</FieldLabel>
-            <FieldDescription>{t('选择 eli 的界面主题。')}</FieldDescription>
-          </FieldContent>
-          <ToggleGroup
-            value={[theme]}
-            onValueChange={(values) => isTheme(values[0]) && setTheme(values[0])}
-            aria-labelledby="settings-theme-label"
-            variant="outline"
-            size="sm"
-            spacing={0}
-          >
-            {themeOptions.map(({ value, label }) => (
-              <ToggleGroupItem key={value} value={value}>
-                {t(label)}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </Field>
-      </FieldGroup>
-    </section>
+    <>
+      <section className="flex flex-col gap-6">
+        <h3 className="text-sm font-semibold">{t('外观')}</h3>
+        <FieldGroup className="gap-0">
+          <Field orientation="responsive" className="settings-row">
+            <FieldContent>
+              <FieldLabel id="settings-theme-label">{t('外观')}</FieldLabel>
+              <FieldDescription>{t('选择 eli 的界面主题。')}</FieldDescription>
+            </FieldContent>
+            <ToggleGroup
+              value={[theme]}
+              onValueChange={(values) => isTheme(values[0]) && setTheme(values[0])}
+              aria-labelledby="settings-theme-label"
+              variant="outline"
+              size="sm"
+              spacing={0}
+            >
+              {themeOptions.map(({ value, label }) => (
+                <ToggleGroupItem key={value} value={value}>
+                  {t(label)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </Field>
+        </FieldGroup>
+      </section>
+      <section className="flex flex-col gap-6">
+        <h3 className="text-sm font-semibold">{t('账号与登录')}</h3>
+        <FieldGroup className="gap-0">
+          <Field orientation="responsive" className="settings-row">
+            <FieldContent className="min-w-0">
+              <FieldLabel htmlFor="settings-login">{t('登录服务')}</FieldLabel>
+              <FieldDescription>
+                {t('使用 pi 支持的账号或 API 密钥登录，与 pi 命令行共用凭据。')}
+              </FieldDescription>
+            </FieldContent>
+            <Button id="settings-login" variant="outline" size="sm" onClick={onOpenLogin}>
+              {t('登录')}
+            </Button>
+          </Field>
+        </FieldGroup>
+      </section>
+      <section className="flex flex-col gap-6">
+        <h3 className="text-sm font-semibold">{t('终端')}</h3>
+        <FieldGroup className="gap-0">
+          <Field orientation="responsive" className="settings-row">
+            <FieldContent className="min-w-0">
+              <FieldLabel htmlFor="settings-terminal">{t('命令执行终端')}</FieldLabel>
+              <FieldDescription className="break-all">
+                {terminal?.path ?? t('使用系统默认终端')}
+              </FieldDescription>
+              <FieldDescription>
+                {t('仅对 eli 生效，保存后用于后续请求，当前任务继续运行。')}
+              </FieldDescription>
+            </FieldContent>
+            <Button
+              id="settings-terminal"
+              variant="outline"
+              size="sm"
+              onClick={() => setTerminalOpen(true)}
+            >
+              {t('更改终端')}
+            </Button>
+          </Field>
+        </FieldGroup>
+      </section>
+      {terminalOpen && (
+        <TerminalSetupDialog
+          onComplete={() => setTerminalOpen(false)}
+          onCancel={() => setTerminalOpen(false)}
+        />
+      )}
+    </>
   )
 }
 
 export function AppSettingsDialog({
   open,
-  onOpenChange
+  onOpenChange,
+  login
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  login: ComponentProps<typeof PiLoginDialog>
 }): React.JSX.Element {
   const { t } = useLanguage()
+  const { showPiSettings } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const [category, setCategory] = useState<(typeof categories)[number]['value']>('general')
   const [query, setQuery] = useState('')
-  const selected = categories.find(({ value }) => value === category) ?? categories[0]
-  const showGeneral = ['通用', '外观', '主题', 'general', 'theme', 'appearance'].some(
+  const activeCategory = showPiSettings ? category : 'general'
+  const visibleCategories = categories.filter(({ value }) => value === 'general' || showPiSettings)
+  const selected = categories.find(({ value }) => value === activeCategory) ?? categories[0]
+  const showGeneral = [
+    '通用',
+    '外观',
+    '主题',
+    '登录',
+    '账号',
+    'API 密钥',
+    '终端',
+    'general',
+    'theme',
+    'appearance',
+    'login',
+    'account',
+    'api key',
+    'terminal',
+    'shell',
+    'powershell',
+    'bash',
+    'zsh'
+  ].some(
     (word) =>
       t(word).toLowerCase().includes(query.trim().toLowerCase()) || word.includes(query.trim())
   )
@@ -112,9 +194,9 @@ export function AppSettingsDialog({
         <DialogDescription className="sr-only">{t('管理 eli 界面与 PI 设置。')}</DialogDescription>
         {/* 生成的 Tabs 封装未转发 orientation，在调用处使用原生 Root 保留垂直导航语义。 */}
         <TabsPrimitive.Root
-          value={category}
+          value={activeCategory}
           onValueChange={(value) => {
-            const next = categories.find((item) => item.value === value)
+            const next = visibleCategories.find((item) => item.value === value)
             if (next) setCategory(next.value)
             setQuery('')
           }}
@@ -136,7 +218,7 @@ export function AppSettingsDialog({
             <nav className="flex shrink-0 flex-col gap-3" aria-label={t('设置分类')}>
               <span className="px-2 text-xs font-semibold text-muted-foreground">Eli</span>
               <TabsList className="settings-tabs w-full bg-transparent p-0">
-                {categories.map(({ value, label, icon: Icon }) => (
+                {visibleCategories.map(({ value, label, icon: Icon }) => (
                   <Fragment key={value}>
                     {value === 'models' && (
                       <span className="px-2 pb-2 pt-4 text-xs font-semibold text-muted-foreground">
@@ -151,26 +233,46 @@ export function AppSettingsDialog({
                 ))}
               </TabsList>
             </nav>
+            <FieldGroup className="mt-auto shrink-0 px-2 pb-2">
+              <Field orientation="horizontal">
+                <FieldLabel htmlFor="show-pi-settings">{t('打开Pi原生设置')}</FieldLabel>
+                <Switch
+                  id="show-pi-settings"
+                  size="sm"
+                  checked={showPiSettings}
+                  onCheckedChange={(checked) => {
+                    if (!checked) setCategory('general')
+                    void updateAppPreferences({ showPiSettings: checked })
+                  }}
+                />
+              </Field>
+            </FieldGroup>
           </aside>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <header className="flex shrink-0 flex-col gap-2 px-8 pb-5 pr-14 pt-8">
               <h2 className="text-lg font-semibold">{title}</h2>
               <p className="text-sm text-muted-foreground">
                 {t(
-                  category === 'general' && !query
-                    ? '让 eli 更符合你的使用习惯。'
-                    : '管理 PI 在桌面端使用的原生配置。'
+                  query.trim()
+                    ? showPiSettings
+                      ? '搜索 Eli 与 Pi 设置。'
+                      : '搜索 Eli 设置。'
+                    : activeCategory === 'general'
+                      ? '让 eli 更符合你的使用习惯。'
+                      : '管理 PI 在桌面端使用的原生配置。'
                 )}
               </p>
             </header>
-            <TabsContent value={category} className="flex min-h-0 flex-1 flex-col">
+            <TabsContent value={activeCategory} className="flex min-h-0 flex-1 flex-col">
               {open ? (
                 <PiSettingsPanel
-                  category={category}
+                  enabled={showPiSettings}
+                  category={activeCategory}
                   query={query}
                   general={
-                    (category === 'general' && !query.trim()) || (showGeneral && !!query.trim()) ? (
-                      <GeneralSettings />
+                    (activeCategory === 'general' && !query.trim()) ||
+                    (showGeneral && !!query.trim()) ? (
+                      <GeneralSettings onOpenLogin={() => login.onOpenChange(true)} />
                     ) : null
                   }
                 />
@@ -184,6 +286,7 @@ export function AppSettingsDialog({
         >
           <XIcon />
         </DialogClose>
+        {open && <PiLoginDialog {...login} />}
       </DialogContent>
     </Dialog>
   )

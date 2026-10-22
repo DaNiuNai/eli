@@ -13,6 +13,7 @@ import { PiSettingsService } from './pi-settings'
 import { PiAuthService } from './pi-auth'
 import { piAuthChannels } from '../shared/pi-auth'
 import type { ToolApprovalMode } from '../shared/tool-approval'
+import type { TerminalPreference } from '../shared/terminal'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -44,7 +45,8 @@ export class PiService {
   constructor(
     private readonly window: BrowserWindow,
     firstLaunch = false,
-    private readonly approvalMode: () => ToolApprovalMode = () => 'request'
+    private readonly approvalMode: () => ToolApprovalMode = () => 'request',
+    private readonly terminal: () => TerminalPreference | null = () => null
   ) {
     this.auth = new PiAuthService(window, firstLaunch, this.models, async () => {
       await this.navigate(async () => {
@@ -343,6 +345,7 @@ export class PiService {
       this.models,
       (libraryChanged) => this.publish(libraryChanged),
       this.approvalMode,
+      this.terminal,
       path
     )
     this.sessions.set(session.key, session)
@@ -422,6 +425,10 @@ export class PiService {
   refreshApprovalMode(): void {
     for (const session of this.sessions.values()) session.refreshApprovalMode()
     this.publish()
+  }
+
+  refreshTerminal(): void {
+    for (const session of this.sessions.values()) session.invalidateSettings()
   }
 
   private publish(libraryChanged = false): void {

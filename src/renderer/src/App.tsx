@@ -14,6 +14,7 @@ import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
 import { PiLoginDialog } from '@renderer/components/PiLoginDialog'
+import { TerminalSetupDialog } from '@renderer/components/TerminalSetupDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
@@ -306,10 +307,13 @@ function App(): React.JSX.Element {
         onChooseDirectory={() => void chooseDirectory()}
         onReconnect={() => void perform(() => window.api.connect(true))}
         onOpenSettings={openSettings}
-        onOpenLogin={() => auth.onOpenChange(true)}
       />
-      <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <PiLoginDialog {...auth} />
+      <AppSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} login={auth} />
+      {auth.terminalSetupOpen ? (
+        <TerminalSetupDialog onComplete={auth.completeTerminalSetup} />
+      ) : (
+        !settingsOpen && <PiLoginDialog {...auth} />
+      )}
       <WorkspaceLayout
         sidebar={
           <PiSidebar

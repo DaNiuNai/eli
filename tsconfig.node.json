@@ -5,7 +5,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "resources/tool-approval.ts"
+    "resources/tool-approval.ts",
+    "resources/terminal.ts"
   ],
   "compilerOptions": {
     "composite": true,

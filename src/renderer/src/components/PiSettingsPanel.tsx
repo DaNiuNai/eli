@@ -65,10 +65,12 @@ function parse(text: string, field: PiSettingDefinition): unknown {
 }
 
 export function PiSettingsPanel({
+  enabled,
   category,
   query,
   general
 }: {
+  enabled: boolean
   category: PiSettingsCategory | 'general'
   query: string
   general: ReactNode
@@ -87,6 +89,13 @@ export function PiSettingsPanel({
 
   useEffect(() => {
     active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) return
     let current = true
     void window.api
       .getSettings()
@@ -101,9 +110,8 @@ export function PiSettingsPanel({
       })
     return () => {
       current = false
-      active.current = false
     }
-  }, [reload])
+  }, [enabled, reload])
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: 0 })
@@ -117,7 +125,7 @@ export function PiSettingsPanel({
   }
 
   async function save(): Promise<void> {
-    if (!data || saving) return
+    if (!enabled || !data || saving) return
     setError('')
     const changes: PiSettingsChange[] = []
     try {
@@ -165,8 +173,19 @@ export function PiSettingsPanel({
   const sections = [...new Set(fields.map((field) => field.section))]
   const changed = Object.keys(drafts).length
 
-  if (category === 'general' && !search)
-    return <div className="overflow-y-auto px-8 pb-8">{general}</div>
+  if (!enabled || (category === 'general' && !search))
+    return (
+      <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+        {general ?? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>{t('未找到设置')}</EmptyTitle>
+              <EmptyDescription>{t('试试外观、登录或终端等 Eli 设置。')}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </div>
+    )
 
   return (
     <>

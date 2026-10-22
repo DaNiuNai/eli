@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import {
   FolderOpenIcon,
   LanguagesIcon,
-  LogInIcon,
   MenuIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -30,7 +29,6 @@ export function AppMenu({
   onChooseDirectory,
   onReconnect,
   onOpenSettings,
-  onOpenLogin,
   onResetLayout
 }: {
   snapshot: PiSnapshot | null
@@ -39,7 +37,6 @@ export function AppMenu({
   onChooseDirectory: () => void
   onReconnect: () => void
   onOpenSettings: () => void
-  onOpenLogin: () => void
   onResetLayout: () => void
 }): React.JSX.Element {
   const { t } = useLanguage()
@@ -89,15 +86,6 @@ export function AppMenu({
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem
-              onClick={() => {
-                setOpen(false)
-                onOpenLogin()
-              }}
-            >
-              <LogInIcon />
-              {t('登录')}
-            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
                 setOpen(false)

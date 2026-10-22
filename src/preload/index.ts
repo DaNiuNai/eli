@@ -3,6 +3,7 @@ import { piChannels, type PiApi, type PiSnapshot } from '../shared/pi'
 import { windowAppearanceChannel, type WindowAppearanceApi } from '../shared/window-appearance'
 import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-preferences'
 import { piAuthChannels, type PiAuthApi, type PiAuthSnapshot } from '../shared/pi-auth'
+import { terminalChannels, type TerminalApi } from '../shared/terminal'
 
 // Custom APIs for renderer
 const api: PiApi = {
@@ -66,6 +67,13 @@ const appPreferences: AppPreferencesApi = {
 }
 
 contextBridge.exposeInMainWorld('appPreferences', appPreferences)
+
+const terminal: TerminalApi = {
+  discover: () => ipcRenderer.invoke(terminalChannels.discover),
+  validate: (path) => ipcRenderer.invoke(terminalChannels.validate, path)
+}
+
+contextBridge.exposeInMainWorld('terminal', terminal)
 
 const windowAppearance: WindowAppearanceApi = {
   customTitleBar: process.platform === 'win32',

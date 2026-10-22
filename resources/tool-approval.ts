@@ -1,6 +1,7 @@
 import { createConnection } from 'node:net'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
+import { configureTerminal } from './terminal'
 
 interface ApprovalChannel {
   port: number
@@ -87,8 +88,10 @@ const questionParameters = Type.Object({
 /** 使用 PI 的执行前钩子，直接调用、MCP 及 codemode 嵌套调用均经过审批。 */
 export default function toolApproval(pi: ExtensionAPI): void {
   pi.registerFlag('eli-approval-channel', { type: 'string' })
+  pi.registerFlag('eli-terminal', { type: 'string' })
   let channel: ApprovalChannel | undefined
-  pi.on('session_start', async () => {
+  pi.on('session_start', async (_event, ctx) => {
+    configureTerminal(pi, ctx.cwd)
     const next: ApprovalChannel = JSON.parse(String(pi.getFlag('eli-approval-channel')))
     channel = next
     if (!(await requestDesktop(next, { type: 'ready' })).approved) {

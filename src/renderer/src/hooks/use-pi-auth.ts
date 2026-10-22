@@ -6,6 +6,8 @@ export function usePiAuth(): {
   open: boolean
   loading: boolean
   error: string | null
+  terminalSetupOpen: boolean
+  completeTerminalSetup: () => void
   onOpenChange: (open: boolean) => void
   perform: (action: () => Promise<unknown>) => Promise<boolean>
 } {
@@ -13,14 +15,25 @@ export function usePiAuth(): {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [terminalSetupOpen, setTerminalSetupOpen] = useState(false)
+  const firstLogin = useRef(false)
   const latest = useRef<PiAuthSnapshot | null>(null)
 
   const receive = useCallback((next: PiAuthSnapshot) => {
     const previous = latest.current
     if (previous && next.revision < previous.revision) return
     latest.current = next
-    if (!previous && next.firstLaunch) setOpen(true)
-    if (next.status === 'success' && previous?.status !== 'success') setOpen(false)
+    if (!previous && next.firstLaunch) {
+      firstLogin.current = true
+      setOpen(true)
+    }
+    if (next.status === 'success' && previous?.status !== 'success') {
+      setOpen(false)
+      if (firstLogin.current) {
+        firstLogin.current = false
+        setTerminalSetupOpen(true)
+      }
+    }
     setSnapshot(next)
   }, [])
 
@@ -45,7 +58,13 @@ export function usePiAuth(): {
     (value: boolean) => {
       setOpen(value)
       if (value) void refresh()
-      else void perform(() => window.piAuth.cancel())
+      else {
+        if (firstLogin.current) {
+          firstLogin.current = false
+          setTerminalSetupOpen(true)
+        }
+        void perform(() => window.piAuth.cancel())
+      }
     },
     [perform, refresh]
   )
@@ -69,5 +88,14 @@ export function usePiAuth(): {
     }
   }, [receive])
 
-  return { snapshot, open, loading, error, onOpenChange, perform }
+  return {
+    snapshot,
+    open,
+    loading,
+    error,
+    onOpenChange,
+    perform,
+    terminalSetupOpen,
+    completeTerminalSetup: () => setTerminalSetupOpen(false)
+  }
 }

@@ -6,6 +6,8 @@ import { PiService } from './pi-service'
 import { windowAppearanceChannel } from '../shared/window-appearance'
 import { appPreferencesChannels } from '../shared/app-preferences'
 import { AppConfig } from './app-config'
+import { terminalChannels } from '../shared/terminal'
+import { discoverTerminals, validateTerminal } from './terminal'
 
 const appConfig = new AppConfig()
 let piService: PiService | undefined
@@ -55,9 +57,21 @@ function createWindow(): void {
   })
   ipcMain.handle(appPreferencesChannels.set, async (event, value: unknown) => {
     assertSender(event)
+    const previousTerminal = JSON.stringify(appConfig.get().terminal)
     await appConfig.set(value)
+    if (previousTerminal !== JSON.stringify(appConfig.get().terminal)) {
+      piService?.refreshTerminal()
+    }
     piService?.refreshApprovalMode()
     nativeTheme.themeSource = appConfig.get().theme
+  })
+  ipcMain.handle(terminalChannels.discover, (event) => {
+    assertSender(event)
+    return discoverTerminals()
+  })
+  ipcMain.handle(terminalChannels.validate, (event, path: unknown) => {
+    assertSender(event)
+    return validateTerminal(path)
   })
   ipcMain.handle(windowAppearanceChannel, (event, dark: unknown) => {
     if (
@@ -74,12 +88,15 @@ function createWindow(): void {
   piService = new PiService(
     mainWindow,
     appConfig.firstLaunch,
-    () => appConfig.get().toolApprovalMode
+    () => appConfig.get().toolApprovalMode,
+    () => appConfig.get().terminal
   )
   piService.register()
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)
     ipcMain.removeHandler(appPreferencesChannels.set)
+    ipcMain.removeHandler(terminalChannels.discover)
+    ipcMain.removeHandler(terminalChannels.validate)
     ipcMain.removeHandler(windowAppearanceChannel)
     if (piService) {
       const closing = piService.dispose()
