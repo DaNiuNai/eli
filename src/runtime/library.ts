@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 import {
@@ -131,7 +132,19 @@ export class AgentLibraryService {
 
   private async read(): Promise<AgentLibrary> {
     const { SessionManager } = await import('@earendil-works/pi-coding-agent')
+    const directories = await readdir(this.sessionDirectory, { withFileTypes: true }).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return []
+        throw error
+      }
+    )
+    // SDK 指定目录时只扫描该层；eli 会话按工作目录保存在下一层，同时兼容顶层文件。
     const lists = [await SessionManager.listAll(this.sessionDirectory)]
+    for (const directory of directories) {
+      if (directory.isDirectory()) {
+        lists.push(await SessionManager.listAll(join(this.sessionDirectory, directory.name)))
+      }
+    }
     const infos = [...new Map(lists.flat().map((session) => [session.path, session])).values()]
     const saved = infos.map((session): SavedSession => ({
       path: session.path,

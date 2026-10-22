@@ -461,6 +461,68 @@ test('管理进程只索引 ~/.eli 会话，设置按字段持久化', async (t)
   assert.ok((await readdir(f.data)).includes('settings.json'))
 })
 
+test('重启后从工作目录子目录发现历史会话并恢复完整消息', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const controlOptions = { kind: 'control', root: f.data, cwd: f.cwd, firstLaunch: false }
+  const originalControl = runtime(t)
+  await originalControl.connection.call('initialize', controlOptions)
+  assert.deepEqual((await originalControl.connection.call('getLibrary')).sessions, [])
+
+  const saved = []
+  for (const [index, cwd] of [f.cwd, join(f.root, '另一个工作目录')].entries()) {
+    await mkdir(cwd, { recursive: true })
+    const session = runtime(t)
+    await initialize(session.connection, { ...f, cwd }, `history-session-${index}`)
+    const title = `重启后保留的对话 ${index + 1}`
+    await session.connection.call('prompt', title)
+    const finished = await until(() =>
+      session.states.findLast(
+        (state) =>
+          !state.snapshot.running &&
+          state.snapshot.messages.some((message) => message.role === 'assistant')
+      )
+    )
+    assert.equal(finished.snapshot.error, null)
+    assert.ok(finished.persistedFile)
+    saved.push({ ...finished, title, cwd })
+    await session.connection.stop()
+  }
+  await originalControl.connection.stop()
+
+  const restartedControl = runtime(t)
+  await restartedControl.connection.call('initialize', controlOptions)
+  const library = await restartedControl.connection.call('getLibrary')
+  assert.deepEqual(
+    new Set(library.sessions.map((session) => session.path)),
+    new Set(saved.map((session) => session.persistedFile))
+  )
+  assert.equal(library.warning, null)
+  assert.equal(
+    library.usage.reduce((total, record) => total + record.messages, 0),
+    4
+  )
+
+  for (const expected of saved) {
+    const discovered = await restartedControl.connection.call('findSession', expected.persistedFile)
+    assert.equal(discovered.id, expected.snapshot.session.sessionId)
+    assert.equal(discovered.cwd, expected.cwd)
+    assert.equal(discovered.title, expected.title)
+    assert.equal(discovered.messageCount, expected.snapshot.messages.length)
+    assert.equal(await restartedControl.connection.call('hasWorkspace', expected.cwd), true)
+    const reopened = runtime(t)
+    const loaded = await initialize(
+      reopened.connection,
+      { ...f, cwd: discovered.cwd },
+      `reopened-${discovered.id}`,
+      discovered.path
+    )
+    assert.equal(loaded.snapshot.session.sessionId, discovered.id)
+    assert.deepEqual(loaded.snapshot.messages, expected.snapshot.messages)
+    await reopened.connection.stop()
+  }
+})
+
 test('进程崩溃立即使待处理请求失败', async (t) => {
   const f = await fixture(t)
   const { connection, child, failures } = runtime(t)
