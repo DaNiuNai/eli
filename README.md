@@ -150,14 +150,15 @@ $ pnpm build:linux
 工作流先校验标签版本并统一创建发布草稿，再并行构建三个平台，避免并发创建同名草稿导致附件分散。
 各平台产物如下：
 
-| 平台    | 架构  | 安装包         |
-| ------- | ----- | -------------- |
-| Windows | x64   | NSIS `.exe`    |
-| macOS   | arm64 | `.dmg`、`.zip` |
-| Linux   | x64   | AppImage、deb  |
+| 平台    | 架构  | 安装包      |
+| ------- | ----- | ----------- |
+| Windows | x64   | NSIS `.exe` |
+| macOS   | arm64 | `.dmg`      |
+| Linux   | x64   | `.deb`      |
 
-CI 的 Linux 构建显式选择 AppImage 和 deb；本地 `pnpm build:linux` 仍保留 Snap 目标。
-安装包名称包含系统和架构，Release 还会包含 electron-builder 生成的更新元数据与 blockmap。
+CI 显式指定上述三个安装包目标，打包后使用 `gh release upload` 仅上传对应安装包。
+Release 构建附件只包含 `.exe`、`.dmg` 和 `.deb`；GitHub 自动提供的源码下载入口仍会显示。
+本地构建命令仍沿用 `electron-builder.yml` 中的目标配置。
 工作流仅使用 GitHub 自动提供的 `GITHUB_TOKEN`，通过 `contents: write` 权限上传产物，
 无需额外配置个人访问令牌。当前未配置代码签名或 macOS 公证，生成的安装包未签名。
 
