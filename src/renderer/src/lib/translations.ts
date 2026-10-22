@@ -4,6 +4,28 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  请求批注: 'Ask for approval',
+  批准编辑: 'Approve edits',
+  全部放行: 'Allow everything',
+  全局工具审批: 'Global tool approval',
+  '工具审批：{mode}': 'Tool approval: {mode}',
+  '只读工具自动放行，其他工具逐次审批。':
+    'Read-only tools run automatically; approve other calls individually.',
+  '仅自动放行 read、write、edit，其他工具逐次审批。':
+    'Only read, write and edit run automatically; approve other calls individually.',
+  '所有工具直接执行，无需审批。': 'All tools run immediately without approval.',
+  等待工具审批: 'Waiting for tool approval',
+  '此工具尚未执行，请检查参数后选择是否放行。':
+    'This tool has not run. Review its arguments before deciding.',
+  由其他工具发起的嵌套调用: 'Nested call initiated by another tool',
+  拒绝: 'Deny',
+  允许本次: 'Allow once',
+  无效的工具审批挡位: 'Invalid tool approval mode',
+  无效的工具审批答复: 'Invalid tool approval response',
+  此工具审批已失效: 'This tool approval is no longer active',
+  无法启动工具审批服务: 'Unable to start the tool approval service',
+  '工具审批扩展未加载，请重新连接':
+    'The tool approval extension did not load. Reconnect to try again.',
   登录: 'Log in',
   稍后登录: 'Maybe later',
   取消登录: 'Cancel login',

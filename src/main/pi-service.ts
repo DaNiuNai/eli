@@ -11,6 +11,7 @@ import { copySessionThrough } from './pi-history'
 import { PiSettingsService } from './pi-settings'
 import { PiAuthService } from './pi-auth'
 import { piAuthChannels } from '../shared/pi-auth'
+import type { ToolApprovalMode } from '../shared/tool-approval'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -41,7 +42,8 @@ export class PiService {
 
   constructor(
     private readonly window: BrowserWindow,
-    firstLaunch = false
+    firstLaunch = false,
+    private readonly approvalMode: () => ToolApprovalMode = () => 'request'
   ) {
     this.auth = new PiAuthService(window, firstLaunch, this.models, async () => {
       await this.navigate(async () => {
@@ -116,6 +118,11 @@ export class PiService {
       })
     })
     handle(piChannels.abort, async (key) => this.session(key).abort())
+    handle(piChannels.respondToToolApproval, async (key, id, approved) => {
+      const session = this.session(key)
+      if (approved === true) await this.requireWorkspace(session.snapshot.cwd)
+      session.respondToToolApproval(id, approved)
+    })
     handle(piChannels.getLibrary, async () => {
       const library = await this.library.load(this.libraryVersion)
       for (const session of library.sessions) {
@@ -305,6 +312,7 @@ export class PiService {
       cwd,
       this.models,
       (libraryChanged) => this.publish(libraryChanged),
+      this.approvalMode,
       path
     )
     this.sessions.set(session.key, session)
@@ -373,11 +381,17 @@ export class PiService {
       libraryVersion: this.libraryVersion,
       sessionKey: this.active().key,
       unavailableWorkspaces: [...this.unavailableWorkspaces],
+      toolApprovalMode: this.approvalMode(),
       liveSessions: [...this.sessions.values()].flatMap((session) => {
         const summary = session.summary
         return summary ? [summary] : []
       })
     }
+  }
+
+  refreshApprovalMode(): void {
+    for (const session of this.sessions.values()) session.refreshApprovalMode()
+    this.publish()
   }
 
   private publish(libraryChanged = false): void {

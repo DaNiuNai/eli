@@ -20,15 +20,18 @@ import {
 import { InputGroupAddon, InputGroupButton } from '@renderer/components/ui/input-group'
 import { directoryName } from '@renderer/lib/pi-display'
 import { ThinkingControl } from '@renderer/components/ThinkingControl'
+import { ToolApprovalControl } from '@renderer/components/ToolApprovalControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
 import { SlashCommandInput } from '@renderer/components/SlashCommandInput'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { canExecuteSlashCommand, matchSlashCommand } from '@renderer/lib/slash-commands'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { PiSnapshot, PiThinkingLevel } from '../../../shared/pi'
+import type { ToolApprovalMode } from '../../../shared/tool-approval'
 
 interface ChatComposerProps {
   snapshot: PiSnapshot | null
+  hasMessages: boolean
   draft: string
   busy: boolean
   commandPending: boolean
@@ -41,10 +44,12 @@ interface ChatComposerProps {
   onOpenLogin: () => void
   onModel: (provider: string, id: string) => void
   onThinking: (level: PiThinkingLevel) => Promise<boolean>
+  onApprovalMode: (mode: ToolApprovalMode) => void
 }
 
 export function ChatComposer({
   snapshot,
+  hasMessages,
   draft,
   busy,
   commandPending,
@@ -56,7 +61,8 @@ export function ChatComposer({
   onChooseDirectory,
   onOpenLogin,
   onModel,
-  onThinking
+  onThinking,
+  onApprovalMode
 }: ChatComposerProps): React.JSX.Element {
   const { t } = useLanguage()
   const ready = snapshot?.connection === 'ready'
@@ -123,24 +129,26 @@ export function ChatComposer({
           </AlertDescription>
         </Alert>
       )}
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge variant="secondary" className="h-7 gap-1.5 rounded-md">
-          <LaptopIcon />
-          <span>{t('本机')}</span>
-        </Badge>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="min-w-0 max-w-[75%]"
-          disabled={busy || !ready}
-          title={snapshot?.cwd || t('选择工作目录')}
-          onClick={onChooseDirectory}
-        >
-          <FolderOpenIcon data-icon="inline-start" />
-          <span className="truncate">{directoryName(snapshot?.cwd ?? '', t('工作目录'))}</span>
-          <ChevronDownIcon data-icon="inline-end" />
-        </Button>
-      </div>
+      {!hasMessages && (
+        <div className="flex min-w-0 items-center gap-2">
+          <Badge variant="secondary" className="h-7 gap-1.5 rounded-md">
+            <LaptopIcon />
+            <span>{t('本机')}</span>
+          </Badge>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="min-w-0 max-w-[75%]"
+            disabled={busy || !ready}
+            title={snapshot?.cwd || t('选择工作目录')}
+            onClick={onChooseDirectory}
+          >
+            <FolderOpenIcon data-icon="inline-start" />
+            <span className="truncate">{directoryName(snapshot?.cwd ?? '', t('工作目录'))}</span>
+            <ChevronDownIcon data-icon="inline-end" />
+          </Button>
+        </div>
+      )}
       <SlashCommandInput
         key={snapshot?.sessionKey}
         sessionKey={snapshot?.sessionKey}
@@ -181,9 +189,11 @@ export function ChatComposer({
         </InputGroupAddon>
       </SlashCommandInput>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <span className="text-xs text-muted-foreground">
-          {t('/ 选择命令或技能 · Enter 发送 · Shift + Enter 换行')}
-        </span>
+        <ToolApprovalControl
+          value={snapshot?.toolApprovalMode ?? 'request'}
+          disabled={!snapshot}
+          onChange={onApprovalMode}
+        />
         <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
           <DropdownMenu>
             <DropdownMenuTrigger

@@ -56,6 +56,7 @@ function createWindow(): void {
   ipcMain.handle(appPreferencesChannels.set, async (event, value: unknown) => {
     assertSender(event)
     await appConfig.set(value)
+    piService?.refreshApprovalMode()
     nativeTheme.themeSource = appConfig.get().theme
   })
   ipcMain.handle(windowAppearanceChannel, (event, dark: unknown) => {
@@ -70,7 +71,11 @@ function createWindow(): void {
     mainWindow.setTitleBarOverlay({ symbolColor: dark ? '#fafafa' : '#171717' })
     mainWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff')
   })
-  piService = new PiService(mainWindow, appConfig.firstLaunch)
+  piService = new PiService(
+    mainWindow,
+    appConfig.firstLaunch,
+    () => appConfig.get().toolApprovalMode
+  )
   piService.register()
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)

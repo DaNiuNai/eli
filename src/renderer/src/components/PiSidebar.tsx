@@ -8,7 +8,8 @@ import {
   Code2Icon,
   EllipsisIcon,
   PlusIcon,
-  SearchIcon
+  SearchIcon,
+  ShieldQuestionIcon
 } from 'lucide-react'
 import {
   Collapsible,
@@ -334,9 +335,14 @@ export function PiSidebar({
                                       >
                                         {snapshot?.liveSessions.some(
                                           (entry) =>
-                                            entry.path === session.path &&
-                                            (entry.running || entry.pending)
+                                            entry.path === session.path && entry.approvalCount > 0
                                         ) ? (
+                                          <ShieldQuestionIcon aria-label={t('等待工具审批')} />
+                                        ) : snapshot?.liveSessions.some(
+                                            (entry) =>
+                                              entry.path === session.path &&
+                                              (entry.running || entry.pending)
+                                          ) ? (
                                           <Spinner aria-label={t('正在处理')} />
                                         ) : (
                                           <span aria-hidden="true" className="size-4 shrink-0" />

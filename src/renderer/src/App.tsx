@@ -16,6 +16,7 @@ import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
 import { PiLoginDialog } from '@renderer/components/PiLoginDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
+import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
 import { PiSidebar } from '@renderer/components/PiSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
@@ -392,8 +393,17 @@ function App(): React.JSX.Element {
               </ScrollArea>
             )}
           </div>
+          <ToolApprovalPanel
+            key={draftKey}
+            requests={snapshot?.toolApprovals ?? []}
+            disabled={!ready || stopping}
+            onRespond={(id, approved) =>
+              perform(() => window.api.respondToToolApproval(draftKey, id, approved), draftKey)
+            }
+          />
           <ChatComposer
             snapshot={snapshot}
+            hasMessages={visibleMessages.length > 0}
             draft={draft}
             busy={busy}
             commandPending={commandPending}
@@ -410,6 +420,7 @@ function App(): React.JSX.Element {
             onThinking={(level) =>
               perform(() => window.api.setThinkingLevel(draftKey, level), draftKey)
             }
+            onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
           />
         </main>
       </WorkspaceLayout>

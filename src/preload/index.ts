@@ -13,6 +13,8 @@ const api: PiApi = {
   editMessage: (target, message) => ipcRenderer.invoke(piChannels.editMessage, target, message),
   forkMessage: (target) => ipcRenderer.invoke(piChannels.forkMessage, target),
   abort: (sessionKey) => ipcRenderer.invoke(piChannels.abort, sessionKey),
+  respondToToolApproval: (sessionKey, id, approved) =>
+    ipcRenderer.invoke(piChannels.respondToToolApproval, sessionKey, id, approved),
   newSession: (cwd) => ipcRenderer.invoke(piChannels.newSession, cwd),
   openSession: (path) => ipcRenderer.invoke(piChannels.openSession, path),
   deleteSession: (path) => ipcRenderer.invoke(piChannels.deleteSession, path),

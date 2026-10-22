@@ -1,3 +1,5 @@
+import { isToolApprovalMode, type ToolApprovalMode } from './tool-approval'
+
 export type UiLanguage = 'zh-CN' | 'en'
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -15,6 +17,7 @@ export interface AppPreferences {
   sidebarWidth: number
   sidebarOrder: SidebarOrder
   archivedWorkspaces: string[]
+  toolApprovalMode: ToolApprovalMode
 }
 
 export interface AppPreferencesApi {
@@ -42,7 +45,8 @@ export function defaultAppPreferences(): AppPreferences {
     sidebarOpen: true,
     sidebarWidth: sidebarSizing.defaultWidth,
     sidebarOrder: { workspaces: [], sessions: {} },
-    archivedWorkspaces: []
+    archivedWorkspaces: [],
+    toolApprovalMode: 'request'
   }
 }
 
@@ -65,9 +69,12 @@ export function parseAppPreferences(value: unknown): AppPreferences {
   const language = value.language === undefined ? defaults.language : value.language
   const sidebarOpen = value.sidebarOpen === undefined ? defaults.sidebarOpen : value.sidebarOpen
   const sidebarWidth = value.sidebarWidth === undefined ? defaults.sidebarWidth : value.sidebarWidth
+  const toolApprovalMode =
+    value.toolApprovalMode === undefined ? defaults.toolApprovalMode : value.toolApprovalMode
   if (!isTheme(theme)) throw new Error('无效的主题设置')
   if (!isUiLanguage(language)) throw new Error('无效的语言设置')
   if (typeof sidebarOpen !== 'boolean') throw new Error('无效的侧栏展开设置')
+  if (!isToolApprovalMode(toolApprovalMode)) throw new Error('无效的工具审批挡位')
   if (
     typeof sidebarWidth !== 'number' ||
     !Number.isFinite(sidebarWidth) ||
@@ -97,5 +104,13 @@ export function parseAppPreferences(value: unknown): AppPreferences {
       ? defaults.archivedWorkspaces
       : stringList(value.archivedWorkspaces, '归档工作目录必须是字符串数组')
 
-  return { theme, language, sidebarOpen, sidebarWidth, sidebarOrder, archivedWorkspaces }
+  return {
+    theme,
+    language,
+    sidebarOpen,
+    sidebarWidth,
+    sidebarOrder,
+    archivedWorkspaces,
+    toolApprovalMode
+  }
 }

@@ -29,6 +29,9 @@ import {
   rewindSessionBefore
 } from './pi-history'
 import { compactContext, compactionSkipReason } from './pi-compaction'
+import { ToolApprovals } from './tool-approvals'
+import type { ToolApprovalMode } from '../shared/tool-approval'
+import approvalExtensionPath from '../../resources/tool-approval.ts?asset&asarUnpack'
 
 const idleTimeout = 5 * 60 * 1000
 
@@ -60,12 +63,14 @@ export class PiSession {
   private settings!: SettingsManager
   private settingsVersion = 0
   private appliedSettingsVersion = 0
+  private approvals: ToolApprovals
   readonly snapshot: PiSessionSnapshot
 
   constructor(
     cwd: string,
     private readonly models: () => Promise<ModelRuntime>,
     private readonly changed: (libraryChanged?: boolean) => void,
+    approvalMode: () => ToolApprovalMode,
     sessionFile?: string
   ) {
     this.persisted = !!sessionFile
@@ -82,12 +87,17 @@ export class PiSession {
       activeThinking: null,
       response: { id: 0, messageIndex: 0, phase: 'idle', toolCallDrafts: {} },
       tools: {},
+      toolApprovals: [],
       running: false,
       pending: false,
       activity: '',
       error: null,
       hideThinkingBlock: false
     }
+    this.approvals = new ToolApprovals(approvalMode, (requests) => {
+      this.snapshot.toolApprovals = requests
+      this.changed()
+    })
   }
 
   async load(): Promise<void> {
@@ -206,12 +216,21 @@ export class PiSession {
       modified: this.modified,
       messageCount: this.snapshot.messages.length,
       running: this.snapshot.running,
-      pending: this.snapshot.pending
+      pending: this.snapshot.pending,
+      approvalCount: this.snapshot.toolApprovals.length
     }
   }
 
   get busy(): boolean {
     return this.snapshot.running || this.snapshot.pending
+  }
+
+  respondToToolApproval(id: unknown, approved: unknown): void {
+    this.approvals.respond(id, approved)
+  }
+
+  refreshApprovalMode(): void {
+    this.approvals.refreshMode()
   }
 
   get persistedFile(): string | undefined {
@@ -346,6 +365,7 @@ export class PiSession {
     this.snapshot.connection = 'connecting'
     this.snapshot.error = null
     this.changed()
+    const approvalChannel = await this.approvals.start()
     const client = new RpcClient({
       cliPath: join(getPackageDir(), 'dist', 'bundle', 'cli.js').replace(
         'app.asar',
@@ -355,13 +375,19 @@ export class PiSession {
       provider: desiredModel?.provider,
       model: desiredModel?.id,
       // pi 自带的精确会话 ID 避免首轮失败重试时产生第二个会话。
-      args: this.persistedFile
-        ? ['--session', this.persistedFile]
-        : [
-            '--session-id',
-            this.key,
-            ...(this.sessionDirectory ? ['--session-dir', this.sessionDirectory] : [])
-          ]
+      args: [
+        '--extension',
+        approvalExtensionPath,
+        '--eli-approval-channel',
+        approvalChannel,
+        ...(this.persistedFile
+          ? ['--session', this.persistedFile]
+          : [
+              '--session-id',
+              this.key,
+              ...(this.sessionDirectory ? ['--session-dir', this.sessionDirectory] : [])
+            ])
+      ]
     })
     this.client = client
     this.unsubscribe = client.onEvent((event) => {
@@ -372,6 +398,7 @@ export class PiSession {
       if (this.disposed) throw new Error('会话已关闭')
       if (thinkingLevel) await client.setThinkingLevel(thinkingLevel)
       await this.refresh(client)
+      this.approvals.assertReady()
       this.snapshot.connection = 'ready'
       this.heartbeat = setInterval(() => {
         if (this.checking || this.snapshot.pending) return
@@ -436,6 +463,7 @@ export class PiSession {
       toolCallDrafts: {}
     }
     this.snapshot.activeThinking = null
+    this.approvals.begin()
     this.activeTools.clear()
     this.snapshot.activity = ''
     this.snapshot.error = null
@@ -444,6 +472,7 @@ export class PiSession {
   }
 
   private finishResponse(): void {
+    this.approvals.cancel()
     this.snapshot.response.phase = 'idle'
     this.snapshot.response.toolCallDrafts = {}
     this.snapshot.activeThinking = null
@@ -454,6 +483,7 @@ export class PiSession {
     const client = this.client
     if (!client || !this.snapshot.running) return
     this.snapshot.activity = '正在停止'
+    this.approvals.cancel()
     this.changed()
     try {
       // abort 会同时取消重试和压缩，最终由 agent_settled 解除运行状态。
@@ -755,6 +785,7 @@ export class PiSession {
     this.snapshot.response.toolCallDrafts = {}
     this.activeTools.clear()
     this.stopping = (async () => {
+      await this.approvals.stop()
       await client?.stop()
     })().finally(() => {
       this.stopping = undefined

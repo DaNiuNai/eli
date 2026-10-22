@@ -8,6 +8,7 @@ import type {
 import type { PiLibrary, SavedSession } from './pi-library'
 import type { UiLanguage } from './app-preferences'
 import type { PiSettingsChange, PiSettingsSnapshot } from './pi-settings'
+import type { ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 
 // 消息、模型和 RPC 事件直接使用 pi 的类型，只定义桌面端的状态与 IPC 边界。
 export type PiMessage = Awaited<ReturnType<RpcClient['getMessages']>>[number]
@@ -54,6 +55,7 @@ export interface PiSessionSnapshot {
   activeThinking: { messageIndex: number; contentIndex: number } | null
   response: PiResponseState
   tools: Record<string, PiToolEvent>
+  toolApprovals: ToolApprovalRequest[]
   running: boolean
   pending: boolean
   activity: string
@@ -65,6 +67,7 @@ export interface PiLiveSession extends SavedSession {
   key: string
   running: boolean
   pending: boolean
+  approvalCount: number
 }
 
 export interface PiSnapshot extends PiSessionSnapshot {
@@ -73,6 +76,7 @@ export interface PiSnapshot extends PiSessionSnapshot {
   sessionKey: string
   liveSessions: PiLiveSession[]
   unavailableWorkspaces: string[]
+  toolApprovalMode: ToolApprovalMode
 }
 
 export interface PiApi {
@@ -82,6 +86,7 @@ export interface PiApi {
   editMessage(target: PiMessageTarget, message: string): Promise<void>
   forkMessage(target: PiMessageTarget): Promise<void>
   abort(sessionKey: string): Promise<void>
+  respondToToolApproval(sessionKey: string, id: string, approved: boolean): Promise<void>
   newSession(cwd?: string): Promise<void>
   openSession(path: string): Promise<void>
   deleteSession(path: string): Promise<void>
@@ -103,6 +108,7 @@ export const piChannels = {
   editMessage: 'pi:edit-message',
   forkMessage: 'pi:fork-message',
   abort: 'pi:abort',
+  respondToToolApproval: 'pi:respond-to-tool-approval',
   newSession: 'pi:new-session',
   openSession: 'pi:open-session',
   deleteSession: 'pi:delete-session',
