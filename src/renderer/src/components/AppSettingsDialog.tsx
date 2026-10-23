@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useState } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
@@ -32,12 +32,11 @@ import { TabsContent, TabsList, TabsTrigger } from '@renderer/components/ui/tabs
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { isTheme, useTheme } from '@renderer/hooks/use-theme'
-import { getAppPreferences, subscribeAppPreferences } from '@renderer/lib/app-preferences'
 import { AgentSettingsPanel } from './AgentSettingsPanel'
 import { ProviderAuthDialog } from './ProviderAuthDialog'
 import { ProviderSettingsPanel } from './ProviderSettingsPanel'
 import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
-import { TerminalSetupDialog } from './TerminalSetupDialog'
+import { TerminalSettings } from './TerminalSettings'
 import { AboutSettings } from './AboutSettings'
 
 const categories = [
@@ -60,8 +59,6 @@ const themeOptions = [
 function GeneralSettings(): React.JSX.Element {
   const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
-  const { terminal } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
-  const [terminalOpen, setTerminalOpen] = useState(false)
   return (
     <>
       <section className="flex flex-col gap-6">
@@ -91,34 +88,8 @@ function GeneralSettings(): React.JSX.Element {
       </section>
       <section className="flex flex-col gap-6">
         <h3 className="text-sm font-semibold">{t('终端')}</h3>
-        <FieldGroup className="gap-0">
-          <Field orientation="responsive" className="settings-row">
-            <FieldContent className="min-w-0">
-              <FieldLabel htmlFor="settings-terminal">{t('命令执行终端')}</FieldLabel>
-              <FieldDescription className="break-all">
-                {terminal?.path ?? t('使用系统默认终端')}
-              </FieldDescription>
-              <FieldDescription>
-                {t('仅对 eli 生效，保存后用于后续请求，当前任务继续运行。')}
-              </FieldDescription>
-            </FieldContent>
-            <Button
-              id="settings-terminal"
-              variant="outline"
-              size="sm"
-              onClick={() => setTerminalOpen(true)}
-            >
-              {t('更改终端')}
-            </Button>
-          </Field>
-        </FieldGroup>
+        <TerminalSettings />
       </section>
-      {terminalOpen && (
-        <TerminalSetupDialog
-          onComplete={() => setTerminalOpen(false)}
-          onCancel={() => setTerminalOpen(false)}
-        />
-      )}
     </>
   )
 }

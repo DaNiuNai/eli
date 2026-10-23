@@ -4,6 +4,10 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  '👋 欢迎使用 eli': '👋 Welcome to eli',
+  '点击“前往设置”，在“模型供应商”中登录账号或填写 API 密钥，连接模型后就能开始对话。运行命令用的终端可以在“通用”中更换。':
+    'Click “Go to Settings”, then sign in or enter an API key under “Model providers” to connect a model and start chatting. You can change the terminal used to run commands under “General”.',
+  前往设置: 'Go to Settings',
   关于: 'About',
   软件更新: 'Software updates',
   检查更新: 'Check for updates',
@@ -32,7 +36,22 @@ const english: Record<string, string> = {
   '无法连接更新服务，请检查网络后重试。':
     'Could not connect to the update service. Check your connection and try again.',
   模型供应商: 'Model providers',
+  配置模型供应商: 'Configure model providers',
   添加模型供应商: 'Add model provider',
+  编辑模型供应商: 'Edit model provider',
+  编辑供应商: 'Edit provider',
+  供应商: 'Provider',
+  'API 协议与地址': 'API protocol and endpoint',
+  认证: 'Authentication',
+  操作: 'Actions',
+  编辑: 'Edit',
+  能力: 'Capabilities',
+  未找到模型: 'No models found',
+  暂无供应商: 'No providers yet',
+  '点击“添加供应商”，连接你要使用的模型服务。':
+    'Click “Add provider” to connect the model service you want to use.',
+  '修改后自动保存，可配置认证方式、API 地址及模型。':
+    'Changes are saved automatically. Manage authentication, the API endpoint and models here.',
   '连接兼容的模型 API，凭据仅保存在 eli。':
     'Connect a compatible model API. Credentials stay in eli.',
   供应商名称: 'Provider name',
@@ -53,6 +72,18 @@ const english: Record<string, string> = {
   '订阅 / OAuth': 'Subscription / OAuth',
   自定义供应商: 'Custom provider',
   内置供应商: 'Built-in provider',
+  供应商类型: 'Provider type',
+  选择内置供应商: 'Choose a built-in provider',
+  请选择内置供应商: 'Select a built-in provider',
+  暂无可添加的内置供应商: 'No built-in providers available to add',
+  '选择内置供应商，或连接自定义模型 API。':
+    'Choose a built-in provider or connect a custom model API.',
+  '沿用内置的 API 地址和模型支持，添加后可继续配置密钥或账号授权。':
+    'Use the built-in API endpoint and model support. After adding, configure an API key or authorize your account.',
+  '已添加的供应商不会重复显示，也可以切换到自定义供应商。':
+    'Providers already added are hidden. You can also switch to a custom provider.',
+  请选择有效的内置供应商: 'Choose a valid built-in provider',
+  此内置供应商没有可用的登录方式: 'This built-in provider has no supported sign-in method',
   已启用: 'Enabled',
   已停用: 'Disabled',
   启用供应商: 'Enable provider',
@@ -64,7 +95,6 @@ const english: Record<string, string> = {
   '输入新密钥以替换，已保存的密钥不回显': 'Enter a replacement key. Saved keys are never shown.',
   '输入 API Key': 'Enter API key',
   保存密钥: 'Save key',
-  引导配置: 'Guided setup',
   移除密钥: 'Remove key',
   已授权: 'Authorized',
   未登录: 'Not signed in',
@@ -88,6 +118,10 @@ const english: Record<string, string> = {
   '同步接口未提供能力信息时使用默认 token 上限，可在模型编辑中调整。':
     'When the endpoint omits capabilities, default token limits are used. Adjust them in the model editor.',
   删除供应商: 'Delete provider',
+  '删除供应商？': 'Delete provider?',
+  '将删除“{name}”及其在 eli 中保存的凭据和模型配置。之后可重新添加。':
+    'Delete “{name}” and its credentials and model settings stored in eli. You can add it again later.',
+  '删除供应商失败，请重试。': 'Could not delete the provider. Please try again.',
   确认移除: 'Confirm removal',
   '删除此供应商及其在 eli 中保存的凭据与模型配置。':
     'Delete this provider and its credentials and model settings from eli.',
@@ -113,6 +147,14 @@ const english: Record<string, string> = {
   选择终端: 'Choose a terminal',
   更改终端: 'Change terminal',
   保存终端: 'Save terminal',
+  已自动保存: 'Saved automatically',
+  '正在自动保存…': 'Saving automatically…',
+  '等待自动保存…': 'Waiting to save…',
+  '自动保存失败，请重试。': 'Could not save automatically. Please try again.',
+  '请输入有效的上下文窗口和输出 token 上限。':
+    'Enter valid context window and output token limits.',
+  '仅对 eli 生效，修改后自动保存，后续请求使用新终端。':
+    'Applies only to eli. Changes are saved automatically and used for future requests.',
   命令执行终端: 'Command terminal',
   使用系统默认终端: 'Using the system default terminal',
   '仅对 eli 生效，保存后用于后续请求，当前任务继续运行。':

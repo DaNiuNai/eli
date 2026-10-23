@@ -9,7 +9,7 @@ import {
   PlusIcon,
   SquareIcon
 } from 'lucide-react'
-import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -137,14 +137,16 @@ export function ChatComposer({
           </span>
         )}
       {ready && !hasModel && (
-        <Alert>
-          <AlertTitle>{t('尚无可用模型')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-2">
-            <p>{t('登录账号或配置 API 密钥后即可开始对话。')}</p>
-            <Button variant="outline" size="sm" className="self-start" onClick={onOpenLogin}>
-              {t('登录')}
+        <Alert className="flex flex-col gap-3 has-data-[slot=alert-action]:pr-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <AlertTitle>{t('尚无可用模型')}</AlertTitle>
+            <AlertDescription>{t('登录账号或配置 API 密钥后即可开始对话。')}</AlertDescription>
+          </div>
+          <AlertAction className="static self-start sm:self-center">
+            <Button variant="outline" size="sm" onClick={onOpenLogin}>
+              {t('配置模型供应商')}
             </Button>
-          </AlertDescription>
+          </AlertAction>
         </Alert>
       )}
       {!hasMessages && (

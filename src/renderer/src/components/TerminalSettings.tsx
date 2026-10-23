@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
-import { Button } from '@renderer/components/ui/button'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@renderer/components/ui/field'
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel
+} from '@renderer/components/ui/field'
 import { Input } from '@renderer/components/ui/input'
 import {
   Select,
@@ -19,29 +17,32 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
-import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
+import { useAutoSave } from '@renderer/hooks/use-auto-save'
 import {
   getAppPreferences,
   getAppPreferencesError,
+  subscribeAppPreferences,
   updateAppPreferences
 } from '@renderer/lib/app-preferences'
 import type { TerminalDiscovery } from '../../../shared/terminal'
 
-export function TerminalSetupDialog({
-  onComplete,
-  onCancel
-}: {
-  onComplete: () => void
-  onCancel?: () => void
-}): React.JSX.Element {
+export function TerminalSettings(): React.JSX.Element {
   const { t } = useLanguage()
+  const { terminal } = useSyncExternalStore(subscribeAppPreferences, getAppPreferences)
   const [discovery, setDiscovery] = useState<TerminalDiscovery | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [customPath, setCustomPath] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const autoSave = useAutoSave<string>(async (_key, path) => {
+    const terminal = await window.terminal.validate(path)
+    if (!(await updateAppPreferences({ terminal }))) {
+      throw new Error(getAppPreferencesError() ?? '无法保存终端设置')
+    }
+  })
+  const state = autoSave.states.terminal
+  const error = state?.status === 'error' ? state.error : discoveryError
 
   useEffect(() => {
     let active = true
@@ -60,7 +61,7 @@ export function TerminalSetupDialog({
       })
       .catch((cause: unknown) => {
         if (!active) return
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setDiscoveryError(cause instanceof Error ? cause.message : String(cause))
         setSelected('custom')
       })
       .finally(() => {
@@ -78,51 +79,46 @@ export function TerminalSetupDialog({
   ]
   const path = selected === 'custom' ? customPath : (selected ?? '')
 
-  async function save(): Promise<void> {
-    if (saving || !path.trim()) return
-    setSaving(true)
-    setError(null)
-    try {
-      const terminal = await window.terminal.validate(path)
-      if (await updateAppPreferences({ terminal })) onComplete()
-      else setError(getAppPreferencesError() ?? '无法保存终端设置')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !saving) onCancel?.()
-      }}
-    >
-      <DialogContent showCloseButton={false} className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t(onCancel ? '更改终端' : '选择终端')}</DialogTitle>
-          <DialogDescription>{t('选择 eli 执行命令时使用的终端。')}</DialogDescription>
-        </DialogHeader>
-        {error && (
-          <Alert variant="destructive">
-            <AlertTitle>{t('终端设置失败')}</AlertTitle>
-            <AlertDescription className="whitespace-pre-wrap break-words">
-              {t(error)}
-            </AlertDescription>
-          </Alert>
-        )}
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="setup-terminal">{t('终端')}</FieldLabel>
+    <FieldGroup className="gap-0">
+      <Field
+        orientation="responsive"
+        className="settings-row"
+        data-disabled={loading}
+        data-invalid={!!error}
+      >
+        <FieldContent className="min-w-0">
+          <FieldLabel htmlFor="settings-terminal">{t('命令执行终端')}</FieldLabel>
+          <FieldDescription className="break-all">
+            {terminal?.path ?? t('使用系统默认终端')}
+          </FieldDescription>
+          <FieldDescription id="settings-terminal-description">
+            {t('仅对 eli 生效，修改后自动保存，后续请求使用新终端。')}
+          </FieldDescription>
+        </FieldContent>
+        <FieldGroup className="settings-control shrink-0 gap-3">
+          <Field data-invalid={!!error} data-disabled={loading}>
             <Select
               items={items}
               value={selected}
-              onValueChange={setSelected}
-              disabled={loading || saving}
+              onValueChange={(value) => {
+                if (!value) return
+                setSelected(value)
+                setDiscoveryError(null)
+                autoSave.update(
+                  'terminal',
+                  value === 'custom' ? customPath : value,
+                  value === 'custom' ? 400 : 0
+                )
+              }}
+              disabled={loading}
             >
-              <SelectTrigger id="setup-terminal" className="w-full">
+              <SelectTrigger
+                id="settings-terminal"
+                className="w-full"
+                aria-describedby="settings-terminal-description"
+                aria-invalid={!!error}
+              >
                 <SelectValue placeholder={t('正在检测终端…')} />
               </SelectTrigger>
               <SelectContent>
@@ -149,36 +145,32 @@ export function TerminalSetupDialog({
             )}
           </Field>
           {selected === 'custom' && (
-            <Field>
-              <FieldLabel htmlFor="setup-terminal-path">{t('可执行文件路径')}</FieldLabel>
+            <Field data-invalid={!!error}>
+              <FieldLabel htmlFor="settings-terminal-path">{t('可执行文件路径')}</FieldLabel>
               <Input
-                id="setup-terminal-path"
+                id="settings-terminal-path"
                 value={customPath}
-                onChange={(event) => setCustomPath(event.target.value)}
-                disabled={saving}
+                onChange={(event) => {
+                  setCustomPath(event.target.value)
+                  setDiscoveryError(null)
+                  autoSave.update('terminal', event.target.value)
+                }}
+                onBlur={() => void autoSave.flush()}
+                aria-invalid={!!error}
+                aria-describedby="settings-terminal-path-description"
                 autoComplete="off"
                 spellCheck={false}
                 placeholder={t('输入终端可执行文件的完整路径')}
               />
-              <FieldDescription>
+              <FieldDescription id="settings-terminal-path-description">
                 {t('支持 powershell、pwsh、bash、zsh 和 sh，可使用 ~ 表示用户目录。')}
               </FieldDescription>
             </Field>
           )}
-          <FieldDescription>{t('终端选择保存在 eli 的独立配置中。')}</FieldDescription>
+          {discoveryError && <FieldError>{t(discoveryError)}</FieldError>}
+          <AutoSaveStatus state={state} onRetry={() => autoSave.update('terminal', path, 0)} />
         </FieldGroup>
-        <DialogFooter>
-          {onCancel && (
-            <Button variant="ghost" disabled={saving} onClick={onCancel}>
-              {t('取消')}
-            </Button>
-          )}
-          <Button disabled={loading || saving || !path.trim()} onClick={() => void save()}>
-            {(loading || saving) && <Spinner data-icon="inline-start" />}
-            {t(onCancel ? '保存终端' : '完成设置')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </Field>
+    </FieldGroup>
   )
 }

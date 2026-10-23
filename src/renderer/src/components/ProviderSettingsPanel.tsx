@@ -5,7 +5,6 @@ import {
   RefreshCwIcon,
   Trash2Icon,
   PencilIcon,
-  KeyRoundIcon,
   LogInIcon,
   LogOutIcon
 } from 'lucide-react'
@@ -13,6 +12,7 @@ import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
 import { Input } from '@renderer/components/ui/input'
 import { Switch } from '@renderer/components/ui/switch'
+import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@renderer/components/ui/field'
 import {
   Dialog,
@@ -32,12 +32,32 @@ import {
 } from '@renderer/components/ui/select'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@renderer/components/ui/input-group'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@renderer/components/ui/alert-dialog'
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@renderer/components/ui/empty'
-import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { Separator } from '@renderer/components/ui/separator'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@renderer/components/ui/table'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { useProviders } from '@renderer/hooks/use-providers'
+import { useAutoSave } from '@renderer/hooks/use-auto-save'
+import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import {
   providerApis,
   type ProviderApi,
@@ -46,7 +66,6 @@ import {
   type ProviderChange
 } from '../../../shared/providers'
 import type { AgentAuthSnapshot } from '../../../shared/agent-auth'
-import '../assets/providers.css'
 
 type Change = (change: ProviderChange) => Promise<boolean>
 export interface ProviderAuthController {
@@ -55,22 +74,113 @@ export interface ProviderAuthController {
   perform: (action: () => Promise<unknown>) => Promise<boolean>
 }
 
+function DeleteProviderAction({
+  provider,
+  change,
+  disabled,
+  beforeDelete,
+  variant = 'ghost'
+}: {
+  provider: ProviderView
+  change: Change
+  disabled: boolean
+  beforeDelete?: () => Promise<void>
+  variant?: 'ghost' | 'destructive'
+}): React.JSX.Element {
+  const { t } = useLanguage()
+  const [open, setOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function remove(): Promise<void> {
+    if (disabled || deleting) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await beforeDelete?.()
+      if (await change({ action: 'delete', id: provider.id })) setOpen(false)
+      else setError('删除供应商失败，请重试。')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (deleting) return
+        setOpen(next)
+        setError(null)
+      }}
+    >
+      <AlertDialogTrigger
+        render={<Button variant={variant} size="icon-sm" className="self-start" />}
+        disabled={disabled}
+        aria-label={`${t('删除供应商')} ${provider.name}`}
+        title={`${t('删除供应商')} ${provider.name}`}
+      >
+        <Trash2Icon />
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('删除供应商？')}</AlertDialogTitle>
+          <AlertDialogDescription className="break-words">
+            {t('将删除“{name}”及其在 eli 中保存的凭据和模型配置。之后可重新添加。', {
+              name: provider.name
+            })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{t(error)}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>{t('取消')}</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={disabled || deleting}
+            onClick={() => void remove()}
+          >
+            {deleting && <Spinner data-icon="inline-start" />}
+            {t(deleting ? '正在删除…' : '删除供应商')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 function ProviderCreateDialog({
+  providers,
+  onAdded,
   onClose,
   change,
   pending,
   error
 }: {
+  providers: ProviderView[]
+  onAdded: (id: string) => void
   onClose: () => void
   change: Change
   pending: boolean
   error: string | null
 }): React.JSX.Element {
   const { t } = useLanguage()
+  const [kind, setKind] = useState<'builtin' | 'custom'>('builtin')
+  const [builtinId, setBuiltinId] = useState<string | null>(null)
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [api, setApi] = useState<ProviderApi>('openai-completions')
+  const available = providers.filter(
+    (provider) =>
+      !provider.custom && !provider.added && (provider.apiKeySupported || provider.oauthSupported)
+  )
+  const builtin = available.find((provider) => provider.id === builtinId)
   return (
     <Dialog
       open
@@ -78,10 +188,10 @@ function ProviderCreateDialog({
         if (!open && !pending) onClose()
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('添加模型供应商')}</DialogTitle>
-          <DialogDescription>{t('连接兼容的模型 API，凭据仅保存在 eli。')}</DialogDescription>
+          <DialogDescription>{t('选择内置供应商，或连接自定义模型 API。')}</DialogDescription>
         </DialogHeader>
         {error && (
           <Alert variant="destructive">
@@ -91,71 +201,146 @@ function ProviderCreateDialog({
         <form
           onSubmit={async (event) => {
             event.preventDefault()
-            if (await change({ action: 'create', id, name, baseUrl, api })) onClose()
+            if (kind === 'builtin') {
+              if (builtin && (await change({ action: 'addBuiltin', id: builtin.id })))
+                onAdded(builtin.id)
+            } else if (await change({ action: 'create', id, name, baseUrl, api }))
+              onAdded(id.trim())
           }}
         >
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="provider-name">{t('供应商名称')}</FieldLabel>
-              <Input
-                id="provider-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                maxLength={200}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="provider-id">{t('供应商 ID')}</FieldLabel>
-              <Input
-                id="provider-id"
-                value={id}
-                onChange={(event) => setId(event.target.value)}
-                required
-                pattern="[a-z][a-z0-9_-]{0,63}"
-                placeholder="my-provider"
-              />
-              <FieldDescription>{t('使用小写字母、数字、连字符或下划线。')}</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="provider-api">{t('API 协议')}</FieldLabel>
-              <Select
-                items={providerApis.map((value) => ({ value, label: value }))}
-                value={api}
-                onValueChange={(value) => {
-                  if (value) setApi(value)
+            <Field data-disabled={pending}>
+              <FieldLabel id="provider-kind-label">{t('供应商类型')}</FieldLabel>
+              <ToggleGroup
+                multiple={false}
+                value={[kind]}
+                variant="outline"
+                spacing={0}
+                className="grid w-full grid-cols-2"
+                aria-labelledby="provider-kind-label"
+                disabled={pending}
+                onValueChange={([value]) => {
+                  if (value === 'builtin' || value === 'custom') setKind(value)
                 }}
               >
-                <SelectTrigger id="provider-api">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {providerApis.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {value}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+                <ToggleGroupItem value="builtin">{t('内置供应商')}</ToggleGroupItem>
+                <ToggleGroupItem value="custom">{t('自定义供应商')}</ToggleGroupItem>
+              </ToggleGroup>
             </Field>
-            <Field>
-              <FieldLabel htmlFor="provider-url">{t('API 地址')}</FieldLabel>
-              <Input
-                id="provider-url"
-                type="url"
-                value={baseUrl}
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="https://api.example.com/v1"
-                required
-              />
-            </Field>
+            {kind === 'builtin' ? (
+              available.length ? (
+                <Field data-disabled={pending}>
+                  <FieldLabel htmlFor="builtin-provider">{t('选择内置供应商')}</FieldLabel>
+                  <Select
+                    items={available.map((provider) => ({
+                      value: provider.id,
+                      label: provider.name
+                    }))}
+                    value={builtinId}
+                    onValueChange={setBuiltinId}
+                    disabled={pending}
+                  >
+                    <SelectTrigger id="builtin-provider" className="w-full">
+                      <SelectValue placeholder={t('请选择内置供应商')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {available.map((provider) => (
+                          <SelectItem key={provider.id} value={provider.id}>
+                            <span>{provider.name}</span>
+                            <span className="text-xs text-muted-foreground">{provider.id}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    {t('沿用内置的 API 地址和模型支持，添加后可继续配置密钥或账号授权。')}
+                  </FieldDescription>
+                  {builtin && (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {builtin.apiKeySupported && <Badge variant="outline">API Key</Badge>}
+                      {builtin.oauthSupported && (
+                        <Badge variant="outline">{t('订阅 / OAuth')}</Badge>
+                      )}
+                    </div>
+                  )}
+                </Field>
+              ) : (
+                <Empty className="py-6">
+                  <EmptyHeader>
+                    <EmptyTitle>{t('暂无可添加的内置供应商')}</EmptyTitle>
+                    <EmptyDescription>
+                      {t('已添加的供应商不会重复显示，也可以切换到自定义供应商。')}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )
+            ) : (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="provider-name">{t('供应商名称')}</FieldLabel>
+                  <Input
+                    id="provider-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                    maxLength={200}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="provider-id">{t('供应商 ID')}</FieldLabel>
+                  <Input
+                    id="provider-id"
+                    value={id}
+                    onChange={(event) => setId(event.target.value)}
+                    required
+                    pattern="[a-z][a-z0-9_-]{0,63}"
+                    placeholder="my-provider"
+                  />
+                  <FieldDescription>{t('使用小写字母、数字、连字符或下划线。')}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="provider-api">{t('API 协议')}</FieldLabel>
+                  <Select
+                    items={providerApis.map((value) => ({ value, label: value }))}
+                    value={api}
+                    onValueChange={(value) => {
+                      if (value) setApi(value)
+                    }}
+                  >
+                    <SelectTrigger id="provider-api">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {providerApis.map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="provider-url">{t('API 地址')}</FieldLabel>
+                  <Input
+                    id="provider-url"
+                    type="url"
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    placeholder="https://api.example.com/v1"
+                    required
+                  />
+                </Field>
+              </>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
                 {t('取消')}
               </Button>
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={pending || (kind === 'builtin' && !builtin)}>
                 {pending && <Spinner data-icon="inline-start" />}
                 {t('添加')}
               </Button>
@@ -193,8 +378,31 @@ function ModelDialog({
       maxTokens: 8192
     }
   )
-  const update = (patch: Partial<ProviderModelInput>): void =>
-    setModel((current) => ({ ...current, ...patch }))
+  const autoSave = useAutoSave<ProviderModelInput>(async (_key, value) => {
+    if (
+      !Number.isSafeInteger(value.contextWindow) ||
+      value.contextWindow < 1 ||
+      value.contextWindow > 100000000 ||
+      !Number.isSafeInteger(value.maxTokens) ||
+      value.maxTokens < 1 ||
+      value.maxTokens > value.contextWindow
+    )
+      throw new Error('请输入有效的上下文窗口和输出 token 上限。')
+    if (
+      !(await change({
+        action: 'saveModel',
+        id: provider.id,
+        model: { ...value, name: value.name.trim() || value.id }
+      }))
+    ) {
+      throw new Error('自动保存失败，请重试。')
+    }
+  })
+  const update = (patch: Partial<ProviderModelInput>, immediate = false): void => {
+    const next = { ...model, ...patch }
+    setModel(next)
+    if (initial) autoSave.update('model', next, immediate ? 0 : 400)
+  }
   return (
     <Dialog
       open
@@ -215,6 +423,10 @@ function ModelDialog({
         <form
           onSubmit={async (event) => {
             event.preventDefault()
+            if (initial) {
+              await autoSave.flush()
+              return
+            }
             if (
               await change({
                 action: 'saveModel',
@@ -274,7 +486,7 @@ function ModelDialog({
               <Switch
                 id="model-thinking"
                 checked={model.reasoning}
-                onCheckedChange={(reasoning) => update({ reasoning })}
+                onCheckedChange={(reasoning) => update({ reasoning }, true)}
               />
             </Field>
             <Field orientation="horizontal">
@@ -282,17 +494,25 @@ function ModelDialog({
               <Switch
                 id="model-vision"
                 checked={model.vision}
-                onCheckedChange={(vision) => update({ vision })}
+                onCheckedChange={(vision) => update({ vision }, true)}
               />
             </Field>
+            {initial && (
+              <AutoSaveStatus
+                state={autoSave.states.model}
+                onRetry={() => autoSave.update('model', model, 0)}
+              />
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
-                {t('取消')}
+                {t(initial ? '关闭' : '取消')}
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending && <Spinner data-icon="inline-start" />}
-                {t('保存')}
-              </Button>
+              {!initial && (
+                <Button type="submit" disabled={pending}>
+                  {pending && <Spinner data-icon="inline-start" />}
+                  {t('添加模型')}
+                </Button>
+              )}
             </DialogFooter>
           </FieldGroup>
         </form>
@@ -316,10 +536,24 @@ function ProviderDetail({
 }): React.JSX.Element {
   const { t } = useLanguage()
   const [key, setKey] = useState('')
+  const [name, setName] = useState(provider.name)
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const [query, setQuery] = useState('')
   const [modelEditor, setModelEditor] = useState<{ model: ProviderModelInput | null } | null>(null)
   const [removing, setRemoving] = useState<ProviderChange | null>(null)
+  const autoSave = useAutoSave<string>(async (field, value) => {
+    if (field === 'key' && !value.trim()) return
+    const success = await change(
+      field === 'key'
+        ? { action: 'saveKey', id: provider.id, key: value }
+        : {
+            action: 'update',
+            id: provider.id,
+            ...(field === 'name' ? { name: value } : { baseUrl: value })
+          }
+    )
+    if (!success) throw new Error('自动保存失败，请重试。')
+  })
   const loggingIn = auth.snapshot?.status === 'logging-in'
   const disabled = pending || loggingIn
   const modes = [
@@ -330,7 +564,7 @@ function ProviderDetail({
     `${model.name} ${model.id}`.toLowerCase().includes(query.toLowerCase())
   )
   return (
-    <div className="flex flex-col gap-6 p-5">
+    <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
           <h3 className="truncate text-base font-semibold">{provider.name}</h3>
@@ -354,6 +588,25 @@ function ProviderDetail({
         </div>
       </div>
       <FieldGroup className="gap-4">
+        <Field data-invalid={autoSave.states.name?.status === 'error'}>
+          <FieldLabel htmlFor={`provider-name-${provider.id}`}>{t('供应商名称')}</FieldLabel>
+          <Input
+            id={`provider-name-${provider.id}`}
+            value={name}
+            disabled={loggingIn}
+            aria-invalid={autoSave.states.name?.status === 'error'}
+            onChange={(event) => {
+              setName(event.target.value)
+              autoSave.update('name', event.target.value)
+            }}
+            onBlur={() => void autoSave.flush()}
+            maxLength={200}
+          />
+          <AutoSaveStatus
+            state={autoSave.states.name}
+            onRetry={() => autoSave.update('name', name, 0)}
+          />
+        </Field>
         {modes.length > 0 && (
           <Field>
             <FieldLabel htmlFor={`auth-mode-${provider.id}`}>{t('使用的认证方式')}</FieldLabel>
@@ -383,7 +636,7 @@ function ProviderDetail({
           </Field>
         )}
         {provider.apiKeySupported && (
-          <Field>
+          <Field data-invalid={autoSave.states.key?.status === 'error'}>
             <div className="flex items-center justify-between gap-2">
               <FieldLabel htmlFor={`api-key-${provider.id}`}>API Key</FieldLabel>
               <Badge variant={provider.apiKeyConfigured ? 'secondary' : 'outline'}>
@@ -396,46 +649,32 @@ function ProviderDetail({
               autoComplete="new-password"
               spellCheck={false}
               value={key}
-              onChange={(event) => setKey(event.target.value)}
+              aria-invalid={autoSave.states.key?.status === 'error'}
+              onChange={(event) => {
+                setKey(event.target.value)
+                autoSave.update('key', event.target.value)
+              }}
+              onBlur={() => void autoSave.flush()}
               placeholder={t(
                 provider.apiKeyConfigured ? '输入新密钥以替换，已保存的密钥不回显' : '输入 API Key'
               )}
-              disabled={disabled}
+              disabled={loggingIn}
             />
-            <div className="flex flex-wrap gap-2">
+            {provider.apiKeyConfigured && (
               <Button
                 size="sm"
-                disabled={disabled || !key.trim()}
-                onClick={async () => {
-                  if (await change({ action: 'saveKey', id: provider.id, key })) setKey('')
-                }}
-              >
-                <KeyRoundIcon data-icon="inline-start" />
-                {t('保存密钥')}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
+                variant="ghost"
+                className="self-start"
                 disabled={disabled}
-                onClick={() =>
-                  void auth.perform(() => window.agentAuth.login(provider.id, 'api_key'))
-                }
+                onClick={() => setRemoving({ action: 'logout', id: provider.id, type: 'api_key' })}
               >
-                {t('引导配置')}
+                {t('移除密钥')}
               </Button>
-              {provider.apiKeyConfigured && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={disabled}
-                  onClick={() =>
-                    setRemoving({ action: 'logout', id: provider.id, type: 'api_key' })
-                  }
-                >
-                  {t('移除密钥')}
-                </Button>
-              )}
-            </div>
+            )}
+            <AutoSaveStatus
+              state={key ? autoSave.states.key : undefined}
+              onRetry={() => autoSave.update('key', key, 0)}
+            />
           </Field>
         )}
         {provider.oauthSupported && (
@@ -485,30 +724,24 @@ function ProviderDetail({
       </FieldGroup>
       <Separator />
       <FieldGroup>
-        <Field>
+        <Field data-invalid={autoSave.states.baseUrl?.status === 'error'}>
           <FieldLabel htmlFor={`api-url-${provider.id}`}>{t('API 地址')}</FieldLabel>
-          <div className="flex items-center gap-2">
-            <Input
-              id={`api-url-${provider.id}`}
-              value={provider.authMode === 'oauth' ? t('由供应商授权决定') : baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-              disabled={disabled || provider.authMode === 'oauth'}
-              placeholder="https://api.example.com/v1"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={
-                disabled ||
-                provider.authMode === 'oauth' ||
-                baseUrl === provider.baseUrl ||
-                !baseUrl.trim()
-              }
-              onClick={() => void change({ action: 'update', id: provider.id, baseUrl })}
-            >
-              {t('保存')}
-            </Button>
-          </div>
+          <Input
+            id={`api-url-${provider.id}`}
+            value={provider.authMode === 'oauth' ? t('由供应商授权决定') : baseUrl}
+            aria-invalid={autoSave.states.baseUrl?.status === 'error'}
+            onChange={(event) => {
+              setBaseUrl(event.target.value)
+              autoSave.update('baseUrl', event.target.value)
+            }}
+            onBlur={() => void autoSave.flush()}
+            disabled={loggingIn || provider.authMode === 'oauth'}
+            placeholder="https://api.example.com/v1"
+          />
+          <AutoSaveStatus
+            state={autoSave.states.baseUrl}
+            onRetry={() => autoSave.update('baseUrl', baseUrl, 0)}
+          />
           <FieldDescription>
             {t(
               provider.authMode === 'oauth'
@@ -558,86 +791,112 @@ function ProviderDetail({
             placeholder={t('搜索模型')}
           />
         </InputGroup>
-        {!models.length ? (
-          <Empty className="p-4">
-            <EmptyHeader>
-              <EmptyTitle>{t('暂无模型')}</EmptyTitle>
-              <EmptyDescription>{t('同步模型列表，或手动添加模型 ID。')}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="flex flex-col divide-y rounded-lg border">
-            {models.map((model) => (
-              <div key={model.id} className="flex items-center gap-2 px-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium" title={model.name}>
-                    {model.name}
-                  </div>
-                  <div className="truncate text-xs text-muted-foreground" title={model.id}>
-                    {model.id}
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {model.reasoning && <Badge variant="outline">{t('思考')}</Badge>}
-                    {model.vision && <Badge variant="outline">{t('图片')}</Badge>}
-                    <span className="text-xs text-muted-foreground">
-                      {Math.round(model.contextWindow / 1000)}k
-                    </span>
-                  </div>
-                </div>
-                <Switch
-                  size="sm"
-                  checked={model.enabled}
-                  disabled={disabled}
-                  aria-label={`${t('启用模型')} ${model.name}`}
-                  onCheckedChange={(enabled) =>
-                    void change({
-                      action: 'setModelEnabled',
-                      id: provider.id,
-                      modelId: model.id,
-                      enabled
-                    })
-                  }
-                />
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={`${t('编辑模型')} ${model.name}`}
-                  disabled={disabled}
-                  onClick={() => setModelEditor({ model })}
-                >
-                  <PencilIcon />
-                </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={`${t('移除模型')} ${model.name}`}
-                  disabled={disabled}
-                  onClick={() =>
-                    setRemoving({ action: 'removeModel', id: provider.id, modelId: model.id })
-                  }
-                >
-                  <Trash2Icon />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="overflow-hidden rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('模型')}</TableHead>
+                <TableHead>{t('能力')}</TableHead>
+                <TableHead>{t('上下文窗口')}</TableHead>
+                <TableHead>{t('已启用')}</TableHead>
+                <TableHead className="text-right">{t('操作')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {models.map((model) => (
+                <TableRow key={model.id}>
+                  <TableCell>
+                    <div className="flex min-w-40 max-w-64 flex-col gap-1">
+                      <span className="truncate font-medium" title={model.name}>
+                        {model.name}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground" title={model.id}>
+                        {model.id}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      {model.reasoning && <Badge variant="outline">{t('思考')}</Badge>}
+                      {model.vision && <Badge variant="outline">{t('图片')}</Badge>}
+                      {!model.reasoning && !model.vision && (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{model.contextWindow.toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Switch
+                      size="sm"
+                      checked={model.enabled}
+                      disabled={disabled}
+                      aria-label={`${t('启用模型')} ${model.name}`}
+                      onCheckedChange={(enabled) =>
+                        void change({
+                          action: 'setModelEnabled',
+                          id: provider.id,
+                          modelId: model.id,
+                          enabled
+                        })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`${t('编辑模型')} ${model.name}`}
+                        title={`${t('编辑模型')} ${model.name}`}
+                        disabled={disabled}
+                        onClick={() => setModelEditor({ model })}
+                      >
+                        <PencilIcon />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`${t('移除模型')} ${model.name}`}
+                        title={`${t('移除模型')} ${model.name}`}
+                        disabled={disabled}
+                        onClick={() =>
+                          setRemoving({ action: 'removeModel', id: provider.id, modelId: model.id })
+                        }
+                      >
+                        <Trash2Icon />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!models.length && (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <Empty className="py-8">
+                      <EmptyHeader>
+                        <EmptyTitle>{t(query.trim() ? '未找到模型' : '暂无模型')}</EmptyTitle>
+                        <EmptyDescription>
+                          {t('同步模型列表，或手动添加模型 ID。')}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
         <p className="text-xs text-muted-foreground">
           {t('同步接口未提供能力信息时使用默认 token 上限，可在模型编辑中调整。')}
         </p>
       </div>
-      {provider.custom && (
-        <Button
-          className="self-start"
-          variant="destructive"
-          size="sm"
-          disabled={disabled}
-          onClick={() => setRemoving({ action: 'delete', id: provider.id })}
-        >
-          <Trash2Icon data-icon="inline-start" />
-          {t('删除供应商')}
-        </Button>
-      )}
+      <DeleteProviderAction
+        provider={provider}
+        change={change}
+        disabled={disabled}
+        beforeDelete={autoSave.flush}
+        variant="destructive"
+      />
       {modelEditor && (
         <ModelDialog
           provider={provider}
@@ -659,11 +918,9 @@ function ProviderDetail({
             <DialogTitle>{t('确认移除')}</DialogTitle>
             <DialogDescription>
               {t(
-                removing?.action === 'delete'
-                  ? '删除此供应商及其在 eli 中保存的凭据与模型配置。'
-                  : removing?.action === 'logout'
-                    ? '仅移除选中的凭据，另一种登录方式保持不变。'
-                    : '此模型将从可用模型中移除，可通过同步或重新启用恢复。'
+                removing?.action === 'logout'
+                  ? '仅移除选中的凭据，另一种登录方式保持不变。'
+                  : '此模型将从可用模型中移除，可通过同步或重新启用恢复。'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -702,17 +959,17 @@ export function ProviderSettingsPanel({
   const [selected, setSelected] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
-  const providers = result.data?.providers ?? []
+  const providers = result.data?.providers.filter((item) => item.added) ?? []
   const visible = providers.filter((provider) =>
     `${provider.id} ${provider.name}`.toLowerCase().includes(query.toLowerCase())
   )
-  const provider = providers.find((item) => item.id === selected) ?? visible[0]
+  const provider = providers.find((item) => item.id === selected)
   const error =
     result.error || auth.error || (auth.snapshot?.status === 'error' ? auth.snapshot.error : null)
   return (
-    <div className="provider-layout flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       {error && (
-        <Alert variant="destructive" className="mx-5 mb-3 w-auto">
+        <Alert variant="destructive" className="mx-8 mb-3 w-auto">
           <AlertDescription className="break-words">{error}</AlertDescription>
         </Alert>
       )}
@@ -722,9 +979,9 @@ export function ProviderSettingsPanel({
           {t('正在加载供应商…')}
         </div>
       ) : (
-        <div className="provider-split min-h-0 flex-1">
-          <aside className="provider-list flex min-h-0 flex-col gap-3 border-r p-3">
-            <InputGroup>
+        <div className="flex min-h-0 flex-1 flex-col gap-5 px-8 pb-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <InputGroup className="max-w-sm">
               <InputGroupAddon>
                 <SearchIcon />
               </InputGroupAddon>
@@ -732,55 +989,114 @@ export function ProviderSettingsPanel({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t('搜索供应商')}
+                aria-label={t('搜索供应商')}
               />
             </InputGroup>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="flex flex-col gap-1">
-                {visible.map((item) => (
-                  <Button
-                    key={item.id}
-                    variant={provider?.id === item.id ? 'secondary' : 'ghost'}
-                    className="h-auto min-h-9 justify-between gap-2 px-2 py-2"
-                    aria-pressed={provider?.id === item.id}
-                    onClick={() => setSelected(item.id)}
-                  >
-                    <span className="min-w-0 truncate">{item.name}</span>
-                    {item.enabled &&
-                      (item.authMode === 'oauth'
-                        ? item.oauthConfigured
-                        : item.apiKeyConfigured) && <KeyRoundIcon data-icon="inline-end" />}
-                  </Button>
-                ))}
-              </div>
-            </ScrollArea>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAdding(true)}
-              disabled={result.pending}
-            >
+            <Button size="sm" onClick={() => setAdding(true)} disabled={result.pending}>
               <PlusIcon data-icon="inline-start" />
               {t('添加供应商')}
             </Button>
-          </aside>
-          <ScrollArea className="min-h-0 min-w-0">
-            {provider ? (
-              <ProviderDetail
-                key={provider.id}
-                provider={provider}
-                change={result.change}
-                pending={result.pending}
-                auth={auth}
-                error={result.error}
-              />
-            ) : (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>{t('未找到供应商')}</EmptyTitle>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </ScrollArea>
+          </div>
+          <div className="min-h-0 overflow-y-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('供应商')}</TableHead>
+                  <TableHead>{t('API 协议与地址')}</TableHead>
+                  <TableHead>{t('认证')}</TableHead>
+                  <TableHead>{t('模型')}</TableHead>
+                  <TableHead>{t('已启用')}</TableHead>
+                  <TableHead className="text-right">{t('操作')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {visible.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <div className="flex min-w-32 max-w-48 flex-col gap-1">
+                        <span className="truncate font-medium" title={item.name}>
+                          {item.name}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">{item.id}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex max-w-52 flex-col gap-1">
+                        <span className="truncate text-xs">{item.api}</span>
+                        <span
+                          className="truncate text-xs text-muted-foreground"
+                          title={item.baseUrl}
+                        >
+                          {item.authMode === 'oauth' ? t('由供应商授权决定') : item.baseUrl || '—'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          (item.authMode === 'oauth' ? item.oauthConfigured : item.apiKeyConfigured)
+                            ? 'secondary'
+                            : 'outline'
+                        }
+                      >
+                        {t(
+                          (item.authMode === 'oauth' ? item.oauthConfigured : item.apiKeyConfigured)
+                            ? '已配置'
+                            : '未配置'
+                        )}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {item.models.filter((model) => model.enabled).length} / {item.models.length}
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        size="sm"
+                        checked={item.enabled}
+                        disabled={result.pending || auth.snapshot?.status === 'logging-in'}
+                        aria-label={`${t('启用供应商')} ${item.name}`}
+                        onCheckedChange={(enabled) =>
+                          void result.change({ action: 'update', id: item.id, enabled })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => setSelected(item.id)}
+                          aria-label={`${t('编辑供应商')} ${item.name}`}
+                          title={`${t('编辑供应商')} ${item.name}`}
+                        >
+                          <PencilIcon />
+                        </Button>
+                        <DeleteProviderAction
+                          provider={item}
+                          change={result.change}
+                          disabled={result.pending || auth.snapshot?.status === 'logging-in'}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!visible.length && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Empty className="py-12">
+                        <EmptyHeader>
+                          <EmptyTitle>{t(query.trim() ? '未找到供应商' : '暂无供应商')}</EmptyTitle>
+                          <EmptyDescription>
+                            {t('点击“添加供应商”，连接你要使用的模型服务。')}
+                          </EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
       {result.pending && (
@@ -794,11 +1110,49 @@ export function ProviderSettingsPanel({
       )}
       {adding && (
         <ProviderCreateDialog
+          providers={result.data?.providers ?? []}
+          onAdded={(id) => {
+            setAdding(false)
+            setQuery('')
+            setSelected(id)
+          }}
           onClose={() => setAdding(false)}
           change={result.change}
           pending={result.pending}
           error={result.error}
         />
+      )}
+      {provider && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setSelected(null)
+          }}
+        >
+          <DialogContent className="flex max-h-[85dvh] flex-col overflow-hidden p-0 sm:max-w-3xl">
+            <DialogHeader className="shrink-0 px-6 pt-6 pb-4 pr-12">
+              <DialogTitle>{t('编辑模型供应商')}</DialogTitle>
+              <DialogDescription>
+                {t('修改后自动保存，可配置认证方式、API 地址及模型。')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto px-6 pb-6">
+              {error && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <ProviderDetail
+                key={provider.id}
+                provider={provider}
+                change={result.change}
+                pending={result.pending}
+                auth={auth}
+                error={result.error}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

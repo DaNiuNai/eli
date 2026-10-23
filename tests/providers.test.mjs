@@ -7,6 +7,7 @@ import { createEliModels, isolateProviderAuth } from '../src/runtime/models.ts'
 import { ProvidersService } from '../src/runtime/providers.ts'
 import { AgentAuthService } from '../src/runtime/auth.ts'
 import { closeNetwork } from '../src/runtime/network.ts'
+import { EliConfigStore } from '../src/config/store.ts'
 
 async function fixture(t) {
   const temporary = resolve('.tmp')
@@ -145,6 +146,169 @@ test('API Key 与 OAuth 独立保存、独立退出，SDK 自动刷新只更新 
   )
   await api.runtime.logout('mock-dual')
   assert.equal(await api.runtime.getAuth('mock-dual'), undefined)
+})
+
+test('未配置时供应商表格为空，已有配置和凭据对应的供应商会保留', async (t) => {
+  const root = await fixture(t)
+  const service = new ProvidersService(root, () => {})
+  const initial = await service.get()
+  assert.ok(initial.providers.length > 0)
+  assert.deepEqual(
+    initial.providers.filter((provider) => provider.added),
+    []
+  )
+  await service.change({ action: 'update', id: 'openai', enabled: false })
+  const snapshot = await new ProvidersService(root, () => {}).get()
+  const added = snapshot.providers.filter((provider) => provider.added)
+  assert.deepEqual(
+    added.map((provider) => provider.id),
+    ['openai']
+  )
+  assert.equal(added[0].enabled, false)
+  await service.change({ action: 'saveKey', id: 'anthropic', key: 'test-existing-key' })
+  assert.equal(
+    (await service.get()).providers.find((provider) => provider.id === 'anthropic').added,
+    true
+  )
+})
+
+test('主动添加内置供应商保留 SDK 模型和登录方式，重复添加不会覆盖配置', async (t) => {
+  const root = await fixture(t)
+  const service = new ProvidersService(root, () => {})
+  const before = (await service.get()).providers.find((provider) => provider.id === 'openai')
+  let snapshot = await service.change({ action: 'addBuiltin', id: before.id })
+  const added = snapshot.providers.filter((provider) => provider.added)
+  assert.deepEqual(
+    added.map((provider) => provider.id),
+    [before.id]
+  )
+  assert.equal(added[0].custom, false)
+  assert.equal(added[0].apiKeySupported, before.apiKeySupported)
+  assert.equal(added[0].oauthSupported, before.oauthSupported)
+  assert.deepEqual(added[0].models, before.models)
+  await service.change({ action: 'saveKey', id: before.id, key: 'test-built-in-key' })
+  await service.change({
+    action: 'update',
+    id: before.id,
+    name: 'My OpenAI',
+    enabled: false,
+    baseUrl: 'http://127.0.0.1:9/v1'
+  })
+  await service.change({ action: 'addBuiltin', id: before.id })
+  snapshot = await new ProvidersService(root, () => {}).get()
+  const retained = snapshot.providers.find((provider) => provider.id === before.id)
+  assert.equal(retained.added, true)
+  assert.equal(retained.apiKeyConfigured, true)
+  assert.equal(retained.enabled, false)
+  assert.equal(retained.name, 'My OpenAI')
+  assert.equal(retained.baseUrl, 'http://127.0.0.1:9/v1')
+  assert.equal(JSON.stringify(snapshot).includes('test-built-in-key'), false)
+  const oauth = snapshot.providers.find(
+    (provider) => !provider.apiKeySupported && provider.oauthSupported
+  )
+  assert.ok(oauth)
+  snapshot = await service.change({ action: 'addBuiltin', id: oauth.id })
+  const subscription = snapshot.providers.find((provider) => provider.id === oauth.id)
+  assert.equal(subscription.added, true)
+  assert.equal(subscription.authMode, 'oauth')
+})
+
+for (const custom of [false, true]) {
+  test(`删除${custom ? '自定义' : '内置'}供应商会清除配置和两种凭据，之后可重新添加`, async (t) => {
+    const root = await fixture(t)
+    const service = new ProvidersService(root, () => {})
+    const id = custom ? 'remove-custom' : 'openai'
+    const create = custom
+      ? {
+          action: 'create',
+          id,
+          name: 'Remove custom',
+          api: 'openai-completions',
+          baseUrl: 'http://127.0.0.1:9/v1'
+        }
+      : { action: 'addBuiltin', id }
+    await service.change(create)
+    await service.change({ action: 'saveKey', id, key: 'test-remove-key' })
+    await service.change({
+      action: 'saveModel',
+      id,
+      model: {
+        id: 'remove-model',
+        name: 'Remove model',
+        reasoning: false,
+        vision: false,
+        contextWindow: 8192,
+        maxTokens: 1024
+      }
+    })
+    await service.change({
+      action: 'create',
+      id: 'keep-provider',
+      name: 'Keep provider',
+      api: 'openai-completions',
+      baseUrl: 'http://127.0.0.1:9/v1'
+    })
+    await service.change({ action: 'saveKey', id: 'keep-provider', key: 'test-keep-key' })
+    const store = new EliConfigStore(join(root, 'config.json'))
+    await store.update((config) => {
+      config.credentials[`oauth:${id}`] = {
+        type: 'oauth',
+        access: 'test-remove-access',
+        refresh: 'test-remove-refresh',
+        expires: 1
+      }
+      config.app.theme = 'dark'
+      config.agent.defaultThinkingLevel = 'high'
+    })
+    const snapshot = await service.change({ action: 'delete', id })
+    assert.deepEqual(
+      snapshot.providers.filter((provider) => provider.added).map((provider) => provider.id),
+      ['keep-provider']
+    )
+    const saved = await store.read()
+    assert.equal(saved.providers[id], undefined)
+    assert.equal(saved.credentials[`api_key:${id}`], undefined)
+    assert.equal(saved.credentials[`oauth:${id}`], undefined)
+    assert.equal(saved.credentials['api_key:keep-provider'].key, 'test-keep-key')
+    assert.equal(saved.providers['keep-provider'].name, 'Keep provider')
+    assert.equal(saved.app.theme, 'dark')
+    assert.equal(saved.agent.defaultThinkingLevel, 'high')
+    const reloaded = (await new ProvidersService(root, () => {}).get()).providers.find(
+      (provider) => provider.id === id
+    )
+    if (custom) assert.equal(reloaded, undefined)
+    else {
+      assert.equal(reloaded.added, false)
+      assert.equal(reloaded.apiKeyConfigured, false)
+      assert.equal(reloaded.oauthConfigured, false)
+      assert.equal(
+        reloaded.models.some((model) => model.id === 'remove-model'),
+        false
+      )
+      assert.deepEqual(await (await service.models()).runtime.getAvailable(id), [])
+    }
+    const readded = (await service.change(create)).providers.find((provider) => provider.id === id)
+    assert.equal(readded.added, true)
+    assert.equal(readded.apiKeyConfigured, false)
+    assert.equal(readded.oauthConfigured, false)
+  })
+}
+
+test('自定义供应商不能伪装为内置供应商添加', async (t) => {
+  const root = await fixture(t)
+  const service = new ProvidersService(root, () => {})
+  await service.change({
+    action: 'create',
+    id: 'my-custom',
+    name: 'Custom',
+    api: 'openai-completions',
+    baseUrl: 'http://127.0.0.1:9/v1'
+  })
+  await assert.rejects(service.change({ action: 'addBuiltin', id: 'my-custom' }), /内置供应商/)
+  await assert.rejects(
+    service.change({ action: 'addBuiltin', id: 'missing-provider' }),
+    /供应商不存在/
+  )
 })
 
 test('供应商和模型管理持久化，密钥不进入界面快照，停用后不可用于请求', async (t) => {

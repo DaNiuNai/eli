@@ -23,6 +23,7 @@ export interface ProviderView {
   id: string
   name: string
   custom: boolean
+  added: boolean
   enabled: boolean
   baseUrl: string
   api: string
@@ -39,6 +40,7 @@ export interface ProvidersSnapshot {
 }
 export type ProviderChange =
   | { action: 'create'; id: string; name: string; baseUrl: string; api: ProviderApi }
+  | { action: 'addBuiltin'; id: string }
   | {
       action: 'update'
       id: string

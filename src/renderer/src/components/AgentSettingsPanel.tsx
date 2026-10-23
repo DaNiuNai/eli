@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { CheckIcon, RotateCcwIcon } from 'lucide-react'
+import { RotateCcwIcon } from 'lucide-react'
+import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -23,6 +24,7 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@renderer/components/ui/empty'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
+import { useAutoSave } from '@renderer/hooks/use-auto-save'
 import {
   agentSettingDefinitions,
   type AgentSettingDefinition,
@@ -78,14 +80,34 @@ export function AgentSettingsPanel({
   const { t } = useLanguage()
   const id = useId()
   const [data, setData] = useState<AgentSettingsSnapshot | null>(null)
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
   const [reload, setReload] = useState(0)
-  const [invalidKey, setInvalidKey] = useState('')
   const scroll = useRef<HTMLDivElement>(null)
   const active = useRef(true)
+  const latest = useRef<AgentSettingsSnapshot | null>(null)
+  const autoSave = useAutoSave<Draft>(async (key, draft) => {
+    const current = latest.current
+    if (!current) throw new Error('正在加载设置')
+    const field = agentSettingDefinitions.find((item) => item.key === key)!
+    const reset = draft.reset || (!draft.text.trim() && !['boolean', 'lines'].includes(field.kind))
+    const change: AgentSettingsChange = {
+      key,
+      ...(reset ? { reset: true } : { value: parse(draft.text, field) }),
+      expected: current.values[key]
+    }
+    try {
+      const result = await window.api.saveSettings([change])
+      latest.current = result
+      if (active.current) setData(result)
+    } catch (cause) {
+      const result = await window.api.getSettings().catch(() => null)
+      if (result) {
+        latest.current = result
+        if (active.current) setData(result)
+      }
+      throw cause
+    }
+  })
 
   useEffect(() => {
     active.current = true
@@ -101,6 +123,7 @@ export function AgentSettingsPanel({
       .getSettings()
       .then((result) => {
         if (current) {
+          latest.current = result
           setData(result)
           setError('')
         }
@@ -118,43 +141,8 @@ export function AgentSettingsPanel({
   }, [category, query])
 
   function update(key: string, draft: Draft): void {
-    setDrafts((current) => ({ ...current, [key]: draft }))
-    setSaved(false)
-    setError('')
-    setInvalidKey('')
-  }
-
-  async function save(): Promise<void> {
-    if (!enabled || !data || saving) return
-    setError('')
-    const changes: AgentSettingsChange[] = []
-    try {
-      for (const [key, draft] of Object.entries(drafts)) {
-        const field = agentSettingDefinitions.find((item) => item.key === key)!
-        try {
-          const reset =
-            draft.reset || (!draft.text.trim() && !['boolean', 'lines'].includes(field.kind))
-          changes.push({
-            key,
-            ...(reset ? { reset: true } : { value: parse(draft.text, field) }),
-            expected: data.values[key]
-          })
-        } catch (cause) {
-          setInvalidKey(key)
-          throw cause
-        }
-      }
-      setSaving(true)
-      const result = await window.api.saveSettings(changes)
-      if (!active.current) return
-      setData(result)
-      setDrafts({})
-      setSaved(true)
-    } catch (cause) {
-      if (active.current) setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      if (active.current) setSaving(false)
-    }
+    const field = agentSettingDefinitions.find((item) => item.key === key)!
+    autoSave.update(key, draft, draft.reset || ['boolean', 'select'].includes(field.kind) ? 0 : 400)
   }
 
   const search = query.trim().toLowerCase()
@@ -171,7 +159,6 @@ export function AgentSettingsPanel({
       : field.category === category
   )
   const sections = [...new Set(fields.map((field) => field.section))]
-  const changed = Object.keys(drafts).length
 
   if (!enabled || (category === 'general' && !search))
     return (
@@ -197,9 +184,7 @@ export function AgentSettingsPanel({
             <Button
               variant="outline"
               size="sm"
-              disabled={saving}
               onClick={() => {
-                setDrafts({})
                 setReload((value) => value + 1)
               }}
             >
@@ -221,24 +206,19 @@ export function AgentSettingsPanel({
                 {fields
                   .filter((field) => field.section === section)
                   .map((field) => {
-                    const draft = drafts[field.key]
+                    const state = autoSave.states[field.key]
+                    const draft = state && state.status !== 'saved' ? state.value : undefined
                     const inherited = field.defaultValue
                     const raw = data.values[field.key]
                     const value = draft?.reset ? inherited : (raw ?? inherited)
                     const text = draft && !draft.reset ? draft.text : format(value, field)
-                    const disabled = saving
-                    const invalid = invalidKey === field.key
+                    const disabled = !enabled
+                    const invalid = state?.status === 'error'
                     const inputId = `${id}-${field.key}`
                     const descriptionId = `${inputId}-description`
                     const resetDisabled =
                       disabled || (raw === undefined && !draft) || !!draft?.reset
-                    const source = draft
-                      ? draft.reset
-                        ? t('恢复默认值')
-                        : t('未保存')
-                      : raw !== undefined
-                        ? t('已自定义')
-                        : t('默认值')
+                    const source = raw !== undefined ? t('已自定义') : t('默认值')
                     return (
                       <Field
                         key={field.key}
@@ -257,6 +237,10 @@ export function AgentSettingsPanel({
                             <span className="mx-2">·</span>
                             {source}
                           </p>
+                          <AutoSaveStatus
+                            state={state}
+                            onRetry={() => state && autoSave.update(field.key, state.value, 0)}
+                          />
                         </FieldContent>
                         <div className="settings-control flex shrink-0 items-start justify-end gap-2">
                           {field.kind === 'boolean' ? (
@@ -304,6 +288,7 @@ export function AgentSettingsPanel({
                               value={text}
                               disabled={disabled}
                               onChange={(event) => update(field.key, { text: event.target.value })}
+                              onBlur={() => void autoSave.flush()}
                               placeholder={
                                 field.placeholder ??
                                 (field.kind === 'json' ? '{}' : t('每行一个条目'))
@@ -323,6 +308,7 @@ export function AgentSettingsPanel({
                               value={text}
                               disabled={disabled}
                               onChange={(event) => update(field.key, { text: event.target.value })}
+                              onBlur={() => void autoSave.flush()}
                               placeholder={field.placeholder ?? t('使用默认值')}
                               spellCheck={false}
                               className="min-w-0 flex-1"
@@ -354,42 +340,6 @@ export function AgentSettingsPanel({
           </Empty>
         )}
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-3 border-t px-8 py-4">
-        <p
-          className="flex items-center gap-2 text-xs leading-relaxed text-muted-foreground"
-          role="status"
-          aria-live="polite"
-        >
-          {saved ? (
-            <>
-              <CheckIcon className="size-3.5" />
-              {t('已保存，后续请求将加载新配置。')}
-            </>
-          ) : changed ? (
-            t('有 {count} 项未保存', { count: changed })
-          ) : (
-            t('保存后在后续请求生效，当前任务继续运行。')
-          )}
-        </p>
-        <div className="flex shrink-0 gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!changed || saving}
-            onClick={() => {
-              setDrafts({})
-              setError('')
-              setInvalidKey('')
-            }}
-          >
-            {t('放弃更改')}
-          </Button>
-          <Button size="sm" disabled={!changed || saving || !data} onClick={() => void save()}>
-            {saving && <Spinner data-icon="inline-start" />}
-            {t(saving ? '正在保存' : '保存更改')}
-          </Button>
-        </div>
-      </footer>
     </>
   )
 }

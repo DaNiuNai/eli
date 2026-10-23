@@ -15,6 +15,8 @@ export function useProviders(refreshKey: number): {
   const [version, setVersion] = useState(0)
   const active = useRef(true)
   const revision = useRef(0)
+  const writes = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingCount = useRef(0)
   useEffect(() => window.providers.onChanged(() => setVersion((current) => current + 1)), [])
   useEffect(() => {
     active.current = true
@@ -45,20 +47,29 @@ export function useProviders(refreshKey: number): {
       mounted = false
     }
   }, [refreshKey, version])
-  const change = useCallback(async (change: ProviderChange): Promise<boolean> => {
+  const change = useCallback((change: ProviderChange): Promise<boolean> => {
     revision.current++
-    setPending(true)
-    setError(null)
-    try {
-      const next = await window.providers.change(change)
-      if (active.current) setData(next)
-      return true
-    } catch (cause) {
-      if (active.current) setError(cause instanceof Error ? cause.message : String(cause))
-      return false
-    } finally {
-      if (active.current) setPending(false)
+    pendingCount.current++
+    if (active.current) {
+      setPending(true)
+      setError(null)
     }
+    const operation = writes.current.then(async () => {
+      const current = ++revision.current
+      try {
+        const next = await window.providers.change(change)
+        if (active.current && current === revision.current) setData(next)
+        return true
+      } catch (cause) {
+        if (active.current) setError(cause instanceof Error ? cause.message : String(cause))
+        return false
+      } finally {
+        pendingCount.current--
+        if (active.current) setPending(pendingCount.current > 0)
+      }
+    })
+    writes.current = operation
+    return operation
   }, [])
   return {
     data,

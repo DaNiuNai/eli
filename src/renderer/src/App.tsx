@@ -13,7 +13,7 @@ import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
-import { TerminalSetupDialog } from '@renderer/components/TerminalSetupDialog'
+import { WelcomeDialog } from '@renderer/components/WelcomeDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
@@ -316,7 +316,11 @@ function App(): React.JSX.Element {
         }}
         login={auth}
       />
-      {auth.terminalSetupOpen && <TerminalSetupDialog onComplete={auth.completeTerminalSetup} />}
+      <WelcomeDialog
+        open={auth.welcomeOpen}
+        onOpenChange={auth.onWelcomeOpenChange}
+        onOpenSettings={openSettings}
+      />
       <WorkspaceLayout
         sidebar={
           <AgentSidebar

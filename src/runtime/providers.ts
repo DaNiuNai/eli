@@ -1,4 +1,6 @@
 import type { AuthType, Model, Api } from '@earendil-works/pi-ai'
+import { join } from 'node:path'
+import { EliConfigStore } from '../config/store'
 import {
   providerApis,
   type ProviderChange,
@@ -107,17 +109,23 @@ export class ProvidersService {
           credentials.getStored(provider.id, 'oauth'),
           credentials.mode(provider.id)
         ])
+        const apiKeyConfigured =
+          !!apiKey || (!pref.keyRemoved && credentials.explicitKeys.has(provider.id))
         return {
           id: provider.id,
           name: provider.name,
           custom: !builtinIds.has(provider.id),
+          added:
+            !builtinIds.has(provider.id) ||
+            Object.hasOwn(preferences, provider.id) ||
+            apiKeyConfigured ||
+            !!oauth,
           enabled: pref.enabled !== false,
           baseUrl: pref.baseUrl ?? provider.baseUrl ?? catalog(provider.id)[0]?.baseUrl ?? '',
           api: pref.api ?? catalog(provider.id)[0]?.api ?? 'openai-completions',
           authMode,
           apiKeySupported: !!provider.auth.apiKey?.login,
-          apiKeyConfigured:
-            !!apiKey || (!pref.keyRemoved && credentials.explicitKeys.has(provider.id)),
+          apiKeyConfigured,
           oauthSupported: !!provider.auth.oauth,
           oauthConfigured: !!oauth,
           oauthName: provider.auth.oauth?.name,
@@ -155,6 +163,22 @@ export class ProvidersService {
     const provider = runtime.getProvider(id)
     if (change.action !== 'create' && !provider) throw new Error('供应商不存在')
     switch (change.action) {
+      case 'addBuiltin': {
+        if (!builtinIds.has(id)) throw new Error('请选择有效的内置供应商')
+        if (!provider?.auth.apiKey?.login && !provider?.auth.oauth)
+          throw new Error('此内置供应商没有可用的登录方式')
+        const mode = await bundle.credentials.mode(id)
+        const authMode =
+          mode === 'oauth' && provider.auth.oauth
+            ? 'oauth'
+            : provider.auth.apiKey?.login
+              ? 'api_key'
+              : 'oauth'
+        await updateProviderPreferences(this.root, (all) => {
+          all[id] ??= { enabled: true, authMode }
+        })
+        return
+      }
       case 'create': {
         if (provider || !/^[a-z][a-z0-9_-]{0,63}$/.test(id))
           throw new Error('供应商 ID 已存在或格式无效')
@@ -214,11 +238,10 @@ export class ProvidersService {
         return
       }
       case 'delete': {
-        if (builtinIds.has(id)) throw new Error('内置供应商只能停用')
-        for (const type of ['api_key', 'oauth'] as const)
-          await (await this.models(type)).credentials.delete(id)
-        await updateProviderPreferences(this.root, (all) => {
-          delete all[id]
+        await new EliConfigStore(join(this.root, 'config.json')).update((config) => {
+          delete config.providers[id]
+          delete config.credentials[`api_key:${id}`]
+          delete config.credentials[`oauth:${id}`]
         })
         return
       }

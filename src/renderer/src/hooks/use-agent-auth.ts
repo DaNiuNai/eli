@@ -4,19 +4,18 @@ import type { AgentAuthSnapshot } from '../../../shared/agent-auth'
 export function useAgentAuth(): {
   snapshot: AgentAuthSnapshot | null
   open: boolean
+  welcomeOpen: boolean
   loading: boolean
   error: string | null
-  terminalSetupOpen: boolean
-  completeTerminalSetup: () => void
   onOpenChange: (open: boolean) => void
+  onWelcomeOpenChange: (open: boolean) => void
   perform: (action: () => Promise<unknown>) => Promise<boolean>
 } {
   const [snapshot, setSnapshot] = useState<AgentAuthSnapshot | null>(null)
   const [open, setOpen] = useState(false)
+  const [welcomeOpen, setWelcomeOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [terminalSetupOpen, setTerminalSetupOpen] = useState(false)
-  const firstLogin = useRef(false)
   const latest = useRef<AgentAuthSnapshot | null>(null)
 
   const receive = useCallback((next: AgentAuthSnapshot) => {
@@ -24,8 +23,7 @@ export function useAgentAuth(): {
     if (previous && next.revision < previous.revision) return
     latest.current = next
     if (!previous && next.firstLaunch) {
-      firstLogin.current = true
-      setOpen(true)
+      setWelcomeOpen(true)
     }
     setSnapshot(next)
   }, [])
@@ -51,13 +49,7 @@ export function useAgentAuth(): {
     (value: boolean) => {
       setOpen(value)
       if (value) void refresh()
-      else {
-        if (firstLogin.current) {
-          firstLogin.current = false
-          setTerminalSetupOpen(true)
-        }
-        void perform(() => window.agentAuth.cancel())
-      }
+      else void perform(() => window.agentAuth.cancel())
     },
     [perform, refresh]
   )
@@ -84,11 +76,11 @@ export function useAgentAuth(): {
   return {
     snapshot,
     open,
+    welcomeOpen,
     loading,
     error,
     onOpenChange,
-    perform,
-    terminalSetupOpen,
-    completeTerminalSetup: () => setTerminalSetupOpen(false)
+    onWelcomeOpenChange: setWelcomeOpen,
+    perform
   }
 }
