@@ -65,7 +65,6 @@ export function AutoApprovalSettings(): React.JSX.Element {
   ]
   return (
     <section className="flex flex-col gap-6">
-      <h3 className="text-sm font-semibold">{t('自动批准')}</h3>
       <FieldGroup className="gap-0">
         <Field
           orientation="responsive"

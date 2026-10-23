@@ -61,9 +61,8 @@ function GeneralSettings(): React.JSX.Element {
   const { t } = useLanguage()
   const { theme, setTheme } = useTheme()
   return (
-    <>
+    <FieldGroup className="gap-0">
       <section className="flex flex-col gap-6">
-        <h3 className="text-sm font-semibold">{t('外观')}</h3>
         <FieldGroup className="gap-0">
           <Field orientation="responsive" className="settings-row">
             <FieldContent>
@@ -88,11 +87,10 @@ function GeneralSettings(): React.JSX.Element {
         </FieldGroup>
       </section>
       <section className="flex flex-col gap-6">
-        <h3 className="text-sm font-semibold">{t('终端')}</h3>
         <TerminalSettings />
       </section>
       <AutoApprovalSettings />
-    </>
+    </FieldGroup>
   )
 }
 

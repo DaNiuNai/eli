@@ -36,6 +36,12 @@ const english: Record<string, string> = {
   '无法连接更新服务，请检查网络后重试。':
     'Could not connect to the update service. Check your connection and try again.',
   模型供应商: 'Model providers',
+  默认模型: 'Default model',
+  自动选择: 'Automatic',
+  '新对话使用的默认模型，选择后同时设置供应商和模型，不会改变已有对话的模型。':
+    'Choose the provider and model for new conversations. Existing conversations keep their model.',
+  '所选默认模型当前不可用，请在模型供应商中检查配置或重新选择。':
+    'The selected default model is unavailable. Check its provider settings or choose another model.',
   配置模型供应商: 'Configure model providers',
   添加模型供应商: 'Add model provider',
   编辑模型供应商: 'Edit model provider',

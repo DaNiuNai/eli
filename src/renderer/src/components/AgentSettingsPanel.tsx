@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { RotateCcwIcon } from 'lucide-react'
 import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
+import { DefaultModelSetting } from '@renderer/components/DefaultModelSetting'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -33,7 +34,7 @@ import {
   type AgentSettingsSnapshot
 } from '../../../shared/agent-settings'
 
-type Draft = { text: string; reset?: boolean }
+type Draft = { text: string; reset?: boolean; provider?: string }
 
 function format(value: unknown, field: AgentSettingDefinition): string {
   if (value === undefined) return ''
@@ -95,8 +96,19 @@ export function AgentSettingsPanel({
       ...(reset ? { reset: true } : { value: parse(draft.text, field) }),
       expected: current.values[key]
     }
+    const changes: AgentSettingsChange[] =
+      key === 'defaultModel'
+        ? [
+            {
+              key: 'defaultProvider',
+              ...(reset ? { reset: true } : { value: draft.provider }),
+              expected: current.values.defaultProvider
+            },
+            change
+          ]
+        : [change]
     try {
-      const result = await window.api.saveSettings([change])
+      const result = await window.api.saveSettings(changes)
       latest.current = result
       if (active.current) setData(result)
     } catch (cause) {
@@ -146,18 +158,28 @@ export function AgentSettingsPanel({
   }
 
   const search = query.trim().toLowerCase()
-  const fields = agentSettingDefinitions.filter((field) =>
-    search
-      ? [
-          field.key,
-          field.label,
-          field.description,
-          field.section,
-          t(field.label),
-          t(field.description)
-        ].some((value) => value.toLowerCase().includes(search))
+  const fields = agentSettingDefinitions.filter((field) => {
+    if (['defaultProvider', 'enabledModels', 'modelThinkingLevels'].includes(field.key))
+      return false
+    const searchable =
+      field.key === 'defaultModel'
+        ? agentSettingDefinitions.filter((item) =>
+            ['defaultProvider', 'defaultModel'].includes(item.key)
+          )
+        : [field]
+    return search
+      ? searchable.some((item) =>
+          [
+            item.key,
+            item.label,
+            item.description,
+            item.section,
+            t(item.label),
+            t(item.description)
+          ].some((value) => value.toLowerCase().includes(search))
+        )
       : field.category === category
-  )
+  })
   const sections = [...new Set(fields.map((field) => field.section))]
 
   if (!enabled || (category === 'general' && !search))
@@ -208,6 +230,37 @@ export function AgentSettingsPanel({
                   .map((field) => {
                     const state = autoSave.states[field.key]
                     const draft = state && state.status !== 'saved' ? state.value : undefined
+                    if (field.key === 'defaultModel') {
+                      const provider = draft?.reset
+                        ? ''
+                        : (draft?.provider ?? String(data.values.defaultProvider ?? ''))
+                      const model = draft?.reset
+                        ? ''
+                        : (draft?.text ?? String(data.values.defaultModel ?? ''))
+                      const customized =
+                        data.values.defaultProvider !== undefined ||
+                        data.values.defaultModel !== undefined
+                      return (
+                        <DefaultModelSetting
+                          key={field.key}
+                          id={`${id}-${field.key}`}
+                          selected={provider || model ? { provider, id: model } : null}
+                          disabled={!enabled}
+                          resetDisabled={!enabled || (!customized && !draft) || !!draft?.reset}
+                          state={state}
+                          onChange={(selected) =>
+                            autoSave.update(
+                              field.key,
+                              selected
+                                ? { text: selected.id, provider: selected.provider }
+                                : { text: '', reset: true },
+                              0
+                            )
+                          }
+                          onRetry={() => state && autoSave.update(field.key, state.value, 0)}
+                        />
+                      )
+                    }
                     const inherited = field.defaultValue
                     const raw = data.values[field.key]
                     const value = draft?.reset ? inherited : (raw ?? inherited)
