@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
+import { EliConfigStore } from '../config/store'
 import { createSettings } from './settings'
 import { configureNetwork } from './network'
 import type { AuthEvent, AuthPrompt, AuthType } from '@earendil-works/pi-ai'
@@ -65,6 +67,10 @@ export class AgentAuthService {
       if (!method?.login) throw new Error('该服务不支持此登录方式')
       const settings = await createSettings(this.root)
       await configureNetwork(settings)
+      const deviceId = await new EliConfigStore(join(this.root, 'config.json')).update((config) => {
+        config.deviceId ??= randomUUID()
+        return config.deviceId
+      }, controller.signal)
       await runtime.login(
         providerId,
         type,
@@ -77,7 +83,7 @@ export class AgentAuthService {
             this.publish()
           }
         },
-        { getDeviceId: () => settings.getOrCreateDeviceId(), agentName: 'eli' }
+        { getDeviceId: () => deviceId, agentName: 'eli' }
       )
       await settings.flush()
       await this.providers.authenticated(providerId, type)

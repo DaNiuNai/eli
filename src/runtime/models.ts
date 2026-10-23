@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { ModelRuntime, type ProviderConfig } from '@earendil-works/pi-coding-agent'
 import type { Api, AuthContext, AuthType, Provider, Model } from '@earendil-works/pi-ai'
 import { sdkModules } from './sdk-adapter'
+import { EliConfigStore } from '../config/store'
 import { EliCredentials } from './credentials'
 import { readProviderPreferences, type ProviderPreferencesMap } from './provider-store'
 import type { ProviderModelInput } from '../shared/providers'
@@ -61,7 +62,7 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
   const sdk = await sdkModules()
   const preferences = await readProviderPreferences(root)
   const credentials = new EliCredentials(
-    new sdk.FileAuthStorageBackend(join(root, 'auth.json')),
+    new EliConfigStore(join(root, 'config.json')),
     preferences,
     forcedMode
   )
@@ -79,8 +80,6 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
   const modes = new Map<string, AuthType>()
   const catalogSources = new Map<string, () => readonly Model<Api>[]>()
   const emptyConfig = await sdk.ModelConfig.load(undefined)
-  const fileConfig = await sdk.ModelConfig.load(join(root, 'models.json'))
-  if (fileConfig.getError()) throw new Error(fileConfig.getError())
   const registerNative = runtime.registerNativeProvider.bind(runtime)
   const unregister = runtime.unregisterProvider.bind(runtime)
   const extensionConfigs = new Map<string, ProviderConfig>()
@@ -163,49 +162,24 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
     else catalogSources.delete(id)
   }
 
-  const ids = new Set([...builtinIds, ...fileConfig.getProviderIds(), ...Object.keys(preferences)])
+  const ids = new Set([...builtinIds, ...Object.keys(preferences)])
   // 凭据模式固定在一次 Runtime 生命周期内，切换后主进程重建空闲会话。
   for (const id of ids) {
-    const file = fileConfig.getProvider(id)
-    if (file?.apiKey) credentials.explicitKeys.set(id, file.apiKey)
     modes.set(id, forcedMode ?? (await credentials.mode(id)))
   }
   for (const id of ids) {
-    const file = fileConfig.getProvider(id)
     const pref = preferences[id] ?? {}
-    if (file || pref.custom) {
+    if (pref.custom) {
       const base = builtins.get(id)
       const subscription = modes.get(id) === 'oauth' && !!base?.auth.oauth
       const api = subscription
         ? (base?.getModels()[0]?.api ?? 'openai-responses')
-        : (pref.api ?? file?.api ?? base?.getModels()[0]?.api ?? 'openai-completions')
-      const endpoint = subscription
-        ? (base?.baseUrl ?? '')
-        : (pref.baseUrl ?? file?.baseUrl ?? base?.baseUrl ?? '')
-      const definitions = subscription
-        ? undefined
-        : file?.models?.map((model) => ({
-            ...modelDefinition(
-              {
-                id: model.id,
-                name: model.name ?? model.id,
-                reasoning: model.reasoning ?? false,
-                vision: model.input?.includes('image') ?? false,
-                contextWindow: model.contextWindow ?? 128000,
-                maxTokens: model.maxTokens ?? 8192
-              },
-              model.api ?? api,
-              model.baseUrl ?? endpoint,
-              id
-            ),
-            ...model
-          }))
+        : (pref.api ?? base?.getModels()[0]?.api ?? 'openai-completions')
+      const endpoint = subscription ? (base?.baseUrl ?? '') : (pref.baseUrl ?? base?.baseUrl ?? '')
       runtime.registerProvider(id, {
-        name: pref.name ?? file?.name,
+        name: pref.name,
         baseUrl: endpoint,
-        api: api as Api,
-        models: definitions,
-        headers: subscription ? undefined : file?.headers
+        api: api as Api
       })
     } else {
       const builtin = builtins.get(id)

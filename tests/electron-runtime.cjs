@@ -1,5 +1,5 @@
 const { app, utilityProcess } = require('electron')
-const { mkdtempSync, mkdirSync, writeFileSync } = require('node:fs')
+const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 const assert = require('node:assert/strict')
 
@@ -19,7 +19,7 @@ writeFileSync(
   }
 `
 )
-writeFileSync(join(data, 'settings.json'), JSON.stringify({ cacheWarming: 'off' }))
+writeFileSync(join(data, 'config.json'), JSON.stringify({ agent: { cacheWarming: 'off' } }))
 app.setPath('userData', join(directory, 'electron'))
 app.disableHardwareAcceleration()
 const entry = resolve(process.argv[2] || join(workspace, 'out', 'main', 'runtime.mjs'))
@@ -73,6 +73,11 @@ app.whenReady().then(async () => {
     assert.deepEqual(await request('getSkills'), [])
     await request('shutdown')
     await exited
+    assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), {
+      agent: { cacheWarming: 'off' }
+    })
+    for (const name of ['settings.json', 'models.json', 'providers.json', 'auth.json'])
+      assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(`Electron utilityProcess + SDK + project extension: PASS (${entry})`)
     clearTimeout(timeout)

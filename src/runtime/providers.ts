@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import type { AuthType, Model, Api } from '@earendil-works/pi-ai'
 import {
   providerApis,
@@ -11,7 +10,6 @@ import { createEliModels, type EliModels } from './models'
 import { updateProviderPreferences } from './provider-store'
 import { createSettings } from './settings'
 import { configureNetwork } from './network'
-import { sdkModules } from './sdk-adapter'
 
 function text(value: unknown, label: string, max = 200): string {
   if (typeof value !== 'string' || !value.trim() || value.trim().length > max)
@@ -219,15 +217,6 @@ export class ProvidersService {
         if (builtinIds.has(id)) throw new Error('内置供应商只能停用')
         for (const type of ['api_key', 'oauth'] as const)
           await (await this.models(type)).credentials.delete(id)
-        const { FileAuthStorageBackend } = await sdkModules()
-        await new FileAuthStorageBackend(join(this.root, 'models.json')).withLockAsync(
-          async (body) => {
-            const config = body ? JSON.parse(body) : {}
-            config.providers ??= {}
-            if (config.providers) delete config.providers[id]
-            return { result: undefined, next: JSON.stringify(config, null, 2) + '\n' }
-          }
-        )
         await updateProviderPreferences(this.root, (all) => {
           delete all[id]
         })

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { settingsStorage, createSettings } from './settings'
+import { EliConfigStore } from '../config/store'
 import {
   agentSettingDefinitions,
   settingValue,
@@ -85,7 +85,7 @@ function patch(
   }
 }
 
-/** 逐字段修改，沿用 PI 的文件锁与配置迁移，保留未知字段和其他进程的修改。 */
+/** 设置界面只修改 config.json 的 agent 字段，不写入 SDK 设置存储。 */
 export class AgentSettingsService {
   constructor(private readonly root: string) {}
   private schema?: Promise<Schema>
@@ -99,11 +99,10 @@ export class AgentSettingsService {
     return this.schema
   }
   async get(): Promise<AgentSettingsSnapshot> {
-    const manager = await createSettings(this.root)
-    const global = manager.getGlobalSettings()
+    const { agent } = await new EliConfigStore(join(this.root, 'config.json')).read()
     const values: Record<string, unknown> = {}
     for (const field of agentSettingDefinitions) {
-      values[field.key] = settingValue(global, field.key)
+      values[field.key] = settingValue(agent, field.key)
     }
     return { values }
   }
@@ -138,21 +137,12 @@ export class AgentSettingsService {
       )
         throw new Error(`${field.label}：请输入有效的非负整数`)
     }
-    const { SettingsManager } = await import('@earendil-works/pi-coding-agent')
-    const storage = await settingsStorage(this.root)
-    storage.withLock('global', (current) => {
-      const parsed: unknown = current ? JSON.parse(current.replace(/^\uFEFF/, '')) : {}
-      if (!record(parsed)) throw new Error('eli 设置必须是 JSON 对象')
-      const migrated = SettingsManager.inMemory(parsed).getGlobalSettings() as Record<
-        string,
-        unknown
-      >
+    await new EliConfigStore(join(this.root, 'config.json')).update(({ agent }) => {
       for (const change of changes as AgentSettingsChange[]) {
-        if (JSON.stringify(settingValue(migrated, change.key)) !== JSON.stringify(change.expected))
+        if (JSON.stringify(settingValue(agent, change.key)) !== JSON.stringify(change.expected))
           throw new Error('设置已被其他操作修改，请重新加载后再试')
-        patch(migrated, change.key, change.value, change.reset === true)
+        patch(agent as Record<string, unknown>, change.key, change.value, change.reset === true)
       }
-      return `${JSON.stringify(migrated, null, 2)}\n`
     })
     return this.get()
   }

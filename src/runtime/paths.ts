@@ -6,9 +6,6 @@ import { join, resolve } from 'node:path'
 export interface RuntimePaths {
   root: string
   preferences: string
-  settings: string
-  auth: string
-  models: string
   modelCache: string
   sessions: string
   images: string
@@ -19,9 +16,6 @@ export function runtimePaths(root = join(homedir(), '.eli')): RuntimePaths {
   return {
     root: directory,
     preferences: join(directory, 'config.json'),
-    settings: join(directory, 'settings.json'),
-    auth: join(directory, 'auth.json'),
-    models: join(directory, 'models.json'),
     modelCache: join(directory, 'models-store.json'),
     sessions: join(directory, 'sessions'),
     images: join(directory, 'images')

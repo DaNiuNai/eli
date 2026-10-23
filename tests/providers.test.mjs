@@ -134,7 +134,7 @@ test('API Key 与 OAuth 独立保存、独立退出，SDK 自动刷新只更新 
   }))
   assert.equal((await oauth.runtime.getAuth('mock-dual')).auth.apiKey, 'test-refreshed')
   assert.equal(refreshes, 1)
-  const saved = JSON.parse(await readFile(join(root, 'auth.json'), 'utf8'))
+  const saved = JSON.parse(await readFile(join(root, 'config.json'), 'utf8')).credentials
   assert.equal(saved['api_key:mock-dual'].key, '${LITERAL_KEY_NOT_ENV}')
   assert.equal(saved['oauth:mock-dual'].access, 'test-refreshed')
   await oauth.runtime.logout('mock-dual')

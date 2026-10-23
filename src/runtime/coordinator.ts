@@ -1,5 +1,7 @@
 import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { EliConfigStore } from '../config/store'
 import {
   createAgentSession,
   type ModelRuntime,
@@ -62,7 +64,7 @@ export class RuntimeCoordinator {
 
   async initialize(): Promise<void> {
     const { root, cwd, sessionFile, sessionKey, selection } = this.options
-    this.settings = await createSettings(root, cwd)
+    this.settings = await createSettings(root)
     await configureNetwork(this.settings)
     this.models = await createModels(root)
     const directory = workspaceSessionDirectory(root, cwd)
@@ -338,6 +340,10 @@ export class RuntimeCoordinator {
       if (!model) throw new Error('模型不存在')
       await this.agent.setModel(model, { persist: true })
       await this.settings.flush()
+      await new EliConfigStore(join(this.options.root, 'config.json')).update(({ agent }) => {
+        agent.defaultProvider = provider
+        agent.defaultModel = id
+      })
     })
   }
 
@@ -346,6 +352,9 @@ export class RuntimeCoordinator {
       if (!this.snapshot.thinkingLevels.includes(level)) throw new Error('当前模型不支持该思考强度')
       this.agent.setThinkingLevel(level, { persist: true })
       await this.settings.flush()
+      await new EliConfigStore(join(this.options.root, 'config.json')).update(({ agent }) => {
+        agent.defaultThinkingLevel = level
+      })
     })
   }
 

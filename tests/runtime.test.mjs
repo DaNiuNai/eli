@@ -144,36 +144,33 @@ async function modelServer(t, data) {
   })
   const port = server.address().port
   await writeFile(
-    join(data, 'models.json'),
+    join(data, 'config.json'),
     JSON.stringify({
+      agent: {
+        defaultProvider: 'eli-test',
+        enabledModels: ['eli-test/*'],
+        defaultModel: 'local',
+        retry: { enabled: false },
+        cacheWarming: 'off'
+      },
+      credentials: { 'api_key:eli-test': { type: 'api_key', key: 'test-only' } },
       providers: {
         'eli-test': {
+          custom: true,
           api: 'openai-completions',
           baseUrl: `http://127.0.0.1:${port}/v1`,
-          apiKey: 'test-only',
           models: [
             {
               id: 'local',
               name: 'Local test',
               reasoning: false,
-              input: ['text', 'image'],
+              vision: true,
               contextWindow: 32768,
-              maxTokens: 4096,
-              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+              maxTokens: 4096
             }
           ]
         }
       }
-    })
-  )
-  await writeFile(
-    join(data, 'settings.json'),
-    JSON.stringify({
-      defaultProvider: 'eli-test',
-      enabledModels: ['eli-test/*'],
-      defaultModel: 'local',
-      retry: { enabled: false },
-      cacheWarming: 'off'
     })
   )
   return requests
@@ -276,31 +273,38 @@ test('未配置 eli 凭据时不会借用环境凭据，也不会把正常空白
 test('默认模型在启用范围内选择，项目扩展注册的模型也参与选择', async (t) => {
   const f = await fixture(t)
   await modelServer(t, f.data)
-  const config = JSON.parse(await readFile(join(f.data, 'models.json'), 'utf8'))
-  const provider = config.providers['eli-test']
-  provider.models.push({ ...provider.models[0], id: 'outside' })
-  await writeFile(join(f.data, 'models.json'), JSON.stringify(config))
-  const settings = JSON.parse(await readFile(join(f.data, 'settings.json'), 'utf8'))
-  await writeFile(
-    join(f.data, 'settings.json'),
-    JSON.stringify({ ...settings, defaultModel: 'outside', enabledModels: ['eli-test/local'] })
-  )
+  const config = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  const pref = config.providers['eli-test']
+  pref.models.push({ ...pref.models[0], id: 'outside' })
+  const provider = {
+    api: pref.api,
+    baseUrl: pref.baseUrl,
+    apiKey: 'test-only',
+    models: pref.models.map(({ vision, ...model }) => ({
+      ...model,
+      input: vision ? ['text', 'image'] : ['text']
+    }))
+  }
+  config.agent.defaultModel = 'outside'
+  config.agent.enabledModels = ['eli-test/local']
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(config))
   const first = runtime(t)
   assert.equal((await initialize(first.connection, f)).snapshot.model.id, 'local')
+  await first.connection.call('setModel', 'eli-test', 'local')
+  await first.connection.call('setThinkingLevel', 'off')
+  const savedConfig = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  assert.equal(savedConfig.agent.defaultModel, 'local')
+  assert.equal(savedConfig.agent.defaultProvider, 'eli-test')
+  assert.equal(savedConfig.agent.defaultThinkingLevel, 'off')
   await first.connection.stop()
   await mkdir(join(f.cwd, '.eli/extensions'), { recursive: true })
   await writeFile(
     join(f.cwd, '.eli/extensions/provider.ts'),
     `export default function(pi) { pi.registerProvider('eli-extension', ${JSON.stringify(provider)}) }`
   )
-  await writeFile(
-    join(f.data, 'settings.json'),
-    JSON.stringify({
-      ...settings,
-      defaultProvider: 'eli-extension',
-      enabledModels: ['eli-extension/local']
-    })
-  )
+  config.agent.defaultProvider = 'eli-extension'
+  config.agent.enabledModels = ['eli-extension/local']
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(config))
   const second = runtime(t)
   const loaded = await initialize(second.connection, f)
   assert.equal(loaded.snapshot.model.provider, 'eli-extension')
@@ -458,7 +462,13 @@ test('管理进程只索引 ~/.eli 会话，设置按字段持久化', async (t)
     connection.call('saveSettings', [{ key: 'sessionDir', value: '../old' }]),
     /无效的设置项/
   )
-  assert.ok((await readdir(f.data)).includes('settings.json'))
+  const files = await readdir(f.data)
+  assert.ok(files.includes('config.json'))
+  assert.equal(files.includes('settings.json'), false)
+  assert.equal(
+    JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8')).agent.defaultThinkingLevel,
+    'high'
+  )
 })
 
 test('重启后从工作目录子目录发现历史会话并恢复完整消息', async (t) => {
@@ -566,7 +576,11 @@ test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源
     join(f.cwd, '.pi/extensions/broken.ts'),
     'throw new Error("pi extension must not load")'
   )
-  await writeFile(join(projectData, 'settings.json'), JSON.stringify({ hideThinkingBlock: true }))
+  const config = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  config.agent.hideThinkingBlock = true
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(config))
+  // 项目里的旧设置既不加载，也不改写。
+  await writeFile(join(projectData, 'settings.json'), '{ old project settings')
   await writeFile(
     join(projectData, 'prompts/greet.md'),
     '---\ndescription: Greet fixture\n---\nHello $1'
@@ -586,6 +600,7 @@ test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源
   const r = runtime(t)
   const state = await initialize(r.connection, f)
   assert.equal(state.snapshot.hideThinkingBlock, true)
+  assert.equal(await readFile(join(projectData, 'settings.json'), 'utf8'), '{ old project settings')
   assert.equal(await readFile(join(f.cwd, 'extension-loaded.txt'), 'utf8'), 'loaded')
   assert.deepEqual((await r.connection.call('getSkills')).map(({ name }) => name).sort(), [
     'skill:global',
@@ -651,14 +666,9 @@ test('等待审批时关闭 Runtime 会取消等待；其他会话继续工作',
 test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
   const f = await fixture(t)
   await modelServer(t, f.data)
-  const saved = JSON.parse(await readFile(join(f.data, 'settings.json'), 'utf8'))
-  await writeFile(
-    join(f.data, 'settings.json'),
-    JSON.stringify({
-      ...saved,
-      compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 128 }
-    })
-  )
+  const saved = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  saved.agent.compaction = { enabled: false, keepRecentTokens: 1, reserveTokens: 128 }
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(saved))
   const r = runtime(t)
   await initialize(r.connection, f)
   await r.connection.call('compact')

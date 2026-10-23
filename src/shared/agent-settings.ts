@@ -297,7 +297,7 @@ export const agentSettingDefinitions: AgentSettingDefinition[] = [
     category: 'resources',
     section: 'eli 资源',
     label: '扩展',
-    description: '每行一个本地扩展文件或目录。相对路径从当前 settings.json 所在目录解析。',
+    description: '每行一个本地扩展文件或目录。相对路径从 config.json 所在目录解析。',
     kind: 'lines',
     defaultValue: []
   },
