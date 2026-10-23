@@ -243,6 +243,7 @@ export class SessionProcess {
     this.snapshot.response.toolCallDrafts = {}
     this.snapshot.activeThinking = null
     this.snapshot.toolApprovals = []
+    this.snapshot.autoApproval = { reviewing: 0, paused: false, lastDenied: null }
     this.snapshot.userQuestions = []
     this.snapshot.error = error instanceof Error ? error.message : String(error)
     if (this.state.summary)

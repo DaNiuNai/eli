@@ -3,7 +3,12 @@ import type { AgentResponsePhase, AgentSessionSnapshot } from '../../../shared/a
 export function getResponseDisplay(
   snapshot: Pick<
     AgentSessionSnapshot,
-    'response' | 'activity' | 'hideThinkingBlock' | 'toolApprovals' | 'userQuestions'
+    | 'response'
+    | 'activity'
+    | 'hideThinkingBlock'
+    | 'toolApprovals'
+    | 'userQuestions'
+    | 'autoApproval'
   > | null,
   sendingId: number | undefined,
   stopping: boolean
@@ -21,14 +26,16 @@ export function getResponseDisplay(
       ? '等待你的回答'
       : snapshot?.toolApprovals.length
         ? '等待工具审批'
-        : compacting
-          ? null
-          : phase === 'sending'
-            ? '正在发送消息'
-            : phase === 'waiting'
-              ? '正在等待回复'
-              : phase === 'thinking' && snapshot?.hideThinkingBlock
-                ? '正在思考'
-                : null
+        : snapshot?.autoApproval?.reviewing
+          ? '正在自动审核'
+          : compacting
+            ? null
+            : phase === 'sending'
+              ? '正在发送消息'
+              : phase === 'waiting'
+                ? '正在等待回复'
+                : phase === 'thinking' && snapshot?.hideThinkingBlock
+                  ? '正在思考'
+                  : null
   return { phase, active: phase !== 'idle' && !isStopping && !compacting, status }
 }

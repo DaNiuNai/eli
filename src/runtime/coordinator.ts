@@ -24,6 +24,7 @@ import { hostExtension } from './host-extension'
 import { mapMessageEntryIds } from './history'
 import { configureNetwork } from './network'
 import { desktopExtensionUi } from './extension-ui'
+import { reviewTool } from './auto-approval'
 
 export function modelInfo({
   provider,
@@ -53,13 +54,42 @@ export class RuntimeCoordinator {
   private activeMessage = -1
   private activeTools = new Set<string>()
   private abortRequested = false
+  private approvalCheckpoint = ''
 
   constructor(
     private readonly options: Extract<RuntimeInit, { kind: 'session' }>,
     private readonly changed: (libraryChanged?: boolean) => void
   ) {
     this.snapshot = emptySessionSnapshot(options.cwd, options.sessionKey, options.sessionFile)
-    this.interactions = new RuntimeInteractions(options.approvalMode, () => this.publish())
+    this.interactions = new RuntimeInteractions(
+      options.approvalMode,
+      () => {
+        this.persistApprovalCheckpoint()
+        this.publish()
+      },
+      (request, signal) =>
+        reviewTool({
+          root: options.root,
+          cwd: options.cwd,
+          terminal: options.terminal.path,
+          models: this.models,
+          currentModel: this.agent.model,
+          messages: this.agent.sessionManager
+            .getBranch()
+            .flatMap((entry) => (entry.type === 'message' ? [entry.message] : [])),
+          request,
+          previousDenial: this.interactions.autoApproval.lastDenied,
+          signal
+        })
+    )
+  }
+
+  private persistApprovalCheckpoint(): void {
+    const checkpoint = JSON.stringify(this.interactions.checkpoint)
+    if (this.agent && checkpoint !== this.approvalCheckpoint) {
+      this.agent.sessionManager.appendCustomEntry('eli.auto_approval', this.interactions.checkpoint)
+      this.approvalCheckpoint = checkpoint
+    }
   }
 
   async initialize(): Promise<void> {
@@ -111,6 +141,13 @@ export class RuntimeCoordinator {
       thinkingLevel: selection?.thinkingLevel
     })
     this.agent = session
+    const checkpoint = manager
+      .getBranch()
+      .findLast((entry) => entry.type === 'custom' && entry.customType === 'eli.auto_approval')
+    const saved = checkpoint?.type === 'custom' ? checkpoint.data : undefined
+    this.interactions.restoreCheckpoint(saved)
+    this.approvalCheckpoint = JSON.stringify(saved ?? this.interactions.checkpoint)
+    this.persistApprovalCheckpoint()
     this.unsubscribe = session.subscribe((event) => this.onEvent(event))
     await session.bindExtensions({
       uiContext: desktopExtensionUi(session.extensionRunner.getUIContext(), (message) => {
@@ -168,6 +205,7 @@ export class RuntimeCoordinator {
 
   state(): RuntimeSessionState {
     this.snapshot.toolApprovals = this.interactions.toolApprovals
+    this.snapshot.autoApproval = this.interactions.autoApproval
     this.snapshot.userQuestions = this.interactions.userQuestions
     const manager = this.agent?.sessionManager
     const file = manager?.getSessionFile()

@@ -19,6 +19,7 @@ export function emptySessionSnapshot(
     response: { id: 0, messageIndex: 0, phase: 'idle', toolCallDrafts: {} },
     tools: {},
     toolApprovals: [],
+    autoApproval: { reviewing: 0, paused: false, lastDenied: null },
     userQuestions: [],
     running: false,
     pending: false,

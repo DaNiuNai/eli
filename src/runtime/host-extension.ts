@@ -67,21 +67,22 @@ export function hostExtension(
       const readOnly =
         ['read', 'grep', 'find', 'ls'].includes(event.toolName) ||
         tool?.annotations?.readOnlyHint === true
-      const approved = await interactions.approve(
+      const outcome = await interactions.approve(
         {
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           input: event.input,
+          description: tool?.description,
           ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {})
         },
         readOnly,
         ctx.signal
       )
-      if (!approved) {
+      if (!outcome.approved) {
         return {
           block: true,
-          reason: '用户未批准此次工具调用，请等待用户进一步指示。',
-          terminate: true
+          reason: outcome.reason ?? '用户未批准此次工具调用，请等待用户进一步指示。',
+          terminate: outcome.terminate ?? true
         }
       }
       return undefined

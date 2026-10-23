@@ -38,6 +38,7 @@ import { ProviderSettingsPanel } from './ProviderSettingsPanel'
 import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { TerminalSettings } from './TerminalSettings'
 import { AboutSettings } from './AboutSettings'
+import { AutoApprovalSettings } from './AutoApprovalSettings'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
@@ -90,6 +91,7 @@ function GeneralSettings(): React.JSX.Element {
         <h3 className="text-sm font-semibold">{t('终端')}</h3>
         <TerminalSettings />
       </section>
+      <AutoApprovalSettings />
     </>
   )
 }
@@ -119,6 +121,11 @@ export function AppSettingsDialog({
     '账号',
     'API 密钥',
     '终端',
+    '自动批准',
+    '自动审核',
+    '审批',
+    '审核模型',
+    'auto approval',
     'general',
     'theme',
     'appearance',

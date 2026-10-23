@@ -1,4 +1,10 @@
-import { ChevronDownIcon, ShieldAlertIcon, ShieldCheckIcon, ShieldQuestionIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  ShieldQuestionIcon,
+  ShieldEllipsisIcon
+} from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
@@ -24,6 +30,12 @@ const modes = [
     label: '批准编辑',
     description: '仅自动放行 read、write、edit，其他工具逐次审批。',
     icon: ShieldCheckIcon
+  },
+  {
+    value: 'auto',
+    label: '自动批准',
+    description: '由 AI 审核工具调用，无法确定时询问你。',
+    icon: ShieldEllipsisIcon
   },
   {
     value: 'all',

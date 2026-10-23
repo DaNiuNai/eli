@@ -2,7 +2,7 @@ import type { ContextUsage, AgentSession, AgentSessionEvent } from '@earendil-wo
 import type { AgentLibrary, SavedSession } from './agent-library'
 import type { UiLanguage } from './app-preferences'
 import type { AgentSettingsChange, AgentSettingsSnapshot } from './agent-settings'
-import type { ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
+import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
@@ -60,6 +60,7 @@ export interface AgentSessionSnapshot {
   response: AgentResponseState
   tools: Record<string, AgentToolEvent>
   toolApprovals: ToolApprovalRequest[]
+  autoApproval: AutoApprovalState
   userQuestions: UserQuestionRequest[]
   running: boolean
   pending: boolean

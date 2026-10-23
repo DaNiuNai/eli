@@ -1,4 +1,9 @@
-import { isToolApprovalMode, type ToolApprovalMode } from './tool-approval'
+import {
+  isToolApprovalMode,
+  parseAutoApprovalModel,
+  type AutoApprovalModel,
+  type ToolApprovalMode
+} from './tool-approval'
 import { parseTerminalPreference, type TerminalPreference } from './terminal'
 
 export type UiLanguage = 'zh-CN' | 'en'
@@ -19,6 +24,7 @@ export interface AppPreferences {
   sidebarOrder: SidebarOrder
   archivedWorkspaces: string[]
   toolApprovalMode: ToolApprovalMode
+  autoApprovalModel: AutoApprovalModel | null
   terminal: TerminalPreference | null
 }
 
@@ -49,6 +55,7 @@ export function defaultAppPreferences(): AppPreferences {
     sidebarOrder: { workspaces: [], sessions: {} },
     archivedWorkspaces: [],
     toolApprovalMode: 'request',
+    autoApprovalModel: null,
     terminal: null
   }
 }
@@ -115,6 +122,7 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     sidebarOrder,
     archivedWorkspaces,
     toolApprovalMode,
+    autoApprovalModel: parseAutoApprovalModel(value.autoApprovalModel),
     terminal: parseTerminalPreference(value.terminal)
   }
 }

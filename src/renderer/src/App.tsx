@@ -447,6 +447,7 @@ function App(): React.JSX.Element {
           <ToolApprovalPanel
             key={draftKey}
             requests={snapshot?.toolApprovals ?? []}
+            autoApproval={snapshot?.autoApproval}
             disabled={!ready || stopping}
             onRespond={(id, approved) =>
               perform(() => window.api.respondToToolApproval(draftKey, id, approved), draftKey)

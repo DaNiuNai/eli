@@ -80,7 +80,7 @@ async function until(predicate, timeout = 10000) {
   throw new Error('等待 Runtime 状态超时')
 }
 
-async function modelServer(t, data) {
+async function modelServer(t, data, review) {
   const requests = []
   const server = createServer(async (req, res) => {
     let text = ''
@@ -91,8 +91,12 @@ async function modelServer(t, data) {
     const last = body.messages.at(-1)
     const user = body.messages.findLast((message) => message.role === 'user')
     const content = typeof user?.content === 'string' ? user.content : JSON.stringify(user?.content)
+    const reviewing = JSON.stringify(body.messages[0]).includes('eli 的独立工具权限审核器')
+    const repeated =
+      content?.includes('REPEAT_TOOL') &&
+      body.messages.filter((message) => message.role === 'tool').length < 3
     const tool =
-      content?.includes('WRITE_TOOL') && last.role !== 'tool'
+      content?.includes('WRITE_TOOL') && (last.role !== 'tool' || repeated)
         ? 'write'
         : content?.includes('ASK_TOOL') && last.role !== 'tool'
           ? 'ask_user_question'
@@ -102,6 +106,18 @@ async function modelServer(t, data) {
         `data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: 'local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
       )
     send({ role: 'assistant', content: '' })
+    if (reviewing) {
+      const result = await review?.(body)
+      send({
+        content:
+          typeof result === 'string'
+            ? result
+            : JSON.stringify(result ?? { decision: 'ask', reason: '测试需手动确认' })
+      })
+      send({}, 'stop')
+      res.end('data: [DONE]\n\n')
+      return
+    }
     if (content?.includes('WAIT_FOREVER')) return
     if (tool) {
       const args =
@@ -124,7 +140,7 @@ async function modelServer(t, data) {
         tool_calls: [
           {
             index: 0,
-            id: 'call-local',
+            id: `call-local-${body.messages.filter((message) => message.role === 'tool').length}`,
             type: 'function',
             function: { name: tool, arguments: JSON.stringify(args) }
           }
@@ -154,12 +170,25 @@ async function modelServer(t, data) {
         cacheWarming: 'off'
       },
       credentials: { 'api_key:eli-test': { type: 'api_key', key: 'test-only' } },
+      ...(review ? { app: { autoApprovalModel: { provider: 'eli-test', id: 'reviewer' } } } : {}),
       providers: {
         'eli-test': {
           custom: true,
           api: 'openai-completions',
           baseUrl: `http://127.0.0.1:${port}/v1`,
           models: [
+            ...(review
+              ? [
+                  {
+                    id: 'reviewer',
+                    name: 'Reviewer test',
+                    reasoning: false,
+                    vision: false,
+                    contextWindow: 32768,
+                    maxTokens: 4096
+                  }
+                ]
+              : []),
             {
               id: 'local',
               name: 'Local test',
@@ -180,7 +209,8 @@ async function initialize(
   connection,
   { data, cwd },
   key = '11111111-1111-4111-8111-111111111111',
-  sessionFile
+  sessionFile,
+  approvalMode = 'request'
 ) {
   return connection.call('initialize', {
     kind: 'session',
@@ -188,7 +218,7 @@ async function initialize(
     cwd,
     sessionKey: key,
     sessionFile,
-    approvalMode: 'request',
+    approvalMode,
     terminal: { kind: 'powershell', path: 'powershell.exe' }
   })
 }
@@ -201,16 +231,169 @@ test('权限等待支持拒绝、模式切换、取消与跨会话隔离', async
   const id = first.toolApprovals[0].id
   assert.throws(() => second.respondApproval(id, true), /失效/)
   first.respondApproval(id, false)
-  assert.equal(await waiting, false)
+  assert.deepEqual(await waiting, { approved: false, terminate: true })
   const pending = first.approve(request, false)
   first.setMode('edit')
-  assert.equal(await pending, true)
+  assert.deepEqual(await pending, { approved: true })
   first.setMode('request')
   const controller = new AbortController()
   const aborted = first.approve(request, false, controller.signal)
   controller.abort()
-  assert.equal(await aborted, false)
+  assert.deepEqual(await aborted, { approved: false, terminate: true })
   assert.equal(first.toolApprovals.length, 0)
+})
+
+test('自动批准使用独立模型，真实写入通过审核后执行', async (t) => {
+  const paths = await fixture(t)
+  const requests = await modelServer(t, paths.data, () => ({
+    decision: 'allow',
+    reason: '用户要求写入项目文件'
+  }))
+  const session = runtime(t)
+  await initialize(session.connection, paths)
+  await session.connection.call('configure', 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL 请创建 approved.txt')
+  await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.length >= 4
+    )
+  )
+  assert.equal(await readFile(join(paths.cwd, 'approved.txt'), 'utf8'), 'approved')
+  const review = requests.find((body) => body.model === 'reviewer')
+  assert.ok(review)
+  assert.ok(!review.tools?.length)
+  const context = JSON.parse(review.messages.find((message) => message.role === 'user').content)
+  assert.ok(
+    context.history.some(
+      (message) => message.role === 'user' && message.content.includes('WRITE_TOOL')
+    )
+  )
+  assert.equal(context.pendingTool.toolName, 'write')
+  assert.ok(requests.filter((body) => body.model === 'local').length >= 2)
+  assert.ok(session.states.every((state) => state.snapshot.toolApprovals.length === 0))
+})
+
+test('自动拒绝返回原因供 Agent 继续，连续三次后人工接管', async (t) => {
+  const paths = await fixture(t)
+  let count = 0
+  const requests = await modelServer(t, paths.data, () => {
+    count++
+    return { decision: 'deny', reason: '测试：超出授权范围' }
+  })
+  const session = runtime(t)
+  await initialize(session.connection, paths)
+  await session.connection.call('configure', 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL REPEAT_TOOL')
+  const pending = await until(() =>
+    session.states.findLast(
+      (state) => state.snapshot.autoApproval.paused && state.snapshot.toolApprovals.length
+    )
+  )
+  assert.equal(count, 3)
+  await assert.rejects(readFile(join(paths.cwd, 'approved.txt')), { code: 'ENOENT' })
+  assert.ok(
+    requests
+      .filter((body) => body.model === 'local')
+      .some((body) =>
+        body.messages.some(
+          (message) =>
+            message.role === 'tool' && JSON.stringify(message.content).includes('超出授权范围')
+        )
+      )
+  )
+  await session.connection.call('approve', pending.snapshot.toolApprovals[0].id, true)
+  const completed = await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.length >= 8
+    )
+  )
+  assert.equal(await readFile(join(paths.cwd, 'approved.txt'), 'utf8'), 'approved')
+  await session.connection.stop()
+  const reopened = runtime(t)
+  const restored = await initialize(
+    reopened.connection,
+    paths,
+    'restored-auto',
+    completed.persistedFile,
+    'auto'
+  )
+  assert.equal(restored.snapshot.autoApproval.paused, true)
+  await reopened.connection.call('prompt', 'WRITE_TOOL')
+  const manual = await until(() =>
+    reopened.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  assert.equal(count, 3, '恢复后仍应等待人工审批')
+  await reopened.connection.call('approve', manual.snapshot.toolApprovals[0].id, false)
+  await until(() => reopened.states.findLast((state) => !state.snapshot.running))
+  await reopened.connection.call('configure', 'request')
+  await reopened.connection.call('configure', 'auto')
+  await reopened.connection.stop()
+  const resumed = runtime(t)
+  const ready = await initialize(
+    resumed.connection,
+    paths,
+    'resumed-auto',
+    completed.persistedFile,
+    'auto'
+  )
+  assert.equal(ready.snapshot.autoApproval.paused, false)
+})
+
+test('审核返回 ask 或无效响应均回退人工，用户拒绝结束本轮', async (t) => {
+  const paths = await fixture(t)
+  let result = 'invalid classifier response'
+  await modelServer(t, paths.data, () => result)
+  const session = runtime(t)
+  await initialize(session.connection, paths)
+  await session.connection.call('configure', 'auto')
+  for (let i = 0; i < 2; i++) {
+    session.states.length = 0
+    await session.connection.call('prompt', 'WRITE_TOOL')
+    const pending = await until(() =>
+      session.states.findLast((state) => state.snapshot.toolApprovals.length)
+    )
+    assert.match(pending.snapshot.toolApprovals[0].reason, i === 0 ? /格式无效/ : /请明确目标/)
+    await session.connection.call('approve', pending.snapshot.toolApprovals[0].id, false)
+    await until(() => session.states.findLast((state) => !state.snapshot.running))
+    await assert.rejects(readFile(join(paths.cwd, 'approved.txt')), { code: 'ENOENT' })
+    result = JSON.stringify({ decision: 'ask', reason: '请明确目标' })
+  }
+})
+
+test('审核模型设置持久化，修改后下一次审核生效；不可用模型不静默替换', async (t) => {
+  const paths = await fixture(t)
+  const requests = await modelServer(t, paths.data, () => ({
+    decision: 'allow',
+    reason: '测试允许'
+  }))
+  const session = runtime(t)
+  await initialize(session.connection, paths)
+  await session.connection.call('configure', 'auto')
+  const file = join(paths.data, 'config.json')
+  const config = JSON.parse(await readFile(file, 'utf8'))
+  config.app.autoApprovalModel.id = 'missing-reviewer'
+  await writeFile(file, JSON.stringify(config))
+  await session.connection.call('prompt', 'WRITE_TOOL')
+  const pending = await until(() =>
+    session.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  assert.match(pending.snapshot.toolApprovals[0].reason, /模型不可用/)
+  assert.ok(!requests.some((body) => body.model === 'reviewer'))
+  await session.connection.call('approve', pending.snapshot.toolApprovals[0].id, false)
+  await until(() => session.states.findLast((state) => !state.snapshot.running))
+  config.app.autoApprovalModel = null
+  await writeFile(file, JSON.stringify(config))
+  session.states.length = 0
+  await session.connection.call('prompt', 'WRITE_TOOL')
+  await until(() => session.states.findLast((state) => !state.snapshot.running))
+  assert.equal(await readFile(join(paths.cwd, 'approved.txt'), 'utf8'), 'approved')
+  assert.ok(
+    requests.some(
+      (body) =>
+        body.model === 'local' &&
+        JSON.stringify(body.messages[0]).includes('eli 的独立工具权限审核器')
+    )
+  )
 })
 
 test('协议错误与超时会关闭通道并拒绝所有待处理请求', async () => {

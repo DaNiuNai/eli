@@ -216,6 +216,36 @@ const english: Record<string, string> = {
   '询问用户 {count} 次': 'Ask user {count} times',
   请求批注: 'Ask for approval',
   批准编辑: 'Approve edits',
+  自动批准: 'Auto approval',
+  自动批准模型: 'Auto approval model',
+  跟随当前会话模型: 'Use the current conversation model',
+  不可用: 'Unavailable',
+  '由 AI 审核工具调用，无法确定时询问你。': 'AI reviews tool calls and asks you when unsure.',
+  '审核工具调用使用的模型，可独立于当前会话选择。修改后从下一次审核生效。':
+    'Choose a separate model to review tool calls. Changes apply to the next review.',
+  '自动审核会产生额外模型请求；无法判断时转为人工审批。':
+    'Automatic reviews make additional model requests and ask you when unsure.',
+  '所选模型当前不可用，自动审核将转为人工审批。':
+    'The selected model is unavailable. Tool calls will require manual approval.',
+  无法保存自动批准模型: 'Unable to save the auto approval model',
+  无效的自动批准模型: 'Invalid auto approval model',
+  正在自动审核: 'Reviewing tool call',
+  '工具尚未执行，正在检查操作范围与用户授权。':
+    'The tool has not run. Checking its scope and your authorization.',
+  自动审核已拦截: 'Tool call blocked by review',
+  自动批准已暂停: 'Auto approval paused',
+  '连续 3 次自动拒绝，当前会话已转为人工审批。切换到其他挡位后重新开启自动批准可恢复。':
+    'After 3 consecutive denials, this conversation requires manual approval. Switch to another mode and back to resume auto approval.',
+  '自动审核已取消，请手动确认。': 'Review cancelled. Please approve manually.',
+  '自动审核超时，请手动确认。': 'Review timed out. Please approve manually.',
+  '自动审核暂时不可用，请手动确认。': 'Review is temporarily unavailable. Please approve manually.',
+  '自动批准模型不可用，请在设置中选择可用模型或手动确认。':
+    'The review model is unavailable. Select an available model in settings or approve manually.',
+  '自动审核上下文过大，无法完整检查用户要求与工具参数，请手动确认。':
+    'The review context is too large to check all instructions and arguments. Please approve manually.',
+  '自动审核未返回完整有效的结果，请手动确认。':
+    'Review did not return a complete, valid result. Please approve manually.',
+  '自动审核结果格式无效，请手动确认。': 'Invalid review response format. Please approve manually.',
   全部放行: 'Allow everything',
   全局工具审批: 'Global tool approval',
   '工具审批：{mode}': 'Tool approval: {mode}',

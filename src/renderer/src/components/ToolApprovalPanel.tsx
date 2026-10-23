@@ -4,14 +4,16 @@ import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/ale
 import { Button } from '@renderer/components/ui/button'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { useLanguage } from '@renderer/hooks/use-language'
-import type { ToolApprovalRequest } from '../../../shared/tool-approval'
+import type { AutoApprovalState, ToolApprovalRequest } from '../../../shared/tool-approval'
 
 export function ToolApprovalPanel({
   requests,
+  autoApproval,
   disabled,
   onRespond
 }: {
   requests: ToolApprovalRequest[]
+  autoApproval?: AutoApprovalState
   disabled: boolean
   onRespond: (id: string, approved: boolean) => Promise<boolean>
 }): React.JSX.Element | null {
@@ -31,12 +33,45 @@ export function ToolApprovalPanel({
     }
   }
 
-  if (!requests.length) return null
+  if (
+    !requests.length &&
+    !autoApproval?.reviewing &&
+    !autoApproval?.paused &&
+    !autoApproval?.lastDenied
+  )
+    return null
   return (
     <section
       aria-label={t('等待工具审批')}
       className="mx-auto flex max-h-[40dvh] w-full max-w-4xl shrink-0 flex-col gap-2 overflow-auto px-6 pt-3 sm:px-8"
     >
+      {!!autoApproval?.reviewing && (
+        <Alert role="status">
+          <Spinner />
+          <AlertTitle>{t('正在自动审核')}</AlertTitle>
+          <AlertDescription>{t('工具尚未执行，正在检查操作范围与用户授权。')}</AlertDescription>
+        </Alert>
+      )}
+      {autoApproval?.lastDenied && (
+        <Alert>
+          <ShieldQuestionIcon />
+          <AlertTitle>
+            {t('自动审核已拦截')} · {autoApproval.lastDenied.toolName}
+          </AlertTitle>
+          <AlertDescription>{t(autoApproval.lastDenied.reason)}</AlertDescription>
+        </Alert>
+      )}
+      {autoApproval?.paused && (
+        <Alert>
+          <ShieldQuestionIcon />
+          <AlertTitle>{t('自动批准已暂停')}</AlertTitle>
+          <AlertDescription>
+            {t(
+              '连续 3 次自动拒绝，当前会话已转为人工审批。切换到其他挡位后重新开启自动批准可恢复。'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       {requests.map((request) => (
         <Alert key={request.id}>
           <ShieldQuestionIcon />
@@ -45,6 +80,7 @@ export function ToolApprovalPanel({
           </AlertTitle>
           <AlertDescription className="flex min-w-0 flex-col gap-3">
             <span>{t('此工具尚未执行，请检查参数后选择是否放行。')}</span>
+            {request.reason && <span>{t(request.reason)}</span>}
             {request.parentToolCallId && <span>{t('由其他工具发起的嵌套调用')}</span>}
             <pre className="max-h-48 w-full overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap break-all text-foreground">
               {JSON.stringify(request.input, null, 2)}
