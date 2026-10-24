@@ -15,6 +15,7 @@ import type { ToolApprovalMode } from '../shared/tool-approval'
 import type { TerminalPreference } from '../shared/terminal'
 import { resolveTerminal } from './terminal'
 import { providersChannels } from '../shared/providers'
+import { mcpAuthChannels, type McpAuthSnapshot } from '../shared/mcp'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -29,6 +30,9 @@ export class AgentService {
   private controlStart?: Promise<RuntimeConnection>
   private authSnapshot?: AgentAuthSnapshot
   private authRevision = 0
+  private mcpAuthSnapshot?: McpAuthSnapshot
+  private mcpAuthRevision = 0
+  private openedMcpAuth?: string
   private readonly root = runtimePaths().root
   private sessions = new Map<string, SessionProcess>()
   private current?: SessionProcess
@@ -59,6 +63,8 @@ export class AgentService {
         (message) => {
           if (this.disposed || this.window.isDestroyed()) return
           if (message.kind === 'auth') this.publishAuth(message.snapshot)
+          if (message.kind === 'mcp_auth' && this.control === client)
+            this.publishMcpAuth(message.snapshot, true)
           if (message.kind === 'providers_changed') {
             this.window.webContents.send(providersChannels.changed)
             void this.navigate(async () => {
@@ -76,6 +82,13 @@ export class AgentService {
           if (this.control !== client) return
           this.controlStart = undefined
           this.control = undefined
+          if (this.mcpAuthSnapshot?.status === 'authorizing')
+            this.publishMcpAuth({
+              ...this.mcpAuthSnapshot,
+              status: 'error',
+              authorizationUrl: undefined,
+              error: 'MCP 授权连接已中断，请重新授权。'
+            })
           if (this.authSnapshot)
             this.publishAuth({
               ...this.authSnapshot,
@@ -126,6 +139,35 @@ export class AgentService {
     return this.authSnapshot
   }
 
+  private publishMcpAuth(snapshot: McpAuthSnapshot, openBrowser = false): McpAuthSnapshot {
+    this.mcpAuthSnapshot = { ...snapshot, revision: ++this.mcpAuthRevision }
+    if (snapshot.status === 'success' || snapshot.status === 'signed-out') {
+      for (const session of this.sessions.values()) session.invalidateSettings()
+    }
+    if (!this.disposed && !this.window.isDestroyed()) {
+      this.window.webContents.send(mcpAuthChannels.snapshot, this.mcpAuthSnapshot)
+      if (
+        openBrowser &&
+        snapshot.status === 'authorizing' &&
+        snapshot.authorizationUrl &&
+        this.openedMcpAuth !== snapshot.id
+      ) {
+        this.openedMcpAuth = snapshot.id
+        void this.request('validateMcpAuthLink', snapshot.id)
+          .then((url) => shell.openExternal(url))
+          .catch(() => {
+            const current = this.mcpAuthSnapshot
+            if (current && current.id === snapshot.id && current.status === 'authorizing')
+              this.publishMcpAuth({
+                ...current,
+                error: '无法打开浏览器，请点击“打开授权页面”重试。'
+              })
+          })
+      }
+    }
+    return this.mcpAuthSnapshot
+  }
+
   register(): void {
     const handle = (channel: string, action: (...args: unknown[]) => Promise<unknown>): void => {
       ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -140,6 +182,20 @@ export class AgentService {
     }
 
     handle(agentAuthChannels.get, async () => this.publishAuth(await this.request('getAuth')))
+    handle(mcpAuthChannels.get, async () => this.publishMcpAuth(await this.request('getMcpAuth')))
+    handle(mcpAuthChannels.start, async (name, force) => {
+      await this.request('startMcpAuth', name, force)
+      if (force === true) for (const session of this.sessions.values()) session.invalidateSettings()
+    })
+    handle(mcpAuthChannels.signOut, (name) => this.request('signOutMcpAuth', name))
+    handle(mcpAuthChannels.cancel, (id) => this.request('cancelMcpAuth', id))
+    handle(mcpAuthChannels.respond, (id, url) => this.request('respondMcpAuth', id, url))
+    handle(mcpAuthChannels.openLink, (id) =>
+      this.request('validateMcpAuthLink', id).then((url) => shell.openExternal(url))
+    )
+    handle(mcpAuthChannels.openWebsite, (name) =>
+      this.request('getMcpWebsite', name).then((url) => shell.openExternal(url))
+    )
     handle(providersChannels.get, () => this.request('getProviders'))
     handle(providersChannels.change, (change) => this.request('changeProvider', change))
     handle(agentAuthChannels.login, (providerId, type) => this.request('login', providerId, type))
@@ -212,6 +268,18 @@ export class AgentService {
     })
     handle(agentChannels.getSettings, () => this.request('getSettings'))
     handle(agentChannels.getUserSkills, () => this.request('getUserSkills'))
+    handle(agentChannels.getMcpServers, () => this.request('getMcpServers'))
+    handle(agentChannels.testMcpServer, async (name) => {
+      const cwd = this.current?.snapshot.cwd
+      if (cwd) await this.requireWorkspace(cwd)
+      return this.request('testMcpServer', name, cwd)
+    })
+    handle(agentChannels.changeMcpServer, async (change) => {
+      const result = await this.request('changeMcpServer', change)
+      for (const session of this.sessions.values()) session.invalidateSettings()
+      this.publish(true)
+      return result
+    })
     handle(agentChannels.setSkillEnabled, async (filePath, enabled) => {
       const result = await this.request('setSkillEnabled', filePath, enabled)
       for (const session of this.sessions.values()) session.invalidateSettings()
@@ -516,6 +584,7 @@ export class AgentService {
     this.window.removeListener('focus', this.refreshWorkspaces)
     for (const channel of Object.values(agentChannels)) ipcMain.removeHandler(channel)
     for (const channel of Object.values(agentAuthChannels)) ipcMain.removeHandler(channel)
+    for (const channel of Object.values(mcpAuthChannels)) ipcMain.removeHandler(channel)
     for (const channel of Object.values(providersChannels)) ipcMain.removeHandler(channel)
     const sessions = [...this.sessions.values()]
     this.disposing = (async () => {

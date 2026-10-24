@@ -50,6 +50,8 @@ app.disableHardwareAcceleration()
 const entry = resolve(process.argv[2] || join(workspace, 'out', 'main', 'runtime.mjs'))
 let child
 let server
+const authServerCleanups = []
+const mcpAuthStates = []
 let nextId = 0
 const pending = new Map()
 const states = []
@@ -72,6 +74,7 @@ async function startRuntime() {
     child.once('exit', (code) => reject(new Error(`Runtime exited: ${code}`)))
     child.on('message', (message) => {
       if (message.kind === 'session') states.push(message.state)
+      if (message.kind === 'mcp_auth') mcpAuthStates.push(message.snapshot)
       if (message.kind === 'ready') resolve()
       if (message.kind === 'fatal') reject(new Error(message.error))
       if (message.kind === 'response') {
@@ -179,6 +182,68 @@ app.whenReady().then(async () => {
     const managed = await request('getUserSkills')
     assert.equal(managed.find(({ name }) => name === 'user-disabled').enabled, false)
     assert.equal(managed.find(({ name }) => name === 'shared').enabled, true)
+    assert.deepEqual(await request('getMcpServers'), [])
+    const mcpConfig = {
+      type: 'stdio',
+      command: 'node',
+      args: [join(workspace, 'tests/fixtures/mcp-stdio.mjs'), join(directory, 'mcp.log')],
+      exposure: 'direct'
+    }
+    await request('changeMcpServer', { action: 'create', name: 'electron-mcp', config: mcpConfig })
+    const mcpTest = await request('testMcpServer', 'electron-mcp')
+    assert.equal(mcpTest.status, 'connected')
+    assert.deepEqual(
+      mcpTest.tools.map(({ name }) => name),
+      ['echo']
+    )
+    await request('changeMcpServer', { action: 'setEnabled', name: 'electron-mcp', enabled: false })
+    const { mcpOAuthServer } = await import('./fixtures/mcp-oauth.mjs')
+    const oauthServer = await mcpOAuthServer({
+      after: (cleanup) => authServerCleanups.push(cleanup)
+    })
+    await request('changeMcpServer', {
+      action: 'create',
+      name: 'electron-oauth',
+      config: { url: oauthServer.url, enabled: false }
+    })
+    const authProbe = await request('testMcpServer', 'electron-oauth')
+    assert.equal(authProbe.authentication.method, 'oauth')
+    await request('startMcpAuth', 'electron-oauth')
+    while (!mcpAuthStates.some((snapshot) => snapshot.authorizationUrl))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    const authPending = mcpAuthStates.find((snapshot) => snapshot.authorizationUrl)
+    assert.equal(await request('validateMcpAuthLink', authPending.id), authPending.authorizationUrl)
+    await fetch(authPending.authorizationUrl)
+    while (!mcpAuthStates.some((snapshot) => snapshot.status === 'success'))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal((await request('getMcpAuth')).result.status, 'connected')
+    assert.equal(oauthServer.exchanges(), 1)
+    assert.equal(JSON.stringify(mcpAuthStates).includes('eli-mcp-test-access-token'), false)
+    assert.equal(
+      (await request('getMcpServers')).find(({ name }) => name === 'electron-oauth').authentication
+        .state,
+      'authenticated'
+    )
+    await request('startMcpAuth', 'electron-oauth', true)
+    while (
+      !mcpAuthStates.some((snapshot) => snapshot.authorizationUrl && snapshot.id !== authPending.id)
+    )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    const again = mcpAuthStates.find(
+      (snapshot) => snapshot.authorizationUrl && snapshot.id !== authPending.id
+    )
+    await fetch(again.authorizationUrl)
+    while (
+      !mcpAuthStates.some((snapshot) => snapshot.id === again.id && snapshot.status === 'success')
+    )
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(oauthServer.exchanges(), 2)
+    const signedOut = await request('signOutMcpAuth', 'electron-oauth')
+    assert.equal(
+      signedOut.find(({ name }) => name === 'electron-oauth').authentication.state,
+      'unauthenticated'
+    )
+    assert.equal((await request('getMcpAuth')).status, 'signed-out')
     await request('shutdown')
     await control.exited
     const savedConfig = JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'))
@@ -187,6 +252,7 @@ app.whenReady().then(async () => {
       new Set(savedConfig.disabledSkills),
       new Set([disabledSkillPath, join(data, 'skills/project-agents/SKILL.md')])
     )
+    assert.equal(savedConfig.mcpServers['electron-mcp'].enabled, false)
     const { exited } = await startRuntime()
     const state = await request('initialize', {
       kind: 'session',
@@ -229,15 +295,17 @@ app.whenReady().then(async () => {
       assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(
-      `Electron utilityProcess + SDK + skill management + project extension + auto approval: PASS (${entry})`
+      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval: PASS (${entry})`
     )
     server.closeAllConnections()
     server.close()
+    for (const cleanup of authServerCleanups) cleanup()
     clearTimeout(timeout)
     app.exit(0)
   } catch (error) {
     server?.closeAllConnections()
     server?.close()
+    for (const cleanup of authServerCleanups) cleanup()
     console.error(error)
     child?.kill()
     clearTimeout(timeout)

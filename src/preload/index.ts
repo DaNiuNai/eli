@@ -5,6 +5,7 @@ import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-pr
 import { agentAuthChannels, type AgentAuthApi, type AgentAuthSnapshot } from '../shared/agent-auth'
 import { providersChannels, type ProvidersApi } from '../shared/providers'
 import { terminalChannels, type TerminalApi } from '../shared/terminal'
+import { mcpAuthChannels, type McpAuthApi, type McpAuthSnapshot } from '../shared/mcp'
 import {
   appUpdatesChannels,
   type AppUpdatesApi,
@@ -31,6 +32,9 @@ const api: AgentApi = {
   getLibrary: () => ipcRenderer.invoke(agentChannels.getLibrary),
   getSkills: (sessionKey) => ipcRenderer.invoke(agentChannels.getSkills, sessionKey),
   getUserSkills: () => ipcRenderer.invoke(agentChannels.getUserSkills),
+  getMcpServers: () => ipcRenderer.invoke(agentChannels.getMcpServers),
+  changeMcpServer: (change) => ipcRenderer.invoke(agentChannels.changeMcpServer, change),
+  testMcpServer: (name) => ipcRenderer.invoke(agentChannels.testMcpServer, name),
   setSkillEnabled: (filePath, enabled) =>
     ipcRenderer.invoke(agentChannels.setSkillEnabled, filePath, enabled),
   getSettings: () => ipcRenderer.invoke(agentChannels.getSettings),
@@ -53,6 +57,23 @@ const api: AgentApi = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+const mcpAuth: McpAuthApi = {
+  get: () => ipcRenderer.invoke(mcpAuthChannels.get),
+  start: (name, force) => ipcRenderer.invoke(mcpAuthChannels.start, name, force),
+  signOut: (name) => ipcRenderer.invoke(mcpAuthChannels.signOut, name),
+  cancel: (id) => ipcRenderer.invoke(mcpAuthChannels.cancel, id),
+  respond: (id, url) => ipcRenderer.invoke(mcpAuthChannels.respond, id, url),
+  openLink: (id) => ipcRenderer.invoke(mcpAuthChannels.openLink, id),
+  openWebsite: (name) => ipcRenderer.invoke(mcpAuthChannels.openWebsite, name),
+  onSnapshot: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: McpAuthSnapshot): void =>
+      listener(snapshot)
+    ipcRenderer.on(mcpAuthChannels.snapshot, handler)
+    return () => ipcRenderer.removeListener(mcpAuthChannels.snapshot, handler)
+  }
+}
+contextBridge.exposeInMainWorld('mcpAuth', mcpAuth)
 
 const agentAuth: AgentAuthApi = {
   get: () => ipcRenderer.invoke(agentAuthChannels.get),

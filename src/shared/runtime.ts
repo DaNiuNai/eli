@@ -13,6 +13,7 @@ import type { TerminalPreference } from './terminal'
 import type { UserQuestionAnswer } from './user-question'
 import type { ProviderChange, ProvidersSnapshot } from './providers'
 import type { UserSkill } from './skills'
+import type { ManagedMcpServer, McpAuthSnapshot, McpConnectionTest, McpServerChange } from './mcp'
 
 export const runtimeProtocolVersion = 1
 export const mainAgentId = 'main'
@@ -53,6 +54,16 @@ export interface RuntimeMethods {
   forkMessage: { args: [AgentMessageTarget]; result: string }
   getSkills: { args: []; result: AgentSkillCommand[] }
   getUserSkills: { args: []; result: UserSkill[] }
+  getMcpServers: { args: []; result: ManagedMcpServer[] }
+  changeMcpServer: { args: [McpServerChange]; result: ManagedMcpServer[] }
+  testMcpServer: { args: [string, string?]; result: McpConnectionTest }
+  getMcpAuth: { args: []; result: McpAuthSnapshot }
+  startMcpAuth: { args: [string, boolean?]; result: void }
+  signOutMcpAuth: { args: [string]; result: ManagedMcpServer[] }
+  cancelMcpAuth: { args: [string]; result: void }
+  respondMcpAuth: { args: [string, string]; result: void }
+  validateMcpAuthLink: { args: [string]; result: string }
+  getMcpWebsite: { args: [string]; result: string }
   setSkillEnabled: { args: [string, boolean]; result: UserSkill[] }
   configure: { args: [ToolApprovalMode]; result: void }
   approve: { args: [string, boolean]; result: void }
@@ -91,5 +102,6 @@ export type RuntimeMessage =
       libraryChanged: boolean
     }
   | { version: number; kind: 'auth'; snapshot: AgentAuthSnapshot }
+  | { version: number; kind: 'mcp_auth'; snapshot: McpAuthSnapshot }
   | { version: number; kind: 'providers_changed' }
   | { version: number; kind: 'fatal'; error: string }

@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { RuntimeConnection } from '../src/runtime/connection.ts'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
+import { mcpHttpServer } from './fixtures/mcp-http.mjs'
+import { mcpOAuthServer } from './fixtures/mcp-oauth.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const temporaryRoot = join(project, '.tmp')
@@ -100,7 +102,10 @@ async function modelServer(t, data, review) {
         ? 'write'
         : content?.includes('ASK_TOOL') && last.role !== 'tool'
           ? 'ask_user_question'
-          : null
+          : content?.includes('MCP_TOOL') && last.role !== 'tool'
+            ? body.tools?.find(({ function: tool }) => tool.name === 'mcp__managed__echo')?.function
+                .name
+            : null
     const send = (delta, finish_reason = null) =>
       res.write(
         `data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: 'local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
@@ -123,19 +128,21 @@ async function modelServer(t, data, review) {
       const args =
         tool === 'write'
           ? { path: 'approved.txt', content: 'approved' }
-          : {
-              questions: [
-                {
-                  header: '选择',
-                  question: '请选择',
-                  multiSelect: false,
-                  options: [
-                    { label: '甲', description: '甲方案' },
-                    { label: '乙', description: '乙方案' }
-                  ]
-                }
-              ]
-            }
+          : tool === 'mcp__managed__echo'
+            ? { value: 'runtime-approved' }
+            : {
+                questions: [
+                  {
+                    header: '选择',
+                    question: '请选择',
+                    multiSelect: false,
+                    options: [
+                      { label: '甲', description: '甲方案' },
+                      { label: '乙', description: '乙方案' }
+                    ]
+                  }
+                ]
+              }
       send({
         tool_calls: [
           {
@@ -220,6 +227,194 @@ async function initialize(
     sessionFile,
     approvalMode,
     terminal: { kind: 'powershell', path: 'powershell.exe' }
+  })
+}
+
+test('MCP OAuth 经控制协议完成授权、发布状态并供聊天复用凭据', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const oauth = await mcpOAuthServer(t)
+  const control = runtime(t)
+  await control.connection.call('initialize', {
+    kind: 'control',
+    root: f.data,
+    cwd: f.cwd,
+    firstLaunch: false
+  })
+  await control.connection.call('changeMcpServer', {
+    action: 'create',
+    name: 'managed',
+    config: { url: oauth.url, exposure: 'direct' }
+  })
+  const probe = await control.connection.call('testMcpServer', 'managed')
+  assert.equal(probe.authentication.method, 'oauth')
+  assert.equal(
+    await control.connection.call('getMcpWebsite', 'managed'),
+    new URL('/docs/auth', oauth.url).href
+  )
+  await control.connection.call('startMcpAuth', 'managed')
+  const pending = await until(
+    () =>
+      control.events.find((event) => event.kind === 'mcp_auth' && event.snapshot.authorizationUrl)
+        ?.snapshot
+  )
+  assert.equal(
+    await control.connection.call('validateMcpAuthLink', pending.id),
+    pending.authorizationUrl
+  )
+  await fetch(pending.authorizationUrl)
+  const authorized = await until(
+    () =>
+      control.events.find(
+        (event) => event.kind === 'mcp_auth' && event.snapshot.status === 'success'
+      )?.snapshot
+  )
+  assert.equal(authorized.result.status, 'connected')
+  assert.equal((await control.connection.call('getMcpAuth')).status, 'success')
+  await assert.rejects(control.connection.call('validateMcpAuthLink', pending.id), /失效/)
+  const session = runtime(t)
+  await initialize(session.connection, f)
+  await session.connection.call('prompt', 'MCP_TOOL')
+  const approval = await until(() =>
+    session.states.find((state) => state.snapshot.toolApprovals.length)
+  )
+  await session.connection.call('approve', approval.snapshot.toolApprovals[0].id, true)
+  await until(() =>
+    session.states.find(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'toolResult')
+    )
+  )
+  assert.equal(oauth.calls.length, 1)
+  assert.equal(oauth.exchanges(), 1)
+  assert.equal(JSON.stringify(control.events).includes('eli-mcp-test-access-token'), false)
+  assert.equal(
+    (await control.connection.call('getMcpServers'))[0].authentication.state,
+    'authenticated'
+  )
+  await session.connection.stop()
+  await control.connection.call('startMcpAuth', 'managed', true)
+  const again = await until(
+    () =>
+      control.events.find(
+        (event) =>
+          event.kind === 'mcp_auth' &&
+          event.snapshot.authorizationUrl &&
+          event.snapshot.id !== pending.id
+      )?.snapshot
+  )
+  await fetch(again.authorizationUrl)
+  await until(() =>
+    control.events.find(
+      (event) =>
+        event.kind === 'mcp_auth' &&
+        event.snapshot.id === again.id &&
+        event.snapshot.status === 'success'
+    )
+  )
+  assert.equal(oauth.exchanges(), 2)
+  const signedOut = await control.connection.call('signOutMcpAuth', 'managed')
+  assert.equal(signedOut[0].authentication.state, 'unauthenticated')
+  assert.equal(signedOut[0].config.url, oauth.url)
+  assert.equal((await control.connection.call('getMcpAuth')).status, 'signed-out')
+  assert.equal((await control.connection.call('testMcpServer', 'managed')).status, 'needs-auth')
+})
+
+for (const transport of ['stdio', 'http']) {
+  test(`MCP ${transport} 管理经 Runtime 协议接入聊天，调用前审批并在停用后移除`, async (t) => {
+    const f = await fixture(t)
+    const modelRequests = await modelServer(t, f.data)
+    const http = transport === 'http' ? await mcpHttpServer(t, { requireAuth: true }) : null
+    const log = join(f.root, 'mcp-stdio.log')
+    const config = {
+      ...(http
+        ? { type: 'http', url: http.url, headers: { Authorization: 'Bearer mcp-test-only' } }
+        : {
+            type: 'stdio',
+            command: process.execPath,
+            args: [resolve('tests/fixtures/mcp-stdio.mjs'), log]
+          }),
+      exposure: 'direct'
+    }
+    const calls = async () =>
+      http
+        ? http.requests.filter(({ method }) => method === 'tools/call')
+        : (await readFile(log, 'utf8'))
+            .trim()
+            .split('\n')
+            .map(JSON.parse)
+            .filter(({ method }) => method === 'tools/call')
+    const control = runtime(t)
+    await control.connection.call('initialize', {
+      kind: 'control',
+      root: f.data,
+      cwd: f.cwd,
+      firstLaunch: false
+    })
+    assert.deepEqual(await control.connection.call('getMcpServers'), [])
+    const servers = await control.connection.call('changeMcpServer', {
+      action: 'create',
+      name: 'managed',
+      config
+    })
+    assert.equal(servers[0].name, 'managed')
+    assert.equal((await control.connection.call('testMcpServer', 'managed')).status, 'connected')
+    assert.equal((await calls()).length, 0)
+    const session = runtime(t)
+    await initialize(session.connection, f)
+    await session.connection.call('prompt', 'MCP_TOOL')
+    const pending = await until(() =>
+      session.states.find((state) => state.snapshot.toolApprovals.length)
+    )
+    assert.equal(pending.snapshot.toolApprovals[0].toolName, 'mcp__managed__echo')
+    assert.equal((await calls()).length, 0)
+    await session.connection.call('approve', pending.snapshot.toolApprovals[0].id, true)
+    const completed = await until(() =>
+      session.states.find(
+        (state) =>
+          !state.snapshot.running &&
+          state.snapshot.messages.some((message) => message.role === 'toolResult')
+      )
+    )
+    assert.ok(JSON.stringify(completed).includes('mcp-echo:runtime-approved'))
+    assert.equal((await calls()).length, 1)
+    assert.ok(
+      modelRequests.some((body) =>
+        body.tools?.some(({ function: tool }) => tool.name === 'mcp__managed__echo')
+      )
+    )
+    await session.connection.stop()
+    await control.connection.call('changeMcpServer', {
+      action: 'setEnabled',
+      name: 'managed',
+      enabled: false
+    })
+    const disabled = runtime(t)
+    await initialize(disabled.connection, f, '22222222-2222-4222-8222-222222222222')
+    const before = modelRequests.length
+    await disabled.connection.call('prompt', 'MCP_TOOL')
+    await until(() =>
+      disabled.states.find(
+        (state) => !state.snapshot.running && state.snapshot.messages.length >= 2
+      )
+    )
+    assert.ok(
+      modelRequests
+        .slice(before)
+        .every(
+          (body) => !body.tools?.some(({ function: tool }) => tool.name === 'mcp__managed__echo')
+        )
+    )
+    assert.equal((await calls()).length, 1)
+    await disabled.connection.stop()
+    const current = (await control.connection.call('getMcpServers'))[0]
+    await control.connection.call('changeMcpServer', {
+      action: 'delete',
+      name: current.name,
+      expected: current.config
+    })
+    assert.deepEqual(await control.connection.call('getMcpServers'), [])
   })
 }
 

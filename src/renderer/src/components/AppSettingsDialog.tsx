@@ -11,6 +11,7 @@ import {
   Settings2Icon,
   SlidersHorizontalIcon,
   TerminalIcon,
+  ServerIcon,
   XIcon
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -41,6 +42,7 @@ import { TerminalSettings } from './TerminalSettings'
 import { AboutSettings } from './AboutSettings'
 import { AutoApprovalSettings } from './AutoApprovalSettings'
 import { SkillsSettingsPanel } from './SkillsSettingsPanel'
+import { McpSettingsPanel } from './McpSettingsPanel'
 import { AutoSaveStatus } from './AutoSaveStatus'
 
 const categories = [
@@ -52,6 +54,7 @@ const categories = [
   { value: 'tools', label: '工具与 Shell', icon: TerminalIcon },
   { value: 'resources', label: '资源与加载', icon: BoxesIcon },
   { value: 'skills', label: 'Skill 管理', icon: BookOpenIcon },
+  { value: 'mcp', label: 'MCP 管理', icon: ServerIcon },
   { value: 'about', label: '关于', icon: InfoIcon }
 ] as const
 
@@ -167,6 +170,11 @@ export function AppSettingsDialog({
     ['Skill 管理', '用户级 Skill', '技能', 'skills', t('Skill 管理'), t('用户级 Skill')].some(
       (word) => word.toLowerCase().includes(query.trim().toLowerCase())
     )
+  const includeMcp =
+    !!query.trim() &&
+    ['MCP 管理', 'MCP 服务', 'stdio', 'HTTP', t('MCP 管理')].some((word) =>
+      word.toLowerCase().includes(query.trim().toLowerCase())
+    )
 
   return (
     <Dialog
@@ -235,7 +243,9 @@ export function AppSettingsDialog({
                         ? '查看 eli 版本与软件更新。'
                         : activeCategory === 'skills'
                           ? '查看和管理用户级 Skill。'
-                          : '管理 eli Agent Runtime 的配置。'
+                          : activeCategory === 'mcp'
+                            ? '配置 MCP 服务并查看可用工具。'
+                            : '管理 eli Agent Runtime 的配置。'
                 )}
               </p>
             </header>
@@ -250,23 +260,29 @@ export function AppSettingsDialog({
                 <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
                   <SkillsSettingsPanel />
                 </div>
+              ) : open && activeCategory === 'mcp' && !query.trim() ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+                  <McpSettingsPanel />
+                </div>
               ) : open ? (
                 <AgentSettingsPanel
                   enabled
                   category={
                     activeCategory === 'providers' ||
                     activeCategory === 'about' ||
+                    activeCategory === 'mcp' ||
                     activeCategory === 'skills'
                       ? 'general'
                       : activeCategory
                   }
                   query={query}
                   general={
-                    includeGeneral || includeAbout || includeSkills ? (
+                    includeGeneral || includeAbout || includeSkills || includeMcp ? (
                       <div className="flex flex-col gap-8">
                         {includeGeneral && <GeneralSettings />}
                         {includeAbout && <AboutSettings />}
                         {includeSkills && <SkillsSettingsPanel />}
+                        {includeMcp && <McpSettingsPanel />}
                       </div>
                     ) : null
                   }

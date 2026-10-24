@@ -48,9 +48,15 @@ export class RuntimeConnection {
           !value ||
           typeof value !== 'object' ||
           !('kind' in value) ||
-          !['ready', 'response', 'session', 'auth', 'providers_changed', 'fatal'].includes(
-            String(value.kind)
-          )
+          ![
+            'ready',
+            'response',
+            'session',
+            'auth',
+            'mcp_auth',
+            'providers_changed',
+            'fatal'
+          ].includes(String(value.kind))
         ) {
           clearTimeout(timer)
           this.fail(new Error('Runtime 返回了无效消息'))

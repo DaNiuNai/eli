@@ -2,6 +2,7 @@ import type { Credential } from '@earendil-works/pi-ai'
 import type { SettingsManager } from '@earendil-works/pi-coding-agent'
 import { parseAppPreferences, type AppPreferences } from '../shared/app-preferences'
 import type { ProviderApi, ProviderModelInput } from '../shared/providers'
+import type { McpServerConfig } from '../shared/mcp'
 
 export interface ProviderPreferences {
   name?: string
@@ -28,6 +29,7 @@ export interface EliConfig {
   providers: ProviderPreferencesMap
   credentials: Record<string, Credential>
   disabledSkills?: string[]
+  mcpServers?: Record<string, McpServerConfig>
   deviceId?: string
 }
 
@@ -38,7 +40,7 @@ function record(value: unknown): value is Record<string, unknown> {
 export function parseEliConfig(value: unknown): EliConfig {
   if (!record(value)) throw new Error('Eli 配置必须是 JSON 对象')
   if (value.version !== undefined && value.version !== 1) throw new Error('不支持的 Eli 配置版本')
-  for (const key of ['agent', 'providers', 'credentials'] as const) {
+  for (const key of ['agent', 'providers', 'credentials', 'mcpServers'] as const) {
     if (value[key] !== undefined && !record(value[key]))
       throw new Error(`Eli ${key} 配置必须是对象`)
   }
@@ -68,6 +70,9 @@ export function parseEliConfig(value: unknown): EliConfig {
     agent: structuredClone((value.agent ?? {}) as AgentSettings),
     providers: structuredClone((value.providers ?? {}) as ProviderPreferencesMap),
     credentials: structuredClone((value.credentials ?? {}) as Record<string, Credential>),
+    ...(value.mcpServers === undefined
+      ? {}
+      : { mcpServers: structuredClone(value.mcpServers as Record<string, McpServerConfig>) }),
     ...(value.disabledSkills === undefined ? {} : { disabledSkills: [...value.disabledSkills] }),
     ...(value.deviceId === undefined ? {} : { deviceId: value.deviceId })
   }

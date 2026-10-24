@@ -4,6 +4,139 @@ export type TranslationValues = Record<string, string | number>
 export type Translate = (source: string, values?: TranslationValues) => string
 
 const english: Record<string, string> = {
+  已认证: 'Authenticated',
+  '已配置认证，待验证': 'Credentials configured, not verified',
+  未认证: 'Not authenticated',
+  认证已过期: 'Authentication expired',
+  需要重新认证: 'Authentication required',
+  认证中: 'Authenticating',
+  无需认证: 'No authentication required',
+  由服务管理认证: 'Authentication managed by the service',
+  本地服务管理认证: 'Authentication managed by the local server',
+  由供应商管理认证: 'Authentication managed by the provider',
+  退出认证: 'Sign out',
+  '退出 MCP 认证': 'Sign out of MCP',
+  '清除“{name}”保存在 eli 中的认证信息，保留服务配置。之后可以重新授权。':
+    'Remove credentials saved in eli for “{name}” and keep the server configuration. You can authorize again later.',
+  'MCP 认证正在更新，请稍后重试': 'MCP credentials are being updated. Please try again shortly.',
+  '无效的 MCP 重新授权操作': 'Invalid MCP reauthorization request',
+  '无法读取 MCP 认证信息，请检查认证文件。':
+    'Could not read MCP credentials. Check the credential file.',
+  '无法清除 MCP 认证信息，请重试。': 'Could not remove MCP credentials. Please try again.',
+  'MCP 服务需要认证，请选择浏览器授权或按服务商说明获取令牌。':
+    'Authentication required. Authorize in your browser or obtain a token from the provider.',
+  'MCP 认证': 'MCP authentication',
+  获取认证: 'Set up authentication',
+  '请在浏览器中完成授权，完成后将自动连接。':
+    'Complete authorization in your browser. eli will connect automatically.',
+  打开授权页面: 'Open authorization page',
+  '浏览器未自动返回？': 'Browser did not return automatically?',
+  浏览器中的完整回调地址: 'Full callback URL from your browser',
+  '仅在授权页面无法返回 eli 时，复制浏览器地址栏中的完整回调地址。':
+    'If the authorization page cannot return to eli, paste the full callback URL from your browser address bar.',
+  '认证已完成，连接成功，凭据已保存在 eli。':
+    'Authentication completed. Connected successfully and credentials saved in eli.',
+  '此服务支持浏览器授权。点击后前往服务商页面登录并授予访问权限。':
+    'This server supports browser authorization. Sign in on the provider page and grant access.',
+  '可尝试浏览器授权；如果服务商只提供 API Key，请按下方步骤手动填写令牌。':
+    'Try browser authorization, or follow the steps below if the provider only offers an API key.',
+  浏览器授权: 'Authorize in browser',
+  手动获取并填写访问令牌: 'Get and enter an access token manually',
+  '前往服务商官网或控制台，找到 API Keys 或 Access Tokens。':
+    'Visit the provider website or console and find API Keys or Access Tokens.',
+  '创建允许访问此 MCP 服务的令牌，并复制令牌值。':
+    'Create a token with access to this MCP server and copy it.',
+  '在下方粘贴令牌，eli 会保存为 Authorization: Bearer 请求头并测试连接。':
+    'Paste the token below. eli will save it as an Authorization: Bearer header and test the connection.',
+  打开服务网站或认证文档: 'Open provider website or authentication docs',
+  '若打开的是 API 域名，请从服务商官网进入控制台；具体入口以服务商文档为准。':
+    'If this opens an API domain, visit the provider website to find its console. Refer to the provider documentation for the exact location.',
+  访问令牌: 'Access token',
+  '粘贴令牌即可，无需手动添加 Bearer。其他认证格式可在编辑服务的请求头中配置。':
+    'Paste the token without adding Bearer. Configure other authentication formats in the server headers.',
+  保存令牌并测试: 'Save token and test',
+  取消授权: 'Cancel authorization',
+  '请填写有效的访问令牌。': 'Enter a valid access token.',
+  '请选择远程 HTTP MCP 服务': 'Select a remote HTTP MCP server',
+  '请先完成或取消 MCP 授权': 'Complete or cancel the current MCP authorization first',
+  '请先完成或取消该 MCP 服务的授权': 'Complete or cancel authorization for this MCP server first',
+  '当前服务使用请求头或供应商认证，请先在编辑中移除该认证配置再使用浏览器授权。':
+    'Remove the current header or provider authentication in the server editor before using browser authorization.',
+  'MCP 授权等待超时，请重试。': 'Authorization timed out. Please try again.',
+  '服务要求预注册 OAuth 客户端，请按服务商文档配置客户端，或使用其提供的访问令牌。':
+    'This server requires a registered OAuth client. Follow the provider documentation or use an access token.',
+  '浏览器授权未完成，请重试；若服务仅支持 API Key，请前往服务商控制台创建令牌。':
+    'Browser authorization did not complete. Try again, or create a token in the provider console if it only supports API keys.',
+  'MCP 授权连接已中断，请重新授权。':
+    'The authorization connection was interrupted. Please authorize again.',
+  '无法打开浏览器，请点击“打开授权页面”重试。':
+    'Could not open the browser. Click “Open authorization page” to retry.',
+  'MCP 管理': 'MCP management',
+  'MCP 服务': 'MCP servers',
+  '配置 MCP 服务并查看可用工具。': 'Configure MCP servers and inspect available tools.',
+  '编辑 MCP 服务': 'Edit MCP server',
+  '添加 MCP 服务': 'Add MCP server',
+  添加服务: 'Add server',
+  '配置本地命令或远程 Streamable HTTP 服务。':
+    'Configure a local command or a remote Streamable HTTP server.',
+  服务名称: 'Server name',
+  '名称用于区分服务，保存后不可修改。':
+    'The name identifies this server and cannot be changed after saving.',
+  '名称只能包含字母、数字、下划线和短横线。':
+    'Use only letters, digits, underscores and hyphens in the name.',
+  传输方式: 'Transport',
+  '本地 stdio': 'Local stdio',
+  '远程 HTTP': 'Remote HTTP',
+  启动命令: 'Command',
+  '参数（JSON 数组）': 'Arguments (JSON array)',
+  '每个参数单独填写为数组元素，包含空格的路径也只占一个元素。':
+    'Use one array element per argument, including paths with spaces.',
+  '参数必须是 JSON 字符串数组。': 'Arguments must be a JSON array of strings.',
+  '工作目录（可选）': 'Working directory (optional)',
+  '留空使用当前会话的工作目录；连接测试使用当前打开的工作目录。':
+    'Leave blank to use the session working directory. Connection tests use the current workspace.',
+  '环境变量（JSON 对象）': 'Environment variables (JSON object)',
+  服务地址: 'Server URL',
+  '请求头（JSON 对象）': 'Headers (JSON object)',
+  '需要令牌认证时，在此填写 Authorization 请求头。':
+    'For token authentication, provide an Authorization header here.',
+  '请填写值均为字符串的 JSON 对象。': 'Enter a JSON object with string values.',
+  '请填写启动命令。': 'Enter a command.',
+  '请填写有效的 HTTP 或 HTTPS 地址。': 'Enter a valid HTTP or HTTPS URL.',
+  '描述（可选）': 'Description (optional)',
+  工具提供方式: 'Tool exposure',
+  通过代码调用: 'Call through code',
+  搜索后调用: 'Discover through tool search',
+  直接提供给模型: 'Expose directly to the model',
+  隐藏工具: 'Hide tools',
+  '请求超时（秒）': 'Request timeout (seconds)',
+  '超时必须是大于 0 的秒数。': 'Timeout must be a positive number of seconds.',
+  '管理 eli 中添加的用户级 MCP 服务，供所有工作目录的聊天调用。':
+    'Manage MCP servers added in eli for chats across all workspaces.',
+  '保存与开关修改在下一次会话操作时生效。连接测试只获取工具列表，测试后自动断开。':
+    'Changes apply on the next session operation. Connection tests only list tools and disconnect when finished.',
+  '正在加载 MCP…': 'Loading MCP servers…',
+  '暂无 MCP 服务': 'No MCP servers',
+  '添加本地 stdio 或远程 HTTP 服务，为 eli 扩展工具。':
+    'Add a local stdio or remote HTTP server to extend eli with tools.',
+  '启用 MCP 服务 {name}': 'Enable MCP server {name}',
+  测试连接: 'Test connection',
+  '正在测试…': 'Testing…',
+  '{count} 个工具': '{count} tools',
+  '删除 MCP 服务': 'Delete MCP server',
+  '删除“{name}”的 MCP 配置。之后可以重新添加。':
+    'Delete the MCP configuration for “{name}”. You can add it again later.',
+  'MCP 工具列表': 'MCP tools',
+  '此服务未提供工具。': 'This server does not offer tools.',
+  参数结构: 'Input schema',
+  'MCP 连接成功': 'MCP connection successful',
+  'MCP 服务需要认证，请配置 Authorization 请求头后重试。':
+    'Authentication required. Configure an Authorization header and try again.',
+  'MCP 连接超时，请检查服务是否正常运行。':
+    'Connection timed out. Check that the MCP server is running.',
+  '找不到 MCP 启动命令或工作目录。': 'The MCP command or working directory was not found.',
+  'MCP 连接失败，请检查地址、命令和认证配置。':
+    'Connection failed. Check the URL, command and authentication settings.',
   '👋 欢迎使用 eli': '👋 Welcome to eli',
   '点击“前往设置”，在“模型供应商”中登录账号或填写 API 密钥，连接模型后就能开始对话。运行命令用的终端可以在“通用”中更换。':
     'Click “Go to Settings”, then sign in or enter an API key under “Model providers” to connect a model and start chatting. You can change the terminal used to run commands under “General”.',

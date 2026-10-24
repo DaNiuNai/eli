@@ -2,6 +2,7 @@ import type { ContextUsage, AgentSession, AgentSessionEvent } from '@earendil-wo
 import type { AgentLibrary, SavedSession } from './agent-library'
 import type { UiLanguage } from './app-preferences'
 import type { AgentSettingsChange, AgentSettingsSnapshot } from './agent-settings'
+import type { ManagedMcpServer, McpConnectionTest, McpServerChange } from './mcp'
 import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 import type { UserSkill } from './skills'
@@ -106,6 +107,9 @@ export interface AgentApi {
   getLibrary(): Promise<AgentLibrary>
   getSkills(sessionKey: string): Promise<AgentSkillCommand[]>
   getUserSkills(): Promise<UserSkill[]>
+  getMcpServers(): Promise<ManagedMcpServer[]>
+  changeMcpServer(change: McpServerChange): Promise<ManagedMcpServer[]>
+  testMcpServer(name: string): Promise<McpConnectionTest>
   setSkillEnabled(filePath: string, enabled: boolean): Promise<UserSkill[]>
   getSettings(): Promise<AgentSettingsSnapshot>
   saveSettings(changes: AgentSettingsChange[]): Promise<AgentSettingsSnapshot>
@@ -134,6 +138,9 @@ export const agentChannels = {
   getLibrary: 'agent:get-library',
   getSkills: 'agent:get-skills',
   getUserSkills: 'agent:get-user-skills',
+  getMcpServers: 'agent:get-mcp-servers',
+  changeMcpServer: 'agent:change-mcp-server',
+  testMcpServer: 'agent:test-mcp-server',
   setSkillEnabled: 'agent:set-skill-enabled',
   getSettings: 'agent:get-settings',
   saveSettings: 'agent:save-settings',

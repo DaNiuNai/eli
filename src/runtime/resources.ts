@@ -16,6 +16,7 @@ import { sdkModules } from './sdk-adapter'
 import { EliConfigStore } from '../config/store'
 import { resourcePath } from './resource-path'
 import { skillPathKey, userSkillPaths } from './skills'
+import { managedMcpServers } from './mcp'
 
 function readOptional(path: string): string | undefined {
   try {
@@ -169,6 +170,13 @@ export class EliResourceLoader implements ResourceLoader {
     this.sdk = sdk
     const runtime = createExtensionRuntime()
     const bus = createEventBus()
+    const configPath = join(this.root, 'config.json')
+    const { agent, disabledSkills, mcpServers } = await new EliConfigStore(configPath).read()
+    const managed = (await managedMcpServers(mcpServers)).map((server) => ({
+      ...server,
+      source: configPath,
+      scope: 'global' as const
+    }))
     const factories: [string, ExtensionFactory][] = [
       ['eli:host', this.hostExtension],
       ['builtin:codemode', createCodemodeExtension()],
@@ -190,12 +198,22 @@ export class EliResourceLoader implements ResourceLoader {
             return {
               servers: [
                 ...new Map(
-                  [...global.servers, ...project.servers].map((server) => [server.name, server])
+                  [...global.servers, ...managed, ...project.servers].map((server) => [
+                    server.name,
+                    server
+                  ])
                 ).values()
               ],
               autoEnableCodemode: project.autoEnableCodemode ?? global.autoEnableCodemode,
               errors: [...global.errors, ...project.errors]
             }
+          },
+          updateConfig: (entry, patch) => {
+            if (entry.source === configPath)
+              throw new Error('请在 eli 设置的 MCP 管理中修改此服务。')
+            sdk.updateMcpServerConfig(entry.override ?? entry.source, entry.name, patch, {
+              override: !!entry.override
+            })
           },
           credentials: new sdk.McpOAuthCredentialStore(
             new sdk.FileAuthStorageBackend(join(this.root, 'mcp-auth.json')),
@@ -223,9 +241,6 @@ export class EliResourceLoader implements ResourceLoader {
       throw new Error('ask_user_question 是 eli 保留的工具名')
     }
     this.extensions = { extensions: [...extensions, ...loaded.extensions], errors: [], runtime }
-    const { agent, disabledSkills } = await new EliConfigStore(
-      join(this.root, 'config.json')
-    ).read()
     this.disabledSkills = new Set((disabledSkills ?? []).map(skillPathKey))
     this.loadSkills()
     this.loadPrompts()

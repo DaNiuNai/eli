@@ -9,12 +9,14 @@ import { AgentAuthService } from './auth'
 import { runtimePaths } from './paths'
 import { closeNetwork } from './network'
 import { SkillsService } from './skills'
+import { McpService } from './mcp'
 
 export class RuntimeHost {
   private coordinator?: RuntimeCoordinator
   private library?: AgentLibraryService
   private settings?: AgentSettingsService
   private skills?: SkillsService
+  private mcp?: McpService
   private auth?: AgentAuthService
   private providers?: ProvidersService
   private initialized = false
@@ -62,6 +64,9 @@ export class RuntimeHost {
         this.library = new AgentLibraryService(runtimePaths(options.root).sessions)
         this.settings = new AgentSettingsService(options.root)
         this.skills = new SkillsService(options.root)
+        this.mcp = new McpService(options.root, options.cwd, (snapshot) => {
+          this.emit({ version: runtimeProtocolVersion, kind: 'mcp_auth', snapshot })
+        })
         this.providers = new ProvidersService(options.root, () => {
           this.emit({ version: runtimeProtocolVersion, kind: 'providers_changed' })
         })
@@ -163,6 +168,26 @@ export class RuntimeHost {
         return this.settings!.get()
       case 'getUserSkills':
         return this.skills!.get()
+      case 'getMcpServers':
+        return this.mcp!.get()
+      case 'changeMcpServer':
+        return this.mcp!.change(...request.args)
+      case 'testMcpServer':
+        return this.mcp!.test(...request.args)
+      case 'getMcpAuth':
+        return this.mcp!.getAuth()
+      case 'startMcpAuth':
+        return this.mcp!.startAuth(...request.args)
+      case 'signOutMcpAuth':
+        return this.mcp!.signOut(...request.args)
+      case 'cancelMcpAuth':
+        return this.mcp!.cancelAuth(...request.args)
+      case 'respondMcpAuth':
+        return this.mcp!.respondAuth(...request.args)
+      case 'validateMcpAuthLink':
+        return this.mcp!.validateAuthLink(...request.args)
+      case 'getMcpWebsite':
+        return this.mcp!.website(...request.args)
       case 'setSkillEnabled':
         return this.skills!.setEnabled(...request.args)
       case 'saveSettings':
@@ -188,7 +213,7 @@ export class RuntimeHost {
     clearTimeout(this.timer)
     this.closePromise = (async () => {
       await this.init?.catch(() => {})
-      await Promise.allSettled([this.coordinator?.abort(), this.auth?.cancel()])
+      await Promise.allSettled([this.coordinator?.abort(), this.auth?.cancel(), this.mcp?.close()])
       await Promise.allSettled([...this.active])
       await Promise.allSettled([this.coordinator?.dispose(), this.auth?.dispose()])
       await closeNetwork()
