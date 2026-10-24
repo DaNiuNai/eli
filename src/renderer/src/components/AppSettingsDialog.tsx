@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
+  BookOpenIcon,
   PlugIcon,
   BoxesIcon,
   GlobeIcon,
@@ -39,6 +40,7 @@ import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { TerminalSettings } from './TerminalSettings'
 import { AboutSettings } from './AboutSettings'
 import { AutoApprovalSettings } from './AutoApprovalSettings'
+import { SkillsSettingsPanel } from './SkillsSettingsPanel'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
@@ -48,6 +50,7 @@ const categories = [
   { value: 'network', label: '网络与重试', icon: GlobeIcon },
   { value: 'tools', label: '工具与 Shell', icon: TerminalIcon },
   { value: 'resources', label: '资源与加载', icon: BoxesIcon },
+  { value: 'skills', label: 'Skill 管理', icon: BookOpenIcon },
   { value: 'about', label: '关于', icon: InfoIcon }
 ] as const
 
@@ -158,6 +161,11 @@ export function AppSettingsDialog({
   const includeGeneral =
     (activeCategory === 'general' && !query.trim()) || (showGeneral && !!query.trim())
   const includeAbout = showAbout && !!query.trim()
+  const includeSkills =
+    !!query.trim() &&
+    ['Skill 管理', '用户级 Skill', '技能', 'skills', t('Skill 管理'), t('用户级 Skill')].some(
+      (word) => word.toLowerCase().includes(query.trim().toLowerCase())
+    )
 
   return (
     <Dialog
@@ -224,7 +232,9 @@ export function AppSettingsDialog({
                       ? '让 eli 更符合你的使用习惯。'
                       : activeCategory === 'about'
                         ? '查看 eli 版本与软件更新。'
-                        : '管理 eli Agent Runtime 的配置。'
+                        : activeCategory === 'skills'
+                          ? '查看和管理用户级 Skill。'
+                          : '管理 eli Agent Runtime 的配置。'
                 )}
               </p>
             </header>
@@ -235,20 +245,27 @@ export function AppSettingsDialog({
                 <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
                   <AboutSettings />
                 </div>
+              ) : open && activeCategory === 'skills' && !query.trim() ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+                  <SkillsSettingsPanel />
+                </div>
               ) : open ? (
                 <AgentSettingsPanel
                   enabled
                   category={
-                    activeCategory === 'providers' || activeCategory === 'about'
+                    activeCategory === 'providers' ||
+                    activeCategory === 'about' ||
+                    activeCategory === 'skills'
                       ? 'general'
                       : activeCategory
                   }
                   query={query}
                   general={
-                    includeGeneral || includeAbout ? (
+                    includeGeneral || includeAbout || includeSkills ? (
                       <div className="flex flex-col gap-8">
                         {includeGeneral && <GeneralSettings />}
                         {includeAbout && <AboutSettings />}
+                        {includeSkills && <SkillsSettingsPanel />}
                       </div>
                     ) : null
                   }

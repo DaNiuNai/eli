@@ -30,6 +30,9 @@ const api: AgentApi = {
   deleteSession: (path) => ipcRenderer.invoke(agentChannels.deleteSession, path),
   getLibrary: () => ipcRenderer.invoke(agentChannels.getLibrary),
   getSkills: (sessionKey) => ipcRenderer.invoke(agentChannels.getSkills, sessionKey),
+  getUserSkills: () => ipcRenderer.invoke(agentChannels.getUserSkills),
+  setSkillEnabled: (filePath, enabled) =>
+    ipcRenderer.invoke(agentChannels.setSkillEnabled, filePath, enabled),
   getSettings: () => ipcRenderer.invoke(agentChannels.getSettings),
   saveSettings: (changes) => ipcRenderer.invoke(agentChannels.saveSettings, changes),
   readImage: (source) => ipcRenderer.invoke(agentChannels.readImage, source),

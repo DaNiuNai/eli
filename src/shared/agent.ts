@@ -4,6 +4,7 @@ import type { UiLanguage } from './app-preferences'
 import type { AgentSettingsChange, AgentSettingsSnapshot } from './agent-settings'
 import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
+import type { UserSkill } from './skills'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
 export type AgentMessage = AgentSession['messages'][number]
@@ -104,6 +105,8 @@ export interface AgentApi {
   deleteSession(path: string): Promise<void>
   getLibrary(): Promise<AgentLibrary>
   getSkills(sessionKey: string): Promise<AgentSkillCommand[]>
+  getUserSkills(): Promise<UserSkill[]>
+  setSkillEnabled(filePath: string, enabled: boolean): Promise<UserSkill[]>
   getSettings(): Promise<AgentSettingsSnapshot>
   saveSettings(changes: AgentSettingsChange[]): Promise<AgentSettingsSnapshot>
   readImage(source: string): Promise<string>
@@ -130,6 +133,8 @@ export const agentChannels = {
   deleteSession: 'agent:delete-session',
   getLibrary: 'agent:get-library',
   getSkills: 'agent:get-skills',
+  getUserSkills: 'agent:get-user-skills',
+  setSkillEnabled: 'agent:set-skill-enabled',
   getSettings: 'agent:get-settings',
   saveSettings: 'agent:save-settings',
   readImage: 'agent:read-image',

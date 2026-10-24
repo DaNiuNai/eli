@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import {
   createCodemodeExtension,
   createEventBus,
@@ -14,6 +13,9 @@ import {
   type SettingsManager
 } from '@earendil-works/pi-coding-agent'
 import { sdkModules } from './sdk-adapter'
+import { EliConfigStore } from '../config/store'
+import { resourcePath } from './resource-path'
+import { skillPathKey, userSkillPaths } from './skills'
 
 function readOptional(path: string): string | undefined {
   try {
@@ -22,11 +24,6 @@ function readOptional(path: string): string | undefined {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
-}
-
-function resourcePath(base: string, path: string): string {
-  const expanded = path.replace(/^~(?=$|[\\/])/, homedir())
-  return isAbsolute(expanded) ? expanded : resolve(base, expanded)
 }
 
 function extensionFiles(path: string): string[] {
@@ -64,6 +61,7 @@ export class EliResourceLoader implements ResourceLoader {
   private systemSource?: string
   private appendPrompts: { path: string; content: string }[] = []
   private additionalSkills: string[] = []
+  private disabledSkills = new Set<string>()
   private additionalPrompts: string[] = []
   private sdk?: Awaited<ReturnType<typeof sdkModules>>
 
@@ -121,7 +119,6 @@ export class EliResourceLoader implements ResourceLoader {
     const globalPaths = global.map((path) => resourcePath(this.root, path))
     const projectPaths = project.map((path) => resourcePath(join(this.cwd, '.eli'), path))
     if (kind === 'skills') {
-      globalDefaults.push(join(dirname(this.root), '.agents', 'skills'))
       projectDefaults.push(join(this.cwd, '.agents', 'skills'))
     }
     const paths =
@@ -129,8 +126,7 @@ export class EliResourceLoader implements ResourceLoader {
         ? [
             ...projectDefaults.filter(existsSync),
             ...projectPaths,
-            ...globalDefaults.filter(existsSync),
-            ...globalPaths
+            ...userSkillPaths(this.root, global)
           ]
         : [
             ...globalDefaults.filter(existsSync),
@@ -142,12 +138,18 @@ export class EliResourceLoader implements ResourceLoader {
   }
 
   private loadSkills(): void {
-    this.skills = loadSkills({
+    const loaded = loadSkills({
       cwd: this.cwd,
       agentDir: this.root,
       includeDefaults: false,
       skillPaths: [...this.paths('skills'), ...this.additionalSkills]
     })
+    this.skills = {
+      ...loaded,
+      skills: loaded.skills.filter(
+        ({ filePath }) => !this.disabledSkills.has(skillPathKey(filePath))
+      )
+    }
   }
 
   private loadPrompts(): void {
@@ -221,6 +223,8 @@ export class EliResourceLoader implements ResourceLoader {
       throw new Error('ask_user_question 是 eli 保留的工具名')
     }
     this.extensions = { extensions: [...extensions, ...loaded.extensions], errors: [], runtime }
+    const { disabledSkills } = await new EliConfigStore(join(this.root, 'config.json')).read()
+    this.disabledSkills = new Set((disabledSkills ?? []).map(skillPathKey))
     this.loadSkills()
     this.loadPrompts()
     // 全局说明在前；从文件系统根到工作目录依次应用 AGENTS.md，不扫描其他工具的配置目录。

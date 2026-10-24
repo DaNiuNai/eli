@@ -413,6 +413,18 @@ const english: Record<string, string> = {
     'The context is already compacted. There is no new content to summarize.',
   '压缩要求不能超过 100000 个字符': 'Compaction instructions cannot exceed 100000 characters',
   技能: 'Skills',
+  'Skill 管理': 'Skill management',
+  '用户级 Skill': 'User skills',
+  '查看和管理用户级 Skill。': 'View and manage user skills.',
+  '关闭后将不再向模型提供该用户级 Skill，也不会出现在技能命令中。项目级同名 Skill 保持可用。':
+    'Disabled user skills are hidden from the model and skill commands. Project skills with the same name remain available.',
+  '修改自动保存，并在下一次会话操作时生效。':
+    'Changes are saved automatically and take effect on the next session operation.',
+  '暂无用户级 Skill': 'No user skills yet',
+  '在 ~/.eli/skills、~/.agents/skills 或设置的技能路径中添加 Skill 后重新加载。':
+    'Add skills to ~/.eli/skills, ~/.agents/skills, or configured skill paths, then reload.',
+  '无效的 Skill 开关设置': 'Invalid skill toggle setting',
+  '用户级 Skill 不存在，请重新加载': 'The user skill no longer exists. Please reload.',
   '正在加载技能…': 'Loading skills…',
   技能加载失败: 'Could not load skills',
   重试: 'Retry',

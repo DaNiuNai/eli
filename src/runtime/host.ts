@@ -8,11 +8,13 @@ import { AgentSettingsService } from './settings-service'
 import { AgentAuthService } from './auth'
 import { runtimePaths } from './paths'
 import { closeNetwork } from './network'
+import { SkillsService } from './skills'
 
 export class RuntimeHost {
   private coordinator?: RuntimeCoordinator
   private library?: AgentLibraryService
   private settings?: AgentSettingsService
+  private skills?: SkillsService
   private auth?: AgentAuthService
   private providers?: ProvidersService
   private initialized = false
@@ -59,6 +61,7 @@ export class RuntimeHost {
       } else if (options.kind === 'control') {
         this.library = new AgentLibraryService(runtimePaths(options.root).sessions)
         this.settings = new AgentSettingsService(options.root)
+        this.skills = new SkillsService(options.root)
         this.providers = new ProvidersService(options.root, () => {
           this.emit({ version: runtimeProtocolVersion, kind: 'providers_changed' })
         })
@@ -158,6 +161,10 @@ export class RuntimeHost {
         return this.library!.hasWorkspace(...request.args)
       case 'getSettings':
         return this.settings!.get()
+      case 'getUserSkills':
+        return this.skills!.get()
+      case 'setSkillEnabled':
+        return this.skills!.setEnabled(...request.args)
       case 'saveSettings':
         return this.settings!.save(...request.args)
       case 'getAuth':

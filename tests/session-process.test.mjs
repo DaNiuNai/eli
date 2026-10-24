@@ -74,6 +74,21 @@ function harness(t, { initializing = false } = {}) {
   return { session, runtimes, mode }
 }
 
+test('Skill 设置失效后，下一次技能列表和会话操作会重建 Runtime', async (t) => {
+  const { session, runtimes } = harness(t)
+  await session.load()
+  session.invalidateSettings()
+  await session.getSkills()
+  assert.equal(runtimes[0].stopped, 1)
+  assert.equal(runtimes.length, 2)
+  assert.ok(runtimes[1].calls.some(({ method }) => method === 'getSkills'))
+  session.invalidateSettings()
+  await session.prompt('使用更新后的 Skill 设置')
+  assert.equal(runtimes[1].stopped, 1)
+  assert.equal(runtimes.length, 3)
+  assert.ok(runtimes[2].calls.some(({ method }) => method === 'prompt'))
+})
+
 test('启动期间的审批挡位更新等待初始化，并应用最新选择', async (t) => {
   const { session, runtimes, mode } = harness(t, { initializing: true })
   const loading = session.load()

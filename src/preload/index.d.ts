@@ -10,7 +10,7 @@ declare global {
   interface Window {
     providers: ProvidersApi
     appUpdates: AppUpdatesApi
-    api: AgentApi // 包含工具审批、用户答复、原生图片选择与拖入文件路径；图片复制由主进程处理。
+    api: AgentApi // 包含 Skill 管理、工具审批、用户答复与图片操作。
     appPreferences: AppPreferencesApi // 包括归档工作目录与自动批准模型的持久化设置。
     agentAuth: AgentAuthApi // 登录交互；凭据由独立 Runtime 中的 SDK 保存。
     terminal: TerminalApi // 检测和验证 eli 使用的 Shell。

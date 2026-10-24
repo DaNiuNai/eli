@@ -12,6 +12,7 @@ import type { ToolApprovalMode } from './tool-approval'
 import type { TerminalPreference } from './terminal'
 import type { UserQuestionAnswer } from './user-question'
 import type { ProviderChange, ProvidersSnapshot } from './providers'
+import type { UserSkill } from './skills'
 
 export const runtimeProtocolVersion = 1
 export const mainAgentId = 'main'
@@ -51,6 +52,8 @@ export interface RuntimeMethods {
   editMessage: { args: [AgentMessageTarget, string]; result: RuntimeSessionState }
   forkMessage: { args: [AgentMessageTarget]; result: string }
   getSkills: { args: []; result: AgentSkillCommand[] }
+  getUserSkills: { args: []; result: UserSkill[] }
+  setSkillEnabled: { args: [string, boolean]; result: UserSkill[] }
   configure: { args: [ToolApprovalMode]; result: void }
   approve: { args: [string, boolean]; result: void }
   answer: { args: [string, UserQuestionAnswer[]]; result: void }

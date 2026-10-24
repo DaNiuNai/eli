@@ -891,6 +891,102 @@ test('默认加载 .eli 与 .agents 技能，项目同名技能优先且用户�
   )
 })
 
+test('Skill 开关经控制协议保存并过滤模型和命令，保留项目同名 Skill 且可重新开启', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const userDirectory = join(f.data, 'skills')
+  const sharedDirectory = join(f.root, 'home/.agents/skills')
+  const projectDirectory = join(f.cwd, '.agents/skills')
+  for (const [directory, name, description] of [
+    [userDirectory, 'user-only', 'Hidden user fixture'],
+    [sharedDirectory, 'user-only', 'Fallback user fixture'],
+    [sharedDirectory, 'shared-only', 'Hidden shared fixture'],
+    [userDirectory, 'same-name', 'Hidden same-name user fixture'],
+    [projectDirectory, 'same-name', 'Visible same-name project fixture'],
+    [projectDirectory, 'project-only', 'Visible project fixture']
+  ]) {
+    await mkdir(join(directory, name), { recursive: true })
+    await writeFile(
+      join(directory, name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: ${description}\n---\n${description} BODY`
+    )
+  }
+  const control = runtime(t)
+  await control.connection.call('initialize', {
+    kind: 'control',
+    root: f.data,
+    cwd: f.cwd,
+    firstLaunch: false
+  })
+  const catalog = await control.connection.call('getUserSkills')
+  assert.deepEqual(
+    catalog.map(({ name }) => name),
+    ['same-name', 'shared-only', 'user-only']
+  )
+  assert.ok(catalog.every(({ enabled }) => enabled))
+  const original = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  for (const skill of catalog)
+    await control.connection.call('setSkillEnabled', skill.filePath, false)
+  const disabled = await control.connection.call('getUserSkills')
+  assert.equal(disabled.length, catalog.length)
+  assert.ok(disabled.every(({ enabled }) => !enabled))
+  const saved = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  assert.deepEqual(
+    { agent: saved.agent, credentials: saved.credentials, providers: saved.providers },
+    original
+  )
+  assert.deepEqual(new Set(saved.disabledSkills), new Set(catalog.map(({ filePath }) => filePath)))
+  await assert.rejects(
+    control.connection.call(
+      'setSkillEnabled',
+      join(projectDirectory, 'project-only/SKILL.md'),
+      false
+    ),
+    /用户级 Skill 不存在/
+  )
+  const first = runtime(t)
+  await initialize(first.connection, f)
+  assert.deepEqual((await first.connection.call('getSkills')).map(({ name }) => name).sort(), [
+    'skill:project-only',
+    'skill:same-name'
+  ])
+  await first.connection.call('prompt', '/skill:user-only')
+  await until(() =>
+    first.states.findLast(
+      (state) =>
+        !state.snapshot.running && state.snapshot.messages.some(({ role }) => role === 'assistant')
+    )
+  )
+  const prompt = requests[0].messages.find(({ role }) => role === 'system').content
+  assert.match(prompt, /Visible same-name project fixture/)
+  assert.match(prompt, /Visible project fixture/)
+  assert.doesNotMatch(prompt, /Hidden|Fallback user fixture|user-only|shared-only/)
+  assert.doesNotMatch(JSON.stringify(requests), /Hidden user fixture BODY/)
+  await first.connection.stop()
+  for (const skill of catalog)
+    await control.connection.call('setSkillEnabled', skill.filePath, true)
+  const restored = runtime(t)
+  await initialize(restored.connection, f, 'restored-skills')
+  assert.deepEqual((await restored.connection.call('getSkills')).map(({ name }) => name).sort(), [
+    'skill:project-only',
+    'skill:same-name',
+    'skill:shared-only',
+    'skill:user-only'
+  ])
+  await restored.connection.call('prompt', '/skill:user-only')
+  await until(() =>
+    restored.states.findLast(
+      (state) =>
+        !state.snapshot.running && state.snapshot.messages.some(({ role }) => role === 'assistant')
+    )
+  )
+  assert.match(
+    requests.at(-1).messages.find(({ role }) => role === 'system').content,
+    /Hidden user fixture/
+  )
+  assert.match(JSON.stringify(requests.at(-1)), /Hidden user fixture BODY/)
+})
+
 test('等待审批时关闭 Runtime 会取消等待；其他会话继续工作', async (t) => {
   const f = await fixture(t)
   await modelServer(t, f.data)

@@ -16,6 +16,11 @@ writeFileSync(
   join(data, 'skills', 'project-agents', 'SKILL.md'),
   '---\nname: project-agents\ndescription: User duplicate Electron fixture\n---\nUser duplicate skill body'
 )
+mkdirSync(join(data, 'skills', 'user-disabled'), { recursive: true })
+const disabledSkillPath = join(data, 'skills', 'user-disabled', 'SKILL.md')
+const disabledSkillContent =
+  '---\nname: user-disabled\ndescription: Disabled Electron fixture\n---\nDisabled Electron skill body'
+writeFileSync(disabledSkillPath, disabledSkillContent)
 mkdirSync(join(directory, '.agents', 'skills', 'shared'), { recursive: true })
 writeFileSync(
   join(directory, '.agents', 'skills', 'shared', 'SKILL.md'),
@@ -52,6 +57,28 @@ function request(method, ...args) {
     pending.set(id, { resolve, reject })
     child.postMessage({ version: 1, kind: 'request', id, agentId: 'main', method, args })
   })
+}
+
+async function startRuntime() {
+  child = utilityProcess.fork(entry, [], { serviceName: 'eli Runtime smoke test', stdio: 'pipe' })
+  child.stdout.resume()
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk))
+  const exited = new Promise((resolve) => child.once('exit', resolve))
+  await new Promise((resolve, reject) => {
+    child.once('exit', (code) => reject(new Error(`Runtime exited: ${code}`)))
+    child.on('message', (message) => {
+      if (message.kind === 'session') states.push(message.state)
+      if (message.kind === 'ready') resolve()
+      if (message.kind === 'fatal') reject(new Error(message.error))
+      if (message.kind === 'response') {
+        const current = pending.get(message.id)
+        pending.delete(message.id)
+        if (message.ok) current?.resolve(message.result)
+        else current?.reject(new Error(message.error))
+      }
+    })
+  })
+  return { exited }
 }
 
 const timeout = setTimeout(() => {
@@ -124,25 +151,31 @@ app.whenReady().then(async () => {
       }
     }
     writeFileSync(join(data, 'config.json'), JSON.stringify(config))
-    child = utilityProcess.fork(entry, [], { serviceName: 'eli Runtime smoke test', stdio: 'pipe' })
-    child.stdout.resume()
-    child.stderr.on('data', (chunk) => process.stderr.write(chunk))
-    const exited = new Promise((resolve) => child.once('exit', resolve))
-    const ready = new Promise((resolve, reject) => {
-      child.once('exit', (code) => reject(new Error(`Runtime exited: ${code}`)))
-      child.on('message', (message) => {
-        if (message.kind === 'session') states.push(message.state)
-        if (message.kind === 'ready') resolve()
-        if (message.kind === 'fatal') reject(new Error(message.error))
-        if (message.kind === 'response') {
-          const current = pending.get(message.id)
-          pending.delete(message.id)
-          if (message.ok) current?.resolve(message.result)
-          else current?.reject(new Error(message.error))
-        }
-      })
+    const control = await startRuntime()
+    await request('initialize', {
+      kind: 'control',
+      root: data,
+      cwd,
+      firstLaunch: false
     })
-    await ready
+    const catalog = await request('getUserSkills')
+    assert.deepEqual(
+      catalog.map(({ name }) => name),
+      ['project-agents', 'shared', 'user-disabled']
+    )
+    await request('setSkillEnabled', disabledSkillPath, false)
+    await request('setSkillEnabled', join(data, 'skills/project-agents/SKILL.md'), false)
+    const managed = await request('getUserSkills')
+    assert.equal(managed.find(({ name }) => name === 'user-disabled').enabled, false)
+    assert.equal(managed.find(({ name }) => name === 'shared').enabled, true)
+    await request('shutdown')
+    await control.exited
+    const savedConfig = JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'))
+    assert.deepEqual(
+      new Set(savedConfig.disabledSkills),
+      new Set([disabledSkillPath, join(data, 'skills/project-agents/SKILL.md')])
+    )
+    const { exited } = await startRuntime()
     const state = await request('initialize', {
       kind: 'session',
       root: data,
@@ -166,14 +199,20 @@ app.whenReady().then(async () => {
     assert.equal(readFileSync(join(cwd, 'approved.txt'), 'utf8'), 'electron-approved')
     assert.ok(requests.some((body) => body.model === 'reviewer' && !body.tools?.length))
     assert.ok(states.every((state) => !state.snapshot.toolApprovals.length))
+    const systemPrompt = requests
+      .find((body) => body.model === 'local')
+      .messages.find(({ role }) => role === 'system').content
+    assert.doesNotMatch(systemPrompt, /user-disabled|Disabled Electron fixture/)
+    assert.match(systemPrompt, /Project agents Electron fixture/)
+    assert.equal(readFileSync(disabledSkillPath, 'utf8'), disabledSkillContent)
     await request('shutdown')
     await exited
-    assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), config)
+    assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), savedConfig)
     for (const name of ['settings.json', 'models.json', 'providers.json', 'auth.json'])
       assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(
-      `Electron utilityProcess + SDK + project extension + auto approval: PASS (${entry})`
+      `Electron utilityProcess + SDK + skill management + project extension + auto approval: PASS (${entry})`
     )
     server.closeAllConnections()
     server.close()

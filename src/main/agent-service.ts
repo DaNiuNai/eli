@@ -211,6 +211,13 @@ export class AgentService {
       return library
     })
     handle(agentChannels.getSettings, () => this.request('getSettings'))
+    handle(agentChannels.getUserSkills, () => this.request('getUserSkills'))
+    handle(agentChannels.setSkillEnabled, async (filePath, enabled) => {
+      const result = await this.request('setSkillEnabled', filePath, enabled)
+      for (const session of this.sessions.values()) session.invalidateSettings()
+      this.publish(true)
+      return result
+    })
     handle(agentChannels.getSkills, async (key) => {
       const session = this.session(key)
       await this.requireWorkspace(session.snapshot.cwd)

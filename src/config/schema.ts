@@ -25,6 +25,7 @@ export interface EliConfig {
   agent: AgentSettings
   providers: ProviderPreferencesMap
   credentials: Record<string, Credential>
+  disabledSkills?: string[]
   deviceId?: string
 }
 
@@ -45,6 +46,12 @@ export function parseEliConfig(value: unknown): EliConfig {
   }
   if (value.deviceId !== undefined && typeof value.deviceId !== 'string')
     throw new Error('Eli 设备 ID 格式无效')
+  if (
+    value.disabledSkills !== undefined &&
+    (!Array.isArray(value.disabledSkills) ||
+      !value.disabledSkills.every((path) => typeof path === 'string' && path.trim()))
+  )
+    throw new Error('Eli 关闭的 Skill 配置必须是文件路径数组')
   // 只识别新结构，不迁移旧配置文件或旧的顶层应用偏好。
   return {
     version: 1,
@@ -52,6 +59,7 @@ export function parseEliConfig(value: unknown): EliConfig {
     agent: structuredClone((value.agent ?? {}) as AgentSettings),
     providers: structuredClone((value.providers ?? {}) as ProviderPreferencesMap),
     credentials: structuredClone((value.credentials ?? {}) as Record<string, Credential>),
+    ...(value.disabledSkills === undefined ? {} : { disabledSkills: [...value.disabledSkills] }),
     ...(value.deviceId === undefined ? {} : { deviceId: value.deviceId })
   }
 }
