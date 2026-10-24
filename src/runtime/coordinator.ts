@@ -127,7 +127,7 @@ export class RuntimeCoordinator {
       this.options.root,
       this.options.cwd,
       this.settings,
-      hostExtension(this.interactions, this.options.terminal)
+      hostExtension(this.interactions, this.options.terminal, () => this.agent.agent)
     )
     await this.loader.reload()
     const { session } = await createAgentSession({

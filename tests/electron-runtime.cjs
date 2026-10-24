@@ -56,6 +56,7 @@ let nextId = 0
 const pending = new Map()
 const states = []
 const requests = []
+const reviewReplies = []
 
 function request(method, ...args) {
   const id = String(++nextId)
@@ -107,21 +108,27 @@ app.whenReady().then(async () => {
         )
       send({ role: 'assistant', content: '' })
       if (body.model === 'reviewer') {
+        // 三个审核全部到达才返回，串行审核会卡住此屏障。
+        await new Promise((resolve) => {
+          reviewReplies.push(resolve)
+          if (reviewReplies.length === 3) for (const finish of reviewReplies.toReversed()) finish()
+        })
         send({ content: JSON.stringify({ decision: 'allow', reason: '用户要求创建测试文件' }) })
         send({}, 'stop')
       } else if (body.messages.at(-1).role !== 'tool') {
         send({
-          tool_calls: [
-            {
-              index: 0,
-              id: 'electron-write',
-              type: 'function',
-              function: {
-                name: 'write',
-                arguments: JSON.stringify({ path: 'approved.txt', content: 'electron-approved' })
-              }
+          tool_calls: Array.from({ length: 3 }, (_, index) => ({
+            index,
+            id: `electron-write-${index}`,
+            type: 'function',
+            function: {
+              name: 'write',
+              arguments: JSON.stringify({
+                path: `approved-${index}.txt`,
+                content: 'electron-approved'
+              })
             }
-          ]
+          }))
         })
         send({}, 'tool_calls')
       } else {
@@ -268,13 +275,15 @@ app.whenReady().then(async () => {
       { name: 'skill:project-agents', description: 'Project agents Electron fixture' },
       { name: 'skill:shared', description: 'Shared Electron fixture' }
     ])
-    await request('prompt', '请在工作目录创建 approved.txt')
+    await request('prompt', '请在工作目录创建 approved-0.txt、approved-1.txt、approved-2.txt')
     while (
-      !states.some((state) => !state.snapshot.running && state.snapshot.messages.length >= 4)
+      !states.some((state) => !state.snapshot.running && state.snapshot.messages.length >= 6)
     ) {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
-    assert.equal(readFileSync(join(cwd, 'approved.txt'), 'utf8'), 'electron-approved')
+    assert.equal(reviewReplies.length, 3)
+    for (let index = 0; index < 3; index++)
+      assert.equal(readFileSync(join(cwd, `approved-${index}.txt`), 'utf8'), 'electron-approved')
     assert.ok(requests.some((body) => body.model === 'reviewer' && !body.tools?.length))
     assert.ok(states.every((state) => !state.snapshot.toolApprovals.length))
     const systemPrompt = requests

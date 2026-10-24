@@ -33,34 +33,12 @@ export function ToolApprovalPanel({
     }
   }
 
-  if (
-    !requests.length &&
-    !autoApproval?.reviewing &&
-    !autoApproval?.paused &&
-    !autoApproval?.lastDenied
-  )
-    return null
+  if (!requests.length && !autoApproval?.paused) return null
   return (
     <section
       aria-label={t('等待工具审批')}
       className="mx-auto flex max-h-[40dvh] w-full max-w-4xl shrink-0 flex-col gap-2 overflow-auto px-6 pt-3 sm:px-8"
     >
-      {!!autoApproval?.reviewing && (
-        <Alert role="status">
-          <Spinner />
-          <AlertTitle>{t('正在自动审核')}</AlertTitle>
-          <AlertDescription>{t('工具尚未执行，正在检查操作范围与用户授权。')}</AlertDescription>
-        </Alert>
-      )}
-      {autoApproval?.lastDenied && (
-        <Alert>
-          <ShieldQuestionIcon />
-          <AlertTitle>
-            {t('自动审核已拦截')} · {autoApproval.lastDenied.toolName}
-          </AlertTitle>
-          <AlertDescription>{t(autoApproval.lastDenied.reason)}</AlertDescription>
-        </Alert>
-      )}
       {autoApproval?.paused && (
         <Alert>
           <ShieldQuestionIcon />

@@ -143,16 +143,43 @@ async function modelServer(t, data, review) {
                   }
                 ]
               }
-      send({
-        tool_calls: [
-          {
-            index: 0,
-            id: `call-local-${body.messages.filter((message) => message.role === 'tool').length}`,
-            type: 'function',
-            function: { name: tool, arguments: JSON.stringify(args) }
+      const batch = content?.includes('BATCH_TOOLS') && tool === 'write'
+      const toolCalls = Array.from({ length: batch ? 3 : 1 }, (_, index) => ({
+        index,
+        id: `call-local-${body.messages.filter((message) => message.role === 'tool').length + index}`,
+        type: 'function',
+        function: {
+          name: tool,
+          arguments: JSON.stringify(batch ? { ...args, path: `approved-${index}.txt` } : args)
+        }
+      }))
+      if (batch && content.includes('ASK_BEFORE_BATCH')) {
+        toolCalls.unshift({
+          index: 0,
+          id: 'call-question',
+          type: 'function',
+          function: {
+            name: 'ask_user_question',
+            arguments: JSON.stringify({
+              questions: [
+                {
+                  header: '授权',
+                  question: '是否创建这些文件？',
+                  multiSelect: false,
+                  options: [
+                    { label: '创建', description: '允许创建' },
+                    { label: '取消', description: '保持原样' }
+                  ]
+                }
+              ]
+            })
           }
-        ]
-      })
+        })
+        toolCalls.forEach((call, index) => {
+          call.index = index
+        })
+      }
+      send({ tool_calls: toolCalls })
       send({}, 'tool_calls')
     } else {
       send({ content: `完成：${content ?? ''}` })
@@ -466,6 +493,104 @@ test('自动批准使用独立模型，真实写入通过审核后执行', async
   assert.equal(context.pendingTool.toolName, 'write')
   assert.ok(requests.filter((body) => body.model === 'local').length >= 2)
   assert.ok(session.states.every((state) => state.snapshot.toolApprovals.length === 0))
+})
+
+test('同轮工具并行审核，乱序返回与人工确认仍对应各自调用', async (t) => {
+  const paths = await fixture(t)
+  const reviews = new Map()
+  await modelServer(t, paths.data, (body) => {
+    const context = JSON.parse(body.messages.find((message) => message.role === 'user').content)
+    return new Promise((resolve) => reviews.set(context.pendingTool.input.path, resolve))
+  })
+  const session = runtime(t)
+  await initialize(session.connection, paths, undefined, undefined, 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL BATCH_TOOLS 请创建三个文件')
+  await until(() => reviews.size === 3)
+  await until(() => session.states.findLast((state) => state.snapshot.autoApproval.reviewing === 3))
+  for (let i = 0; i < 3; i++)
+    await assert.rejects(readFile(join(paths.cwd, `approved-${i}.txt`)), { code: 'ENOENT' })
+
+  reviews.get('approved-2.txt')({ decision: 'deny', reason: '第三个文件未授权' })
+  reviews.get('approved-1.txt')({ decision: 'ask', reason: '第二个文件需要确认' })
+  reviews.get('approved-0.txt')({ decision: 'allow', reason: '第一个文件已授权' })
+  const pending = await until(() =>
+    session.states.findLast((state) => state.snapshot.toolApprovals.length === 1)
+  )
+  const [manual] = pending.snapshot.toolApprovals
+  assert.equal(manual.input.path, 'approved-1.txt')
+  assert.match(manual.reason, /第二个文件需要确认/)
+  await assert.rejects(readFile(join(paths.cwd, 'approved-0.txt')), { code: 'ENOENT' })
+  await session.connection.call('approve', manual.id, true)
+  const completed = await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.length >= 6
+    )
+  )
+  for (let i = 0; i < 2; i++)
+    assert.equal(await readFile(join(paths.cwd, `approved-${i}.txt`), 'utf8'), 'approved')
+  await assert.rejects(readFile(join(paths.cwd, 'approved-2.txt')), { code: 'ENOENT' })
+  const results = completed.snapshot.messages.filter((message) => message.role === 'toolResult')
+  assert.deepEqual(
+    results.map((message) => message.toolCallId),
+    ['call-local-0', 'call-local-1', 'call-local-2']
+  )
+  assert.deepEqual(
+    results.map((message) => !!message.isError),
+    [false, false, true]
+  )
+})
+
+test('停止同轮并行审核会取消全部等待，迟到的允许不能执行工具', async (t) => {
+  const paths = await fixture(t)
+  const reviews = []
+  await modelServer(t, paths.data, () => new Promise((resolve) => reviews.push(resolve)))
+  const session = runtime(t)
+  await initialize(session.connection, paths, undefined, undefined, 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL BATCH_TOOLS 请创建三个文件')
+  await until(() => reviews.length === 3)
+  await session.connection.call('abort')
+  for (const finish of reviews) finish({ decision: 'allow', reason: '迟到的审核结果' })
+  const stopped = await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.autoApproval.reviewing === 0
+    )
+  )
+  assert.equal(stopped.snapshot.toolApprovals.length, 0)
+  for (let i = 0; i < 3; i++)
+    await assert.rejects(readFile(join(paths.cwd, `approved-${i}.txt`)), { code: 'ENOENT' })
+  const tools = Object.values(stopped.snapshot.tools)
+  assert.equal(tools.length, 1)
+  assert.ok(tools.every((event) => event.type === 'tool_execution_end'))
+})
+
+test('显式串行工具保持顺序，用户答复之前不会提前审核后续调用', async (t) => {
+  const paths = await fixture(t)
+  let reviews = 0
+  const requests = await modelServer(t, paths.data, (body) => {
+    reviews++
+    const context = JSON.parse(body.messages.find((message) => message.role === 'user').content)
+    assert.ok(context.history.some((entry) => entry.role === 'user_answer'))
+    return { decision: 'allow', reason: '用户已确认创建' }
+  })
+  const session = runtime(t)
+  await initialize(session.connection, paths, undefined, undefined, 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL BATCH_TOOLS ASK_BEFORE_BATCH')
+  const pending = await until(() =>
+    session.states.findLast((state) => state.snapshot.userQuestions.length)
+  )
+  assert.equal(reviews, 0)
+  assert.equal(requests.filter((body) => body.model === 'reviewer').length, 0)
+  await session.connection.call('answer', pending.snapshot.userQuestions[0].id, [
+    { selectedOptions: [0] }
+  ])
+  await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.length >= 7
+    )
+  )
+  assert.equal(reviews, 3)
+  for (let i = 0; i < 3; i++)
+    assert.equal(await readFile(join(paths.cwd, `approved-${i}.txt`), 'utf8'), 'approved')
 })
 
 test('自动拒绝返回原因供 Agent 继续，连续三次后人工接管', async (t) => {

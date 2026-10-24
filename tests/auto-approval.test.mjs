@@ -295,3 +295,111 @@ test('熔断会取消其他正在审核的调用，迟到允许无效', async ()
   assert.equal((await slow).approved, false)
   assert.equal((await third).approved, false)
 })
+
+test('批量预审核并行发起，按实际调用领取结果时不重复审核', async () => {
+  const reviews = new Map()
+  const interactions = new RuntimeInteractions(
+    'auto',
+    () => {},
+    (call) => new Promise((resolve) => reviews.set(call.toolCallId, resolve))
+  )
+  const calls = Array.from({ length: 3 }, (_, index) => ({
+    ...request,
+    toolCallId: `batch-${index}`
+  }))
+  interactions.prefetchApprovals(calls.map((request) => ({ request, readOnly: false })))
+  await nextTurn()
+  assert.equal(reviews.size, 3)
+  assert.equal(interactions.autoApproval.reviewing, 3)
+  const first = interactions.approve(calls[0], false)
+  reviews.get('batch-2')(verdict('deny'))
+  reviews.get('batch-1')(verdict('allow'))
+  reviews.get('batch-0')(verdict('allow'))
+  assert.equal((await first).approved, true)
+  assert.equal((await interactions.approve(calls[1], false)).approved, true)
+  assert.equal((await interactions.approve(calls[2], false)).approved, false)
+  assert.equal(reviews.size, 3)
+  assert.equal(interactions.autoApproval.reviewing, 0)
+})
+
+test('预审核保存独立参数快照，扩展改写参数后必须重新审核', async () => {
+  const reviews = []
+  const interactions = new RuntimeInteractions(
+    'auto',
+    () => {},
+    async (call) => {
+      reviews.push(structuredClone(call.input))
+      return verdict(call.input.path === 'file.txt' ? 'allow' : 'deny')
+    }
+  )
+  const actual = structuredClone(request)
+  interactions.prefetchApprovals([{ request: actual, readOnly: false }])
+  await nextTurn()
+  actual.input.path = 'outside.txt'
+  assert.equal((await interactions.approve(actual, false)).approved, false)
+  assert.deepEqual(
+    reviews.map((input) => input.path),
+    ['file.txt', 'outside.txt']
+  )
+})
+
+test('切换挡位会丢弃已完成和仍在等待的预审核结果', async () => {
+  let finish, signal
+  let reviews = 0
+  const interactions = new RuntimeInteractions(
+    'auto',
+    () => {},
+    (call, current) => {
+      reviews++
+      if (call.toolCallId === 'fast') return Promise.resolve(verdict('allow'))
+      signal = current
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    }
+  )
+  const calls = ['fast', 'slow'].map((toolCallId) => ({ ...request, toolCallId }))
+  interactions.prefetchApprovals(calls.map((request) => ({ request, readOnly: false })))
+  await nextTurn()
+  interactions.setMode('request')
+  assert.equal(signal.aborted, true)
+  const pending = calls.map((call) => interactions.approve(call, false))
+  finish(verdict('allow'))
+  await nextTurn()
+  assert.equal(reviews, 2)
+  assert.equal(interactions.toolApprovals.length, 2)
+  interactions.cancel()
+  assert.ok((await Promise.all(pending)).every((outcome) => !outcome.approved))
+})
+
+test('结束批次只取消未领取的审核，已领取调用仍等待当前决定', async () => {
+  const reviews = new Map()
+  const interactions = new RuntimeInteractions(
+    'auto',
+    () => {},
+    (call, signal) => new Promise((resolve) => reviews.set(call.toolCallId, { resolve, signal }))
+  )
+  const calls = ['first', 'second'].map((toolCallId) => ({ ...request, toolCallId }))
+  interactions.prefetchApprovals(calls.map((request) => ({ request, readOnly: false })))
+  await nextTurn()
+  const first = interactions.approve(calls[0], false)
+  interactions.clearPrefetchedApprovals()
+  assert.equal(reviews.get('first').signal.aborted, false)
+  assert.equal(reviews.get('second').signal.aborted, true)
+  reviews.get('first').resolve(verdict('allow'))
+  assert.equal((await first).approved, true)
+  assert.equal(interactions.autoApproval.reviewing, 0)
+})
+
+test('预审核完成后原信号取消，已缓存的允许仍不能放行', async () => {
+  const controller = new AbortController()
+  const interactions = new RuntimeInteractions(
+    'auto',
+    () => {},
+    async () => verdict('allow')
+  )
+  interactions.prefetchApprovals([{ request, readOnly: false }], controller.signal)
+  await nextTurn()
+  controller.abort()
+  assert.equal((await interactions.approve(request, false)).approved, false)
+})

@@ -1,4 +1,5 @@
-import type { ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import type { AgentSession, ExtensionFactory } from '@earendil-works/pi-coding-agent'
+import { validateToolArguments } from '@earendil-works/pi-ai'
 import { Type } from 'typebox'
 import { configureTerminal } from './terminal-tool'
 import type { TerminalPreference } from '../shared/terminal'
@@ -32,10 +33,19 @@ const questionParameters = Type.Object({
 /** 使用 PI 的执行前钩子，直接调用、MCP 及 codemode 嵌套调用均经过审批。 */
 export function hostExtension(
   interactions: RuntimeInteractions,
-  terminal: TerminalPreference
+  terminal: TerminalPreference,
+  getAgent: () => AgentSession['agent']
 ): ExtensionFactory {
   return (pi) => {
+    let approvalBatchId: string | undefined
+    const clearBatch = (): void => {
+      approvalBatchId = undefined
+      interactions.clearPrefetchedApprovals()
+    }
+    pi.on('turn_end', clearBatch)
+    pi.on('agent_end', clearBatch)
     pi.on('session_start', (_event, ctx) => {
+      clearBatch()
       configureTerminal(pi, ctx.cwd, terminal)
     })
     pi.registerTool({
@@ -63,7 +73,69 @@ export function hostExtension(
     pi.on('tool_call', async (event, ctx) => {
       // 提问本身等待用户作答，不需要再弹一次工具审批。
       if (event.toolName === 'ask_user_question') return undefined
-      const tool = pi.getAllTools().find(({ name }) => name === event.toolName)
+      const tools = pi.getAllTools()
+      if (!event.parentToolCallId && interactions.canPrefetchApprovals) {
+        const entry = ctx.sessionManager
+          .getBranch()
+          .findLast((entry) => entry.type === 'message' && entry.message.role === 'assistant')
+        if (
+          entry?.type === 'message' &&
+          entry.message.role === 'assistant' &&
+          entry.id !== approvalBatchId
+        ) {
+          approvalBatchId = entry.id
+          const agent = getAgent()
+          const calls = entry.message.content.filter((part) => part.type === 'toolCall')
+          const current = calls.findIndex((call) => call.id === event.toolCallId)
+          // 串行工具可能获取新的用户授权，后面的调用须等它执行后再审核。
+          if (
+            current >= 0 &&
+            calls.length - current > 1 &&
+            agent.toolExecution === 'parallel' &&
+            !calls.some(
+              (call) =>
+                agent.state.tools.find((tool) => tool.name === call.name)?.executionMode ===
+                'sequential'
+            )
+          ) {
+            const requests = calls.slice(current).flatMap((call) => {
+              const tool = agent.state.tools.find((tool) => tool.name === call.name)
+              if (!tool) return []
+              try {
+                const args = structuredClone(call.arguments)
+                const input =
+                  call.id === event.toolCallId
+                    ? event.input
+                    : validateToolArguments(tool, {
+                        ...call,
+                        arguments: tool.prepareArguments
+                          ? (tool.prepareArguments(args) as typeof call.arguments)
+                          : args
+                      })
+                const info = tools.find((tool) => tool.name === call.name)
+                return [
+                  {
+                    request: {
+                      toolCallId: call.id,
+                      toolName: call.name,
+                      input,
+                      description: info?.description
+                    },
+                    readOnly:
+                      ['read', 'grep', 'find', 'ls'].includes(call.name) ||
+                      info?.annotations?.readOnlyHint === true
+                  }
+                ]
+              } catch {
+                // 无效参数由 pi 的原生准备流程报错，不为其创建审批。
+                return []
+              }
+            })
+            interactions.prefetchApprovals(requests, ctx.signal)
+          }
+        }
+      }
+      const tool = tools.find(({ name }) => name === event.toolName)
       const readOnly =
         ['read', 'grep', 'find', 'ls'].includes(event.toolName) ||
         tool?.annotations?.readOnlyHint === true

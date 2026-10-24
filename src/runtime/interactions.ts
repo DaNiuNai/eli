@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import {
   automaticallyApproveTool,
   type AutoApprovalState,
@@ -36,9 +37,18 @@ interface PendingApproval {
   finish: (outcome: ToolApprovalOutcome) => void
 }
 
+interface PrefetchedApproval {
+  request: Omit<ToolApprovalRequest, 'id'>
+  readOnly: boolean
+  controller: AbortController
+  signal: AbortSignal
+  outcome: Promise<ToolApprovalOutcome>
+}
+
 /** 权限、提问属于 Runtime 内的会话；父进程只传送用户决定。 */
 export class RuntimeInteractions {
   private approvals = new Map<string, PendingApproval>()
+  private prefetchedApprovals = new Map<string, PrefetchedApproval>()
   private consecutiveDenials = 0
   private paused = false
   private lastDenied: AutoApprovalState['lastDenied'] = null
@@ -57,6 +67,9 @@ export class RuntimeInteractions {
 
   get toolApprovals(): ToolApprovalRequest[] {
     return [...this.approvals.values()].filter(({ manual }) => manual).map(({ request }) => request)
+  }
+  get canPrefetchApprovals(): boolean {
+    return this.mode === 'auto' && !this.paused && !this.cancelled
   }
   get autoApproval(): AutoApprovalState {
     return {
@@ -89,8 +102,36 @@ export class RuntimeInteractions {
     return [...this.questions.values()].map(({ request }) => request)
   }
   begin(): void {
+    this.clearPrefetchedApprovals()
     this.cancelled = false
     this.lastDenied = null
+  }
+
+  /** 提前审核同批调用，执行前仍须用实际参数领取对应结果。 */
+  prefetchApprovals(
+    requests: { request: Omit<ToolApprovalRequest, 'id'>; readOnly: boolean }[],
+    signal?: AbortSignal
+  ): void {
+    this.clearPrefetchedApprovals()
+    if (!this.canPrefetchApprovals || signal?.aborted) return
+    for (const { request, readOnly } of requests) {
+      const snapshot = structuredClone(request)
+      const controller = new AbortController()
+      const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+      this.prefetchedApprovals.set(request.toolCallId, {
+        request: snapshot,
+        readOnly,
+        controller,
+        signal: combined,
+        outcome: this.createApproval(snapshot, readOnly, combined)
+      })
+    }
+  }
+
+  clearPrefetchedApprovals(): void {
+    const entries = [...this.prefetchedApprovals.values()]
+    this.prefetchedApprovals.clear()
+    for (const entry of entries) entry.controller.abort()
   }
 
   approve(
@@ -100,6 +141,30 @@ export class RuntimeInteractions {
   ): Promise<ToolApprovalOutcome> {
     if (this.cancelled || signal?.aborted)
       return Promise.resolve({ approved: false, terminate: true })
+    const cached = this.prefetchedApprovals.get(request.toolCallId)
+    if (cached) {
+      this.prefetchedApprovals.delete(request.toolCallId)
+      if (cached.readOnly === readOnly && isDeepStrictEqual(cached.request, request)) {
+        const cancel = (): void => cached.controller.abort()
+        signal?.addEventListener('abort', cancel, { once: true })
+        return cached.outcome.then((outcome) => {
+          signal?.removeEventListener('abort', cancel)
+          return this.cancelled || signal?.aborted || cached.signal.aborted
+            ? { approved: false, terminate: true }
+            : outcome
+        })
+      }
+      // 扩展可以修改参数；旧结果不能批准未经审核的实际调用。
+      cached.controller.abort()
+    }
+    return this.createApproval(request, readOnly, signal)
+  }
+
+  private createApproval(
+    request: Omit<ToolApprovalRequest, 'id'>,
+    readOnly: boolean,
+    signal?: AbortSignal
+  ): Promise<ToolApprovalOutcome> {
     const id = randomUUID()
     return new Promise((resolve) => {
       const cancel = (): void => finish({ approved: false, terminate: true })
@@ -213,6 +278,7 @@ export class RuntimeInteractions {
 
   setMode(mode: ToolApprovalMode): void {
     if (this.mode === mode) return
+    this.clearPrefetchedApprovals()
     this.mode = mode
     this.paused = false
     this.consecutiveDenials = 0
@@ -254,6 +320,7 @@ export class RuntimeInteractions {
 
   cancel(): void {
     this.cancelled = true
+    this.clearPrefetchedApprovals()
     for (const approval of this.approvals.values())
       approval.finish({ approved: false, terminate: true })
     for (const question of this.questions.values()) question.finish()
