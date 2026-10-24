@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { AutoSaveQueue } from '../src/renderer/src/lib/auto-save.ts'
+import { AutoSaveFeedbackStore } from '../src/renderer/src/lib/auto-save-feedback.ts'
 
 function gate() {
   let resolve
@@ -9,6 +10,16 @@ function gate() {
     resolve = done
   })
   return { promise, resolve }
+}
+
+function feedbackQueue(feedback, scope, save) {
+  const owner = Symbol()
+  const queue = new AutoSaveQueue(save, (key, state) => {
+    feedback.report(JSON.stringify([scope, key]), owner, state, () =>
+      queue.update(key, state.value, 0)
+    )
+  })
+  return queue
 }
 
 test('自动保存合并连续输入，关闭面板前可立即提交最后的值', async () => {
@@ -123,4 +134,83 @@ test('其他请求期间到期的防抖任务也会继续保存，不会留在�
   third.resolve()
   await queue.flush()
   assert.deepEqual(writes, ['first', 'third', 'delayed'])
+})
+
+test('统一提示汇总不同设置的保存进度，全部完成后才显示已保存', async () => {
+  const feedback = new AutoSaveFeedbackStore()
+  const active = gate()
+  const snapshots = []
+  const unsubscribe = feedback.subscribe(() => snapshots.push(feedback.getSnapshot().status))
+  const terminal = feedbackQueue(feedback, 'terminal', async () => {})
+  const agent = feedbackQueue(feedback, 'agent', async () => active.promise)
+  assert.equal(feedback.getSnapshot().status, null)
+  assert.equal(feedback.getSnapshot(), feedback.getSnapshot())
+  terminal.update('path', 'pwsh.exe', 10000)
+  assert.equal(feedback.getSnapshot().status, 'pending')
+  agent.update('model', 'local', 0)
+  assert.equal(feedback.getSnapshot().status, 'saving')
+  active.resolve()
+  await agent.flush()
+  assert.equal(feedback.getSnapshot().status, 'pending')
+  await terminal.flush()
+  assert.equal(feedback.getSnapshot().status, 'saved')
+  assert.deepEqual(feedback.getSnapshot().failures, [])
+  assert.deepEqual(snapshots, ['pending', 'pending', 'saving', 'pending', 'saving', 'saved'])
+  unsubscribe()
+  terminal.update('path', 'powershell.exe', 0)
+  await terminal.flush()
+  assert.equal(snapshots.length, 6)
+})
+
+test('其他设置成功不能覆盖保存失败，统一提示可重试原字段且不暴露输入值', async () => {
+  const feedback = new AutoSaveFeedbackStore()
+  const attempts = []
+  let failing = true
+  const provider = feedbackQueue(feedback, 'provider', async (key, value) => {
+    attempts.push([key, value])
+    if (failing) throw new Error('模拟保存失败')
+  })
+  const skill = feedbackQueue(feedback, 'skill', async () => {})
+  provider.update('key', 'feedback-test-private-value', 0)
+  await provider.flush()
+  skill.update('enabled', true, 0)
+  await skill.flush()
+  const snapshot = feedback.getSnapshot()
+  assert.equal(snapshot.status, 'error')
+  assert.equal(snapshot.failures.length, 1)
+  assert.equal(snapshot.failures[0].error, '模拟保存失败')
+  assert.equal(JSON.stringify(snapshot).includes('feedback-test-private-value'), false)
+  failing = false
+  snapshot.failures[0].retry()
+  await provider.flush()
+  assert.deepEqual(attempts, [
+    ['key', 'feedback-test-private-value'],
+    ['key', 'feedback-test-private-value']
+  ])
+  assert.equal(feedback.getSnapshot().status, 'saved')
+  assert.deepEqual(feedback.getSnapshot().failures, [])
+})
+
+test('切换分类重新修改同一字段后，旧组件的迟到成功或失败不能覆盖新状态', async () => {
+  for (const oldFails of [false, true]) {
+    const feedback = new AutoSaveFeedbackStore()
+    const oldRequest = gate()
+    const newRequest = gate()
+    const previous = feedbackQueue(feedback, 'settings', async () => {
+      await oldRequest.promise
+      if (oldFails) throw new Error('过期失败')
+    })
+    const current = feedbackQueue(feedback, 'settings', async () => newRequest.promise)
+    previous.update('model', 'old', 0)
+    current.update('model', 'new', 10000)
+    oldRequest.resolve()
+    await previous.flush()
+    assert.equal(feedback.getSnapshot().status, 'pending')
+    assert.deepEqual(feedback.getSnapshot().failures, [])
+    const done = current.flush()
+    assert.equal(feedback.getSnapshot().status, 'saving')
+    newRequest.resolve()
+    await done
+    assert.equal(feedback.getSnapshot().status, 'saved')
+  }
 })

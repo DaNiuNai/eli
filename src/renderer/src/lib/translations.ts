@@ -149,6 +149,11 @@ const english: Record<string, string> = {
   '管理 eli 界面与 Agent 设置。': 'Manage the eli interface and agent settings.',
   '管理 eli Agent Runtime 的配置。': 'Configure the eli Agent Runtime.',
   配置: 'Configuration',
+  自定义说明文件: 'Custom instruction files',
+  '每行一个说明文件路径，在默认 AGENTS.md 之后按顺序加载，重复路径只加载一次，不存在的文件跳过。支持 ~，相对路径从 ~/.eli 解析，保存后在下一次对话操作时生效。':
+    'One instruction file path per line, loaded in order after the default AGENTS.md files. Duplicate paths are loaded once and missing files are skipped. Supports ~; relative paths resolve from ~/.eli. Changes apply on the next conversation action.',
+  自定义说明文件必须是非空文件路径数组:
+    'Custom instruction files must be an array of non-empty file paths',
   '每行一个技能文件或目录。自动加载用户级与项目级的 .eli/skills 和 .agents/skills，同名技能优先使用项目级版本。':
     'One skill file or directory per line. Automatically loads user and project .eli/skills and .agents/skills. Project skills take precedence over user skills with the same name.',
   '配置与数据保存在 ~/.eli': 'Settings and data are stored in ~/.eli',

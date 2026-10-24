@@ -1,5 +1,4 @@
 import { RotateCcwIcon } from 'lucide-react'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import { Button } from '@renderer/components/ui/button'
 import {
   Field,
@@ -27,8 +26,7 @@ export function DefaultModelSetting({
   disabled,
   resetDisabled,
   state,
-  onChange,
-  onRetry
+  onChange
 }: {
   id: string
   selected: { provider: string; id: string } | null
@@ -36,7 +34,6 @@ export function DefaultModelSetting({
   resetDisabled: boolean
   state?: Pick<AutoSaveState<unknown>, 'status' | 'error'>
   onChange: (model: { provider: string; id: string } | null) => void
-  onRetry: () => void
 }): React.JSX.Element {
   const { t } = useLanguage()
   const { data, loading, error } = useProviders(0)
@@ -85,7 +82,6 @@ export function DefaultModelSetting({
         <FieldDescription id={descriptionId}>
           {t('新对话使用的默认模型，选择后同时设置供应商和模型，不会改变已有对话的模型。')}
         </FieldDescription>
-        <AutoSaveStatus state={state} onRetry={onRetry} />
       </FieldContent>
       <FieldGroup className="settings-control shrink-0 gap-3">
         <div className="flex w-full items-start gap-2">

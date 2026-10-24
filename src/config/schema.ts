@@ -16,7 +16,9 @@ export interface ProviderPreferences {
 }
 
 export type ProviderPreferencesMap = Record<string, ProviderPreferences>
-export type AgentSettings = ReturnType<SettingsManager['getGlobalSettings']>
+export type AgentSettings = ReturnType<SettingsManager['getGlobalSettings']> & {
+  agentsFiles?: string[]
+}
 
 /** Eli 唯一的配置文档；凭据只在主进程和 Runtime 中访问。 */
 export interface EliConfig {
@@ -40,6 +42,13 @@ export function parseEliConfig(value: unknown): EliConfig {
     if (value[key] !== undefined && !record(value[key]))
       throw new Error(`Eli ${key} 配置必须是对象`)
   }
+  const agentsFiles = record(value.agent) ? value.agent.agentsFiles : undefined
+  if (
+    agentsFiles !== undefined &&
+    (!Array.isArray(agentsFiles) ||
+      !agentsFiles.every((path) => typeof path === 'string' && path.trim()))
+  )
+    throw new Error('自定义说明文件必须是非空文件路径数组')
   for (const credential of Object.values(value.credentials ?? {})) {
     if (!record(credential) || !['api_key', 'oauth'].includes(String(credential.type)))
       throw new Error('Eli 凭据格式无效')

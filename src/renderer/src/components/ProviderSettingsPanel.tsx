@@ -57,7 +57,6 @@ import {
 import { useLanguage } from '@renderer/hooks/use-language'
 import { useProviders } from '@renderer/hooks/use-providers'
 import { useAutoSave } from '@renderer/hooks/use-auto-save'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import {
   providerApis,
   type ProviderApi,
@@ -378,26 +377,29 @@ function ModelDialog({
       maxTokens: 8192
     }
   )
-  const autoSave = useAutoSave<ProviderModelInput>(async (_key, value) => {
-    if (
-      !Number.isSafeInteger(value.contextWindow) ||
-      value.contextWindow < 1 ||
-      value.contextWindow > 100000000 ||
-      !Number.isSafeInteger(value.maxTokens) ||
-      value.maxTokens < 1 ||
-      value.maxTokens > value.contextWindow
-    )
-      throw new Error('请输入有效的上下文窗口和输出 token 上限。')
-    if (
-      !(await change({
-        action: 'saveModel',
-        id: provider.id,
-        model: { ...value, name: value.name.trim() || value.id }
-      }))
-    ) {
-      throw new Error('自动保存失败，请重试。')
-    }
-  })
+  const autoSave = useAutoSave<ProviderModelInput>(
+    async (_key, value) => {
+      if (
+        !Number.isSafeInteger(value.contextWindow) ||
+        value.contextWindow < 1 ||
+        value.contextWindow > 100000000 ||
+        !Number.isSafeInteger(value.maxTokens) ||
+        value.maxTokens < 1 ||
+        value.maxTokens > value.contextWindow
+      )
+        throw new Error('请输入有效的上下文窗口和输出 token 上限。')
+      if (
+        !(await change({
+          action: 'saveModel',
+          id: provider.id,
+          model: { ...value, name: value.name.trim() || value.id }
+        }))
+      ) {
+        throw new Error('自动保存失败，请重试。')
+      }
+    },
+    `provider-model:${provider.id}:${initial?.id ?? 'new'}`
+  )
   const update = (patch: Partial<ProviderModelInput>, immediate = false): void => {
     const next = { ...model, ...patch }
     setModel(next)
@@ -497,12 +499,6 @@ function ModelDialog({
                 onCheckedChange={(vision) => update({ vision }, true)}
               />
             </Field>
-            {initial && (
-              <AutoSaveStatus
-                state={autoSave.states.model}
-                onRetry={() => autoSave.update('model', model, 0)}
-              />
-            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
                 {t(initial ? '关闭' : '取消')}
@@ -553,7 +549,7 @@ function ProviderDetail({
           }
     )
     if (!success) throw new Error('自动保存失败，请重试。')
-  })
+  }, `provider:${provider.id}`)
   const loggingIn = auth.snapshot?.status === 'logging-in'
   const disabled = pending || loggingIn
   const modes = [
@@ -601,10 +597,6 @@ function ProviderDetail({
             }}
             onBlur={() => void autoSave.flush()}
             maxLength={200}
-          />
-          <AutoSaveStatus
-            state={autoSave.states.name}
-            onRetry={() => autoSave.update('name', name, 0)}
           />
         </Field>
         {modes.length > 0 && (
@@ -671,10 +663,6 @@ function ProviderDetail({
                 {t('移除密钥')}
               </Button>
             )}
-            <AutoSaveStatus
-              state={key ? autoSave.states.key : undefined}
-              onRetry={() => autoSave.update('key', key, 0)}
-            />
           </Field>
         )}
         {provider.oauthSupported && (
@@ -737,10 +725,6 @@ function ProviderDetail({
             onBlur={() => void autoSave.flush()}
             disabled={loggingIn || provider.authMode === 'oauth'}
             placeholder="https://api.example.com/v1"
-          />
-          <AutoSaveStatus
-            state={autoSave.states.baseUrl}
-            onRetry={() => autoSave.update('baseUrl', baseUrl, 0)}
           />
           <FieldDescription>
             {t(

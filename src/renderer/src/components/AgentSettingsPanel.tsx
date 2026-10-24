@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { RotateCcwIcon } from 'lucide-react'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import { DefaultModelSetting } from '@renderer/components/DefaultModelSetting'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
@@ -119,7 +118,7 @@ export function AgentSettingsPanel({
       }
       throw cause
     }
-  })
+  }, 'agent-settings')
 
   useEffect(() => {
     active.current = true
@@ -257,7 +256,6 @@ export function AgentSettingsPanel({
                               0
                             )
                           }
-                          onRetry={() => state && autoSave.update(field.key, state.value, 0)}
                         />
                       )
                     }
@@ -290,10 +288,6 @@ export function AgentSettingsPanel({
                             <span className="mx-2">·</span>
                             {source}
                           </p>
-                          <AutoSaveStatus
-                            state={state}
-                            onRetry={() => state && autoSave.update(field.key, state.value, 0)}
-                          />
                         </FieldContent>
                         <div className="settings-control flex shrink-0 items-start justify-end gap-2">
                           {field.kind === 'boolean' ? (

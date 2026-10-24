@@ -741,6 +741,81 @@ test('进程崩溃立即使待处理请求失败', async (t) => {
   await assert.rejects(connection.call('getSettings'), /exit/)
 })
 
+test('说明文件保留默认加载顺序，追加自定义文件并去重，清空配置后恢复默认', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  await mkdir(join(f.cwd, '.eli'), { recursive: true })
+  await mkdir(join(f.data, 'rules'), { recursive: true })
+  const defaults = [
+    [join(f.data, 'AGENTS.md'), 'ELI_GLOBAL_INSTRUCTION'],
+    [join(f.root, 'AGENTS.md'), 'ELI_ANCESTOR_INSTRUCTION'],
+    [join(f.cwd, 'AGENTS.md'), 'ELI_WORKSPACE_INSTRUCTION'],
+    [join(f.cwd, '.eli', 'AGENTS.md'), 'ELI_PROJECT_INSTRUCTION']
+  ]
+  const custom = [
+    [join(f.root, 'absolute rules.md'), 'ELI_ABSOLUTE_INSTRUCTION'],
+    [join(f.data, 'rules/team.md'), 'ELI_RELATIVE_INSTRUCTION']
+  ]
+  for (const [path, content] of [...defaults, ...custom]) await writeFile(path, content)
+  const paths = [
+    custom[0][0],
+    'rules/team.md',
+    join(f.data, 'rules/../rules/team.md'),
+    ...(process.platform === 'win32' ? [custom[0][0].toUpperCase()] : []),
+    defaults[0][0],
+    defaults[3][0],
+    'rules/missing.md'
+  ]
+  const control = runtime(t)
+  await control.connection.call('initialize', {
+    kind: 'control',
+    root: f.data,
+    cwd: f.cwd,
+    firstLaunch: false
+  })
+  const saved = await control.connection.call('saveSettings', [
+    { key: 'agentsFiles', value: paths }
+  ])
+  assert.deepEqual(saved.values.agentsFiles, paths)
+  const before = await readFile(join(f.data, 'config.json'), 'utf8')
+  const session = runtime(t)
+  await initialize(session.connection, f)
+  await session.connection.call('prompt', '检查说明文件')
+  await until(() =>
+    session.states.some(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'assistant')
+    )
+  )
+  const prompt = requests[0].messages.find(({ role }) => role === 'system').content
+  let previous = -1
+  for (const [, content] of [...defaults, ...custom]) {
+    assert.equal(prompt.split(content).length - 1, 1, `${content} must be loaded once`)
+    const index = prompt.indexOf(content)
+    assert.ok(index > previous, `${content} must follow the configured order`)
+    previous = index
+  }
+  assert.equal(await readFile(join(f.data, 'config.json'), 'utf8'), before)
+  await session.connection.stop()
+  await control.connection.call('saveSettings', [
+    { key: 'agentsFiles', value: [], expected: paths }
+  ])
+  const fallback = runtime(t)
+  await initialize(fallback.connection, f, 'default-instructions')
+  await fallback.connection.call('prompt', '检查默认说明')
+  await until(() =>
+    fallback.states.some(
+      (state) =>
+        !state.snapshot.running &&
+        state.snapshot.messages.some((message) => message.role === 'assistant')
+    )
+  )
+  const defaultPrompt = requests.at(-1).messages.find(({ role }) => role === 'system').content
+  for (const [, content] of defaults) assert.ok(defaultPrompt.includes(content))
+  for (const [, content] of custom) assert.equal(defaultPrompt.includes(content), false)
+})
+
 test('默认加载 .eli 与 .agents 技能，项目同名技能优先且用户级兜底，不扫描其他资源目录', async (t) => {
   const f = await fixture(t)
   const requests = await modelServer(t, f.data)

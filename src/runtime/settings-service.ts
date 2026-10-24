@@ -90,12 +90,18 @@ export class AgentSettingsService {
   constructor(private readonly root: string) {}
   private schema?: Promise<Schema>
   private loadSchema(): Promise<Schema> {
-    this.schema ??= import('@earendil-works/pi-coding-agent').then(
-      async ({ getPackageDir }) =>
-        JSON.parse(
-          await readFile(join(getPackageDir(), 'schemas/settings.schema.json'), 'utf8')
-        ) as Schema
-    )
+    this.schema ??= import('@earendil-works/pi-coding-agent').then(async ({ getPackageDir }) => {
+      const schema = JSON.parse(
+        await readFile(join(getPackageDir(), 'schemas/settings.schema.json'), 'utf8')
+      ) as Schema
+      return {
+        ...schema,
+        properties: {
+          ...schema.properties,
+          agentsFiles: { type: 'array', items: { type: 'string' } }
+        }
+      }
+    })
     return this.schema
   }
   async get(): Promise<AgentSettingsSnapshot> {

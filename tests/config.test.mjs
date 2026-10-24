@@ -64,6 +64,47 @@ test('Eli 配置集中保存，旧 SDK 配置不加载、不迁移、不修改',
     assert.equal(await readFile(join(root, name), 'utf8'), `{ invalid legacy ${name}`)
 })
 
+test('自定义说明文件通过设置保存、校验和重置，保留其他配置并检测并发修改', async (t) => {
+  const { root, path } = await fixture(t)
+  const store = new EliConfigStore(path)
+  await store.update((config) => {
+    config.app.theme = 'dark'
+    config.agent.defaultThinkingLevel = 'high'
+    config.credentials['api_key:fixture'] = { type: 'api_key', key: 'instruction-test-only' }
+  })
+  const service = new AgentSettingsService(root)
+  assert.equal((await service.get()).values.agentsFiles, undefined)
+  const paths = ['rules/AGENTS.md', '~/team.md', join(root, 'absolute rules.md')]
+  const saved = await service.save([{ key: 'agentsFiles', value: paths }])
+  assert.deepEqual(saved.values.agentsFiles, paths)
+  assert.deepEqual((await store.read()).agent.agentsFiles, paths)
+  const before = await readFile(path, 'utf8')
+  for (const value of ['rules.md', {}, [42], [null], [''], ['  ']]) {
+    await assert.rejects(
+      service.save([{ key: 'agentsFiles', value, expected: paths }]),
+      /自定义说明文件/
+    )
+    assert.equal(await readFile(path, 'utf8'), before)
+  }
+  await assert.rejects(service.save([{ key: 'agentsFiles', value: [] }]), /设置已被其他操作修改/)
+  assert.equal(await readFile(path, 'utf8'), before)
+  assert.deepEqual(
+    (await service.save([{ key: 'agentsFiles', value: [], expected: paths }])).values.agentsFiles,
+    []
+  )
+  const reset = await service.save([{ key: 'agentsFiles', reset: true, expected: [] }])
+  assert.equal(reset.values.agentsFiles, undefined)
+  const config = await store.read()
+  assert.equal(Object.hasOwn(config.agent, 'agentsFiles'), false)
+  assert.equal(config.app.theme, 'dark')
+  assert.equal(config.agent.defaultThinkingLevel, 'high')
+  assert.equal(config.credentials['api_key:fixture'].key, 'instruction-test-only')
+  for (const agentsFiles of ['rules.md', [false], ['']]) {
+    await writeFile(path, JSON.stringify({ agent: { agentsFiles } }))
+    await assert.rejects(service.get(), /无法读取 Eli 配置/)
+  }
+})
+
 test('多进程更新配置与主进程保存偏好互不覆盖', async (t) => {
   const { root, path } = await fixture(t)
   const app = new AppConfig(path)

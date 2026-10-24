@@ -14,7 +14,7 @@ export interface AgentSettingDefinition {
   placeholder?: string
 }
 
-// eli 的可配置引擎选项。存储及资源发现规则由应用固定，不暴露 CLI 专属配置。
+// eli 的可配置引擎与资源选项，不暴露 CLI 专属配置。
 export const agentSettingDefinitions: AgentSettingDefinition[] = [
   {
     key: 'defaultProvider',
@@ -291,6 +291,17 @@ export const agentSettingDefinitions: AgentSettingDefinition[] = [
     description: '阻止工具结果等内容中的图片发送给模型。',
     kind: 'boolean',
     defaultValue: false
+  },
+  {
+    key: 'agentsFiles',
+    category: 'resources',
+    section: 'eli 资源',
+    label: '自定义说明文件',
+    description:
+      '每行一个说明文件路径，在默认 AGENTS.md 之后按顺序加载，重复路径只加载一次，不存在的文件跳过。支持 ~，相对路径从 ~/.eli 解析，保存后在下一次对话操作时生效。',
+    kind: 'lines',
+    defaultValue: [],
+    placeholder: '~/rules/AGENTS.md'
   },
   {
     key: 'extensions',

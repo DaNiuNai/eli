@@ -41,6 +41,7 @@ import { TerminalSettings } from './TerminalSettings'
 import { AboutSettings } from './AboutSettings'
 import { AutoApprovalSettings } from './AutoApprovalSettings'
 import { SkillsSettingsPanel } from './SkillsSettingsPanel'
+import { AutoSaveStatus } from './AutoSaveStatus'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
@@ -217,9 +218,9 @@ export function AppSettingsDialog({
                 ))}
               </TabsList>
             </nav>
-            <p className="mt-auto px-2 pb-2 text-xs text-muted-foreground">
-              {t('配置与数据保存在 ~/.eli')}
-            </p>
+            <div className="mt-auto shrink-0 px-2 pb-2">
+              <AutoSaveStatus />
+            </div>
           </aside>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <header className="flex shrink-0 flex-col gap-2 px-8 pb-5 pr-14 pt-8">

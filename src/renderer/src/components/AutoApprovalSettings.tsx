@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from 'react'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import {
   Field,
   FieldContent,
@@ -35,7 +34,7 @@ export function AutoApprovalSettings(): React.JSX.Element {
     if (!(await updateAppPreferences({ autoApprovalModel: model }))) {
       throw new Error(getAppPreferencesError() ?? '无法保存自动批准模型')
     }
-  })
+  }, 'auto-approval')
   const state = save.states.model
   const selected = state ? state.value : autoApprovalModel
   const models = (data?.providers ?? [])
@@ -122,7 +121,6 @@ export function AutoApprovalSettings(): React.JSX.Element {
                 {t('所选模型当前不可用，自动审核将转为人工审批。')}
               </FieldDescription>
             )}
-            <AutoSaveStatus state={state} onRetry={() => save.update('model', selected, 0)} />
           </FieldGroup>
         </Field>
       </FieldGroup>

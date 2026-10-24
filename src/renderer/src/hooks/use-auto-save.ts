@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AutoSaveQueue, type AutoSaveState } from '@renderer/lib/auto-save'
+import { autoSaveFeedback } from '@renderer/lib/auto-save-feedback'
 
-export function useAutoSave<T>(save: (key: string, value: T) => Promise<void>): {
+export function useAutoSave<T>(
+  save: (key: string, value: T) => Promise<void>,
+  scope: string
+): {
   states: Record<string, AutoSaveState<T>>
   update: (key: string, value: T, delay?: number) => void
   flush: () => Promise<void>
@@ -9,16 +13,25 @@ export function useAutoSave<T>(save: (key: string, value: T) => Promise<void>): 
   const [states, setStates] = useState<Record<string, AutoSaveState<T>>>({})
   const active = useRef(true)
   const saveRef = useRef(save)
+  const scopeRef = useRef(scope)
+  const owner = useRef(Symbol())
   const queue = useRef<AutoSaveQueue<T> | null>(null)
   useLayoutEffect(() => {
     saveRef.current = save
-  }, [save])
+    scopeRef.current = scope
+  }, [save, scope])
   const getQueue = useCallback(() => {
     if (!queue.current) {
       queue.current = new AutoSaveQueue(
         (key, value) => saveRef.current(key, value),
         (key, state) => {
           if (active.current) setStates((current) => ({ ...current, [key]: state }))
+          autoSaveFeedback.report(
+            JSON.stringify([scopeRef.current, key]),
+            owner.current,
+            state,
+            () => queue.current?.update(key, state.value, 0)
+          )
         }
       )
     }

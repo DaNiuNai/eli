@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { BookOpenIcon, RefreshCwIcon } from 'lucide-react'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -33,7 +32,7 @@ export function SkillsSettingsPanel(): React.JSX.Element {
   const save = useAutoSave<boolean>(async (filePath, enabled) => {
     const result = await window.api.setSkillEnabled(filePath, enabled)
     if (active.current) setSkills(result)
-  })
+  }, 'skills')
 
   useEffect(() => {
     active.current = true
@@ -127,10 +126,6 @@ export function SkillsSettingsPanel(): React.JSX.Element {
                     {skill.description}
                   </FieldDescription>
                   <p className="break-all text-xs text-muted-foreground">{skill.filePath}</p>
-                  <AutoSaveStatus
-                    state={state}
-                    onRetry={() => save.update(skill.filePath, enabled, 0)}
-                  />
                 </FieldContent>
                 <Switch
                   id={controlId}

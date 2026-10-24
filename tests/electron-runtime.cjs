@@ -11,6 +11,10 @@ const directory = process.argv[3] || mkdtempSync(join(temporary, 'electron-runti
 const data = join(directory, '.eli')
 const cwd = join(directory, 'workspace')
 mkdirSync(data, { recursive: true })
+const customInstructionPath = join(directory, 'custom rules.md')
+const customInstruction = 'ELI_ELECTRON_CUSTOM_INSTRUCTION'
+writeFileSync(customInstructionPath, customInstruction)
+writeFileSync(join(data, 'AGENTS.md'), 'ELI_ELECTRON_GLOBAL_INSTRUCTION')
 mkdirSync(join(data, 'skills', 'project-agents'), { recursive: true })
 writeFileSync(
   join(data, 'skills', 'project-agents', 'SKILL.md'),
@@ -158,6 +162,13 @@ app.whenReady().then(async () => {
       cwd,
       firstLaunch: false
     })
+    const instructions = await request('saveSettings', [
+      { key: 'agentsFiles', value: [customInstructionPath, customInstructionPath] }
+    ])
+    assert.deepEqual(instructions.values.agentsFiles, [
+      customInstructionPath,
+      customInstructionPath
+    ])
     const catalog = await request('getUserSkills')
     assert.deepEqual(
       catalog.map(({ name }) => name),
@@ -171,6 +182,7 @@ app.whenReady().then(async () => {
     await request('shutdown')
     await control.exited
     const savedConfig = JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'))
+    assert.deepEqual(savedConfig.agent.agentsFiles, [customInstructionPath, customInstructionPath])
     assert.deepEqual(
       new Set(savedConfig.disabledSkills),
       new Set([disabledSkillPath, join(data, 'skills/project-agents/SKILL.md')])
@@ -204,6 +216,11 @@ app.whenReady().then(async () => {
       .messages.find(({ role }) => role === 'system').content
     assert.doesNotMatch(systemPrompt, /user-disabled|Disabled Electron fixture/)
     assert.match(systemPrompt, /Project agents Electron fixture/)
+    assert.equal(systemPrompt.split(customInstruction).length - 1, 1)
+    assert.ok(
+      systemPrompt.indexOf('ELI_ELECTRON_GLOBAL_INSTRUCTION') <
+        systemPrompt.indexOf(customInstruction)
+    )
     assert.equal(readFileSync(disabledSkillPath, 'utf8'), disabledSkillContent)
     await request('shutdown')
     await exited

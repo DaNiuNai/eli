@@ -223,23 +223,29 @@ export class EliResourceLoader implements ResourceLoader {
       throw new Error('ask_user_question 是 eli 保留的工具名')
     }
     this.extensions = { extensions: [...extensions, ...loaded.extensions], errors: [], runtime }
-    const { disabledSkills } = await new EliConfigStore(join(this.root, 'config.json')).read()
+    const { agent, disabledSkills } = await new EliConfigStore(
+      join(this.root, 'config.json')
+    ).read()
     this.disabledSkills = new Set((disabledSkills ?? []).map(skillPathKey))
     this.loadSkills()
     this.loadPrompts()
-    // 全局说明在前；从文件系统根到工作目录依次应用 AGENTS.md，不扫描其他工具的配置目录。
+    // 默认说明在前，自定义文件按配置顺序追加；同一路径只加载一次。
     const ancestors: string[] = []
     for (let dir = resolve(this.cwd); ; dir = dirname(dir)) {
       ancestors.unshift(dir)
       if (dirname(dir) === dir) break
     }
+    const seen = new Set<string>()
     this.agentsFiles = [
-      ...new Set([
-        join(this.root, 'AGENTS.md'),
-        ...ancestors.map((dir) => join(dir, 'AGENTS.md')),
-        join(this.cwd, '.eli', 'AGENTS.md')
-      ])
-    ].flatMap((path) => {
+      join(this.root, 'AGENTS.md'),
+      ...ancestors.map((dir) => join(dir, 'AGENTS.md')),
+      join(this.cwd, '.eli', 'AGENTS.md'),
+      ...(agent.agentsFiles ?? []).map((path) => resourcePath(this.root, path))
+    ].flatMap((file) => {
+      const path = resolve(file)
+      const key = process.platform === 'win32' ? path.toLowerCase() : path
+      if (seen.has(key)) return []
+      seen.add(key)
       const content = readOptional(path)
       return content ? [{ path, content }] : []
     })

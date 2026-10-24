@@ -1,5 +1,4 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { AutoSaveStatus } from '@renderer/components/AutoSaveStatus'
 import {
   Field,
   FieldContent,
@@ -40,7 +39,7 @@ export function TerminalSettings(): React.JSX.Element {
     if (!(await updateAppPreferences({ terminal }))) {
       throw new Error(getAppPreferencesError() ?? '无法保存终端设置')
     }
-  })
+  }, 'terminal')
   const state = autoSave.states.terminal
   const error = state?.status === 'error' ? state.error : discoveryError
 
@@ -168,7 +167,6 @@ export function TerminalSettings(): React.JSX.Element {
             </Field>
           )}
           {discoveryError && <FieldError>{t(discoveryError)}</FieldError>}
-          <AutoSaveStatus state={state} onRetry={() => autoSave.update('terminal', path, 0)} />
         </FieldGroup>
       </Field>
     </FieldGroup>
