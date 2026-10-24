@@ -500,7 +500,7 @@ test('默认模型在启用范围内选择，项目扩展注册的模型也参�
 
 test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
   const f = await fixture(t)
-  await modelServer(t, f.data)
+  const requests = await modelServer(t, f.data)
   const first = runtime(t)
   await initialize(first.connection, f)
   await first.connection.call('prompt', '第一条')
@@ -511,6 +511,17 @@ test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
         state.snapshot.messages.some((message) => message.role === 'assistant')
     )
   )
+  const systemPrompt = requests[0].messages.find((message) => message.role === 'system').content
+  assert.match(systemPrompt, /expert coding assistant operating inside pi/)
+  assert.match(
+    systemPrompt,
+    /<tools>[\s\S]*- powershell: Execute PowerShell commands[\s\S]*<\/tools>/
+  )
+  assert.match(
+    systemPrompt,
+    /<rules>[\s\S]*Use write only for new files or complete rewrites\.[\s\S]*<\/rules>/
+  )
+  assert.match(systemPrompt, /<docs>[\s\S]*Pi documentation[\s\S]*<\/docs>/)
   assert.equal(finished.snapshot.error, null)
   assert.equal(
     finished.snapshot.messages.findLast((message) => message.role === 'assistant').stopReason,
@@ -730,17 +741,26 @@ test('进程崩溃立即使待处理请求失败', async (t) => {
   await assert.rejects(connection.call('getSettings'), /exit/)
 })
 
-test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源', async (t) => {
+test('默认加载 .eli 与 .agents 技能，项目同名技能优先且用户级兜底，不扫描其他资源目录', async (t) => {
   const f = await fixture(t)
-  await modelServer(t, f.data)
+  const requests = await modelServer(t, f.data)
   const projectData = join(f.cwd, '.eli')
+  const sharedSkills = join(f.root, 'home', '.agents', 'skills')
+  const projectAgentSkills = join(f.cwd, '.agents', 'skills')
   for (const directory of [
     join(f.data, 'skills/global'),
+    join(f.data, 'skills/project'),
+    join(f.data, 'skills/project-agents'),
     join(projectData, 'skills/project'),
+    join(sharedSkills, 'shared'),
+    join(sharedSkills, 'project'),
+    join(sharedSkills, 'project-agents'),
     join(projectData, 'extensions'),
     join(projectData, 'prompts'),
     join(f.cwd, '.pi/extensions'),
-    join(f.cwd, '.agents/skills/unwanted')
+    join(f.cwd, '.agents/extensions'),
+    join(projectAgentSkills, 'project-agents'),
+    join(projectAgentSkills, 'project')
   ])
     await mkdir(directory, { recursive: true })
   await writeFile(
@@ -748,16 +768,44 @@ test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源
     '---\nname: global\ndescription: Global fixture\n---\nGlobal skill'
   )
   await writeFile(
+    join(f.data, 'skills/project/SKILL.md'),
+    '---\nname: project\ndescription: User eli project duplicate fixture\n---\nUser eli project skill'
+  )
+  await writeFile(
+    join(f.data, 'skills/project-agents/SKILL.md'),
+    '---\nname: project-agents\ndescription: User eli duplicate fixture\n---\nUser eli skill'
+  )
+  await writeFile(
     join(projectData, 'skills/project/SKILL.md'),
     '---\nname: project\ndescription: Project fixture\n---\nProject skill'
   )
   await writeFile(
-    join(f.cwd, '.agents/skills/unwanted/SKILL.md'),
-    '---\nname: unwanted\ndescription: Must not load\n---\nNot an eli resource'
+    join(sharedSkills, 'shared/SKILL.md'),
+    '---\nname: shared\ndescription: Shared fixture\n---\nSHARED_SKILL_BODY'
+  )
+  await writeFile(
+    join(sharedSkills, 'project/SKILL.md'),
+    '---\nname: project\ndescription: Shared duplicate fixture\n---\nShared duplicate skill'
+  )
+  await writeFile(
+    join(sharedSkills, 'project-agents/SKILL.md'),
+    '---\nname: project-agents\ndescription: User agents duplicate fixture\n---\nUser agents skill'
+  )
+  await writeFile(
+    join(projectAgentSkills, 'project-agents/SKILL.md'),
+    '---\nname: project-agents\ndescription: Project agents fixture\n---\nPROJECT_AGENTS_SKILL_BODY'
+  )
+  await writeFile(
+    join(projectAgentSkills, 'project/SKILL.md'),
+    '---\nname: project\ndescription: Project agents duplicate fixture\n---\nProject agents duplicate skill'
   )
   await writeFile(
     join(f.cwd, '.pi/extensions/broken.ts'),
     'throw new Error("pi extension must not load")'
+  )
+  await writeFile(
+    join(f.cwd, '.agents/extensions/broken.ts'),
+    'throw new Error("agents extension must not load")'
   )
   const config = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
   config.agent.hideThinkingBlock = true
@@ -785,10 +833,18 @@ test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源
   assert.equal(state.snapshot.hideThinkingBlock, true)
   assert.equal(await readFile(join(projectData, 'settings.json'), 'utf8'), '{ old project settings')
   assert.equal(await readFile(join(f.cwd, 'extension-loaded.txt'), 'utf8'), 'loaded')
-  assert.deepEqual((await r.connection.call('getSkills')).map(({ name }) => name).sort(), [
+  const skills = await r.connection.call('getSkills')
+  assert.deepEqual(skills.map(({ name }) => name).sort(), [
     'skill:global',
-    'skill:project'
+    'skill:project',
+    'skill:project-agents',
+    'skill:shared'
   ])
+  assert.equal(skills.find(({ name }) => name === 'skill:project').description, 'Project fixture')
+  assert.equal(
+    skills.find(({ name }) => name === 'skill:project-agents').description,
+    'Project agents fixture'
+  )
   await r.connection.call('prompt', '/local-command')
   const handled = await until(() =>
     r.states.findLast(
@@ -809,8 +865,30 @@ test('全局与项目 .eli 资源自动加载，不发现 .pi 或 .agents 资源
     )
   )
   assert.ok(JSON.stringify(done.snapshot.messages).includes('Hello world'))
+  const systemPrompt = requests[0].messages.find((message) => message.role === 'system').content
+  assert.match(systemPrompt, /<name>shared<\/name>/)
+  assert.match(systemPrompt, /<description>Shared fixture<\/description>/)
+  assert.ok(systemPrompt.includes(join(sharedSkills, 'shared/SKILL.md')))
+  assert.doesNotMatch(systemPrompt, /SHARED_SKILL_BODY/)
+  assert.match(systemPrompt, /<name>project-agents<\/name>/)
+  assert.match(systemPrompt, /<description>Project agents fixture<\/description>/)
+  assert.ok(systemPrompt.includes(join(projectAgentSkills, 'project-agents/SKILL.md')))
+  assert.doesNotMatch(systemPrompt, /PROJECT_AGENTS_SKILL_BODY/)
+  assert.doesNotMatch(systemPrompt, /User eli duplicate fixture|User agents duplicate fixture/)
   await r.connection.stop()
   assert.equal(await readFile(join(f.cwd, 'extension-closed.txt'), 'utf8'), 'quit')
+  await rm(join(projectAgentSkills, 'project-agents/SKILL.md'))
+  const fallback = runtime(t)
+  await initialize(fallback.connection, f, 'fallback-skills')
+  const fallbackSkills = await fallback.connection.call('getSkills')
+  assert.equal(
+    fallbackSkills.find(({ name }) => name === 'skill:project-agents').description,
+    'User eli duplicate fixture'
+  )
+  assert.equal(
+    fallbackSkills.find(({ name }) => name === 'skill:shared').description,
+    'Shared fixture'
+  )
 })
 
 test('等待审批时关闭 Runtime 会取消等待；其他会话继续工作', async (t) => {

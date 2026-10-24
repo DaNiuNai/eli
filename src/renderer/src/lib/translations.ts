@@ -36,6 +36,7 @@ const english: Record<string, string> = {
   '无法连接更新服务，请检查网络后重试。':
     'Could not connect to the update service. Check your connection and try again.',
   模型供应商: 'Model providers',
+  资源与加载: 'Resources and loading',
   默认模型: 'Default model',
   自动选择: 'Automatic',
   '新对话使用的默认模型，选择后同时设置供应商和模型，不会改变已有对话的模型。':
@@ -147,6 +148,9 @@ const english: Record<string, string> = {
   '正在等待授权…': 'Waiting for authorization…',
   '管理 eli 界面与 Agent 设置。': 'Manage the eli interface and agent settings.',
   '管理 eli Agent Runtime 的配置。': 'Configure the eli Agent Runtime.',
+  配置: 'Configuration',
+  '每行一个技能文件或目录。自动加载用户级与项目级的 .eli/skills 和 .agents/skills，同名技能优先使用项目级版本。':
+    'One skill file or directory per line. Automatically loads user and project .eli/skills and .agents/skills. Project skills take precedence over user skills with the same name.',
   '配置与数据保存在 ~/.eli': 'Settings and data are stored in ~/.eli',
   '搜索 Eli 设置。': 'Search Eli settings.',
   '试试外观、登录或终端等 Eli 设置。': 'Try Eli settings such as appearance, login or terminal.',

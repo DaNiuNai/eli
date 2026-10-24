@@ -11,6 +11,21 @@ const directory = process.argv[3] || mkdtempSync(join(temporary, 'electron-runti
 const data = join(directory, '.eli')
 const cwd = join(directory, 'workspace')
 mkdirSync(data, { recursive: true })
+mkdirSync(join(data, 'skills', 'project-agents'), { recursive: true })
+writeFileSync(
+  join(data, 'skills', 'project-agents', 'SKILL.md'),
+  '---\nname: project-agents\ndescription: User duplicate Electron fixture\n---\nUser duplicate skill body'
+)
+mkdirSync(join(directory, '.agents', 'skills', 'shared'), { recursive: true })
+writeFileSync(
+  join(directory, '.agents', 'skills', 'shared', 'SKILL.md'),
+  '---\nname: shared\ndescription: Shared Electron fixture\n---\nShared skill body'
+)
+mkdirSync(join(cwd, '.agents', 'skills', 'project-agents'), { recursive: true })
+writeFileSync(
+  join(cwd, '.agents', 'skills', 'project-agents', 'SKILL.md'),
+  '---\nname: project-agents\ndescription: Project agents Electron fixture\n---\nProject agents skill body'
+)
 mkdirSync(join(cwd, '.eli', 'extensions'), { recursive: true })
 writeFileSync(
   join(cwd, '.eli', 'extensions', 'probe.ts'),
@@ -138,7 +153,10 @@ app.whenReady().then(async () => {
     })
     assert.equal(state.snapshot.connection, 'ready')
     assert.equal(state.persistedFile, undefined)
-    assert.deepEqual(await request('getSkills'), [])
+    assert.deepEqual(await request('getSkills'), [
+      { name: 'skill:project-agents', description: 'Project agents Electron fixture' },
+      { name: 'skill:shared', description: 'Shared Electron fixture' }
+    ])
     await request('prompt', '请在工作目录创建 approved.txt')
     while (
       !states.some((state) => !state.snapshot.running && state.snapshot.messages.length >= 4)

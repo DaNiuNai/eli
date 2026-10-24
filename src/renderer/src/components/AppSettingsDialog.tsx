@@ -47,7 +47,7 @@ const categories = [
   { value: 'context', label: '上下文压缩', icon: SlidersHorizontalIcon },
   { value: 'network', label: '网络与重试', icon: GlobeIcon },
   { value: 'tools', label: '工具与 Shell', icon: TerminalIcon },
-  { value: 'resources', label: '资源与技能', icon: BoxesIcon },
+  { value: 'resources', label: '资源与加载', icon: BoxesIcon },
   { value: 'about', label: '关于', icon: InfoIcon }
 ] as const
 
@@ -199,7 +199,7 @@ export function AppSettingsDialog({
               />
             </InputGroup>
             <nav className="flex shrink-0 flex-col gap-3" aria-label={t('设置分类')}>
-              <span className="px-2 text-xs font-semibold text-muted-foreground">Eli</span>
+              <span className="px-2 text-xs font-semibold text-muted-foreground">{t('配置')}</span>
               <TabsList className="settings-tabs w-full bg-transparent p-0">
                 {visibleCategories.map(({ value, label, icon: Icon }) => (
                   <TabsTrigger key={value} value={value} className="settings-tab gap-2.5 px-2.5">

@@ -306,7 +306,8 @@ export const agentSettingDefinitions: AgentSettingDefinition[] = [
     category: 'resources',
     section: 'eli 资源',
     label: '技能',
-    description: '每行一个技能文件或目录。自动加载用户级与项目 .eli/skills。',
+    description:
+      '每行一个技能文件或目录。自动加载用户级与项目级的 .eli/skills 和 .agents/skills，同名技能优先使用项目级版本。',
     kind: 'lines',
     defaultValue: []
   },

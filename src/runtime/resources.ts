@@ -116,13 +116,29 @@ export class EliResourceLoader implements ResourceLoader {
   private paths(kind: 'skills' | 'prompts' | 'extensions'): string[] {
     const global = this.settings.getGlobalSettings()[kind] ?? []
     const project = this.settings.getProjectSettings()[kind] ?? []
-    return [
-      ...new Set([
-        ...[join(this.root, kind), join(this.cwd, '.eli', kind)].filter(existsSync),
-        ...global.map((path) => resourcePath(this.root, path)),
-        ...project.map((path) => resourcePath(join(this.cwd, '.eli'), path))
-      ])
-    ]
+    const globalDefaults = [join(this.root, kind)]
+    const projectDefaults = [join(this.cwd, '.eli', kind)]
+    const globalPaths = global.map((path) => resourcePath(this.root, path))
+    const projectPaths = project.map((path) => resourcePath(join(this.cwd, '.eli'), path))
+    if (kind === 'skills') {
+      globalDefaults.push(join(dirname(this.root), '.agents', 'skills'))
+      projectDefaults.push(join(this.cwd, '.agents', 'skills'))
+    }
+    const paths =
+      kind === 'skills'
+        ? [
+            ...projectDefaults.filter(existsSync),
+            ...projectPaths,
+            ...globalDefaults.filter(existsSync),
+            ...globalPaths
+          ]
+        : [
+            ...globalDefaults.filter(existsSync),
+            ...projectDefaults.filter(existsSync),
+            ...globalPaths,
+            ...projectPaths
+          ]
+    return [...new Set(paths)]
   }
 
   private loadSkills(): void {
@@ -226,9 +242,7 @@ export class EliResourceLoader implements ResourceLoader {
     this.systemSource = [join(this.cwd, '.eli', 'SYSTEM.md'), join(this.root, 'SYSTEM.md')].find(
       existsSync
     )
-    this.systemPrompt = this.systemSource
-      ? readOptional(this.systemSource)
-      : 'You are eli, a desktop coding assistant. Help the user complete tasks using the available tools. Follow the user and project instructions. Inspect relevant files before changing them, make focused changes, verify results, and report clearly. Your settings, credentials and resources are managed by eli in ~/.eli and the workspace .eli directory.'
+    this.systemPrompt = this.systemSource ? readOptional(this.systemSource) : undefined
     this.appendPrompts = [
       join(this.root, 'APPEND_SYSTEM.md'),
       join(this.cwd, '.eli', 'APPEND_SYSTEM.md')
