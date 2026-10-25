@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import type { Api, Context, Model } from '@earendil-works/pi-ai'
+import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate'
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import { EliConfigStore } from '../config/store'
@@ -118,12 +119,13 @@ export async function reviewTool(options: {
     messages: [{ role: 'user', content, timestamp: Date.now() }],
     tools: [outputTool]
   }
-  // 工具定义也计入预算，不静默丢弃早期限制或截断待执行参数。
-  const budget = Math.min(64000, Math.max(0, model.contextWindow - 4096))
+  // contextWindow 的单位是 token；沿用 SDK 估算，预留输出与协议开销。
+  // 系统提示、工具定义和纠错历史都计入预算，不截断用户限制或待执行参数。
+  const budget = Math.max(0, model.contextWindow - 4096)
   // 首次请求失败后最多纠错三次；共享同一取消信号与外层审核总超时。
   for (let attempt = 0; attempt <= maxFormatRetries; attempt++) {
     signal.throwIfAborted()
-    if (Buffer.byteLength(JSON.stringify(context), 'utf8') > budget) {
+    if (estimateTextTokens(JSON.stringify(context)) > budget) {
       return {
         decision: 'ask',
         reason: '自动审核上下文过大，无法完整检查用户要求与工具参数，请手动确认。'

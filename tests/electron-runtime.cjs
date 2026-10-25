@@ -344,7 +344,10 @@ app.whenReady().then(async () => {
       { name: 'skill:project-agents', description: 'Project agents Electron fixture' },
       { name: 'skill:shared', description: 'Shared Electron fixture' }
     ])
-    await request('prompt', '请在工作目录创建 approved-0.txt、approved-1.txt、approved-2.txt')
+    const instruction =
+      '请在工作目录创建 approved-0.txt、approved-1.txt、approved-2.txt\n' +
+      '上下文预算测试。'.repeat(1500)
+    await request('prompt', instruction)
     while (
       !states.some((state) => !state.snapshot.running && state.snapshot.messages.length >= 6)
     ) {
@@ -360,6 +363,10 @@ app.whenReady().then(async () => {
       assert.equal(body.tools[0].function.name, 'structured_output')
       assert.deepEqual(body.tools[0].function.parameters.required, ['decision', 'reason'])
       assert.equal(body.tool_choice, 'required')
+      const context = JSON.parse(body.messages.find(({ role }) => role === 'user').content)
+      assert.ok(
+        context.history.some(({ role, content }) => role === 'user' && content === instruction)
+      )
     }
     const retried = reviews.find((body) => body.messages.some(({ role }) => role === 'assistant'))
     assert.ok(retried)

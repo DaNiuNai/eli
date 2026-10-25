@@ -127,6 +127,43 @@ test('审核使用专用结构化输出工具，正文无需是 JSON，三种裁
   assert.notEqual(calls[0][1].tools[0], calls[1][1].tools[0])
 })
 
+test('审核按 token 预算处理中文和代码，不受字节数或固定 64K 上限影响', async (t) => {
+  const { options, calls } = await reviewerFixture(t, () => reviewResponse(verdict('allow')))
+  for (const [contextWindow, content] of [
+    [32768, '中文审核内容。'.repeat(1800)],
+    [32768, 'const value = 1;\n'.repeat(2500)],
+    [131072, 'const value = 1;\n'.repeat(16000)]
+  ]) {
+    options.currentModel.contextWindow = contextWindow
+    const instruction = '只允许修改工作目录，禁止删除文件。\n' + content
+    const result = await reviewTool({
+      ...options,
+      messages: [{ role: 'user', content: instruction }]
+    })
+    assert.deepEqual(result, verdict('allow'))
+    assert.equal(JSON.parse(calls.at(-1)[1].messages[0].content).history[0].content, instruction)
+  }
+  assert.equal(calls.length, 3)
+})
+
+test('较长的待审批工具参数完整发送，审核预算使用实际审批模型窗口', async (t) => {
+  const { options, calls } = await reviewerFixture(t, () => reviewResponse(verdict('allow')))
+  const pendingTool = {
+    ...request,
+    input: { path: 'file.txt', content: 'const value = 1;\n'.repeat(2500) }
+  }
+  assert.deepEqual(await reviewTool({ ...options, request: pendingTool }), verdict('allow'))
+  assert.deepEqual(JSON.parse(calls[0][1].messages[0].content).pendingTool, pendingTool)
+
+  // getAvailable 返回的模型才是实际调用目标，不能用主模型的窗口放宽审核限制。
+  options.currentModel = { ...options.currentModel, contextWindow: 1000000 }
+  options.models.getAvailable = async () => [{ ...options.currentModel, contextWindow: 8192 }]
+  const review = await reviewTool({ ...options, request: pendingTool })
+  assert.equal(review.decision, 'ask')
+  assert.match(review.reason, /上下文过大/)
+  assert.equal(calls.length, 1)
+})
+
 test('未调用工具、JSON 解析失败或 Schema 校验失败时纠错，最多三次重试后仍可成功', async (t) => {
   const malformed = reviewResponse({ decision: 'allow', reason: 'ok' })
   malformed.content[1].argumentsError = 'invalid JSON'
@@ -219,7 +256,7 @@ test('纠错历史也计入上下文预算，超出后转人工且不截断原�
   const { options, calls } = await reviewerFixture(t, () => ({
     role: 'assistant',
     stopReason: 'stop',
-    content: [{ type: 'text', text: 'x'.repeat(40000) }]
+    content: [{ type: 'text', text: 'x'.repeat(120000) }]
   }))
   const review = await reviewTool(options)
   assert.equal(review.decision, 'ask')
@@ -275,7 +312,7 @@ test('完整上下文超出预算或模型输出截断时不能批准，不截�
   }))
   const tooLarge = await reviewTool({
     ...options,
-    messages: [{ role: 'user', content: '不得删除文件。' + 'x'.repeat(40000) }]
+    messages: [{ role: 'user', content: '不得删除文件。' + 'x'.repeat(120000) }]
   })
   assert.equal(tooLarge.decision, 'ask')
   assert.match(tooLarge.reason, /上下文过大/)

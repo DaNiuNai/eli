@@ -487,7 +487,7 @@ test('权限等待支持拒绝、模式切换、取消与跨会话隔离', async
   assert.equal(first.toolApprovals.length, 0)
 })
 
-test('自动批准使用独立模型，真实写入通过审核后执行', async (t) => {
+test('自动批准使用独立模型，较长中文上下文仍完成审核并真实写入', async (t) => {
   const paths = await fixture(t)
   const requests = await modelServer(t, paths.data, () => ({
     decision: 'allow',
@@ -496,7 +496,8 @@ test('自动批准使用独立模型，真实写入通过审核后执行', async
   const session = runtime(t)
   await initialize(session.connection, paths)
   await session.connection.call('configure', 'auto')
-  await session.connection.call('prompt', 'WRITE_TOOL 请创建 approved.txt')
+  const instruction = 'WRITE_TOOL 请创建 approved.txt\n' + '上下文预算测试。'.repeat(1500)
+  await session.connection.call('prompt', instruction)
   await until(() =>
     session.states.findLast(
       (state) => !state.snapshot.running && state.snapshot.messages.length >= 4
@@ -511,9 +512,7 @@ test('自动批准使用独立模型，真实写入通过审核后执行', async
   assert.equal(review.tool_choice, 'required')
   const context = JSON.parse(review.messages.find((message) => message.role === 'user').content)
   assert.ok(
-    context.history.some(
-      (message) => message.role === 'user' && message.content.includes('WRITE_TOOL')
-    )
+    context.history.some((message) => message.role === 'user' && message.content === instruction)
   )
   assert.equal(context.pendingTool.toolName, 'write')
   assert.ok(requests.filter((body) => body.model === 'local').length >= 2)
