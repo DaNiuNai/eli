@@ -13,7 +13,14 @@ import { Badge } from '@renderer/components/ui/badge'
 import { Input } from '@renderer/components/ui/input'
 import { Switch } from '@renderer/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@renderer/components/ui/field'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet
+} from '@renderer/components/ui/field'
 import {
   Dialog,
   DialogContent,
@@ -412,7 +419,7 @@ function ModelDialog({
         if (!open && !pending) onClose()
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t(initial ? '编辑模型' : '添加模型')}</DialogTitle>
           <DialogDescription>{t('填写供应商实际支持的模型 ID 与能力。')}</DialogDescription>
@@ -483,14 +490,37 @@ function ModelDialog({
                 required
               />
             </Field>
-            <Field orientation="horizontal">
-              <FieldLabel htmlFor="model-thinking">{t('支持思考')}</FieldLabel>
-              <Switch
-                id="model-thinking"
-                checked={model.reasoning}
-                onCheckedChange={(reasoning) => update({ reasoning }, true)}
-              />
-            </Field>
+            <FieldSet>
+              <FieldLegend variant="label">{t('思考强度')}</FieldLegend>
+              <FieldGroup>
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="model-thinking">{t('支持思考')}</FieldLabel>
+                  <Switch
+                    id="model-thinking"
+                    checked={model.reasoning}
+                    onCheckedChange={(reasoning) => update({ reasoning }, true)}
+                  />
+                </Field>
+                <Field orientation="horizontal" data-disabled={!model.reasoning}>
+                  <FieldLabel htmlFor="model-thinking-xhigh">{t('启用 xhigh（极高）')}</FieldLabel>
+                  <Switch
+                    id="model-thinking-xhigh"
+                    checked={model.supportsXhigh ?? false}
+                    disabled={!model.reasoning}
+                    onCheckedChange={(supportsXhigh) => update({ supportsXhigh }, true)}
+                  />
+                </Field>
+                <Field orientation="horizontal" data-disabled={!model.reasoning}>
+                  <FieldLabel htmlFor="model-thinking-max">{t('启用 max（最高）')}</FieldLabel>
+                  <Switch
+                    id="model-thinking-max"
+                    checked={model.supportsMax ?? false}
+                    disabled={!model.reasoning}
+                    onCheckedChange={(supportsMax) => update({ supportsMax }, true)}
+                  />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
             <Field orientation="horizontal">
               <FieldLabel htmlFor="model-vision">{t('支持图片输入')}</FieldLabel>
               <Switch

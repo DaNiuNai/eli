@@ -8,3 +8,5 @@ out
 /claude
 .tmp/
 backup/
+.eli/
+plugins/

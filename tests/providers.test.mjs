@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, readFile } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { createServer } from 'node:http'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import { createEliModels, isolateProviderAuth } from '../src/runtime/models.ts'
 import { ProvidersService } from '../src/runtime/providers.ts'
 import { AgentAuthService } from '../src/runtime/auth.ts'
@@ -363,6 +364,121 @@ test('供应商和模型管理持久化，密钥不进入界面快照，停用�
     (await service.get()).providers.some(({ id }) => id === 'test-custom'),
     false
   )
+})
+
+test('模型扩展思考档位可独立开关，保存并重载后保持生效', async (t) => {
+  const root = await fixture(t)
+  const service = new ProvidersService(root, () => {})
+  await service.change({
+    action: 'create',
+    id: 'thinking-test',
+    name: 'Thinking test',
+    api: 'openai-completions',
+    baseUrl: 'http://127.0.0.1:9/v1'
+  })
+  const model = {
+    id: 'chat',
+    name: 'Chat',
+    reasoning: true,
+    vision: false,
+    contextWindow: 32768,
+    maxTokens: 4096
+  }
+  const standardLevels = ['off', 'minimal', 'low', 'medium', 'high']
+  await service.change({ action: 'saveModel', id: 'thinking-test', model })
+  assert.deepEqual(
+    getSupportedThinkingLevels((await service.models()).runtime.getModel('thinking-test', 'chat')),
+    standardLevels
+  )
+  for (const [supportsXhigh, supportsMax] of [
+    [true, false],
+    [false, true],
+    [true, true],
+    [false, false]
+  ]) {
+    await service.change({
+      action: 'saveModel',
+      id: 'thinking-test',
+      model: { ...model, supportsXhigh, supportsMax }
+    })
+    const reloaded = new ProvidersService(root, () => {})
+    const view = (await reloaded.get()).providers.find(({ id }) => id === 'thinking-test').models[0]
+    assert.equal(view.supportsXhigh, supportsXhigh)
+    assert.equal(view.supportsMax, supportsMax)
+    const saved = (await new EliConfigStore(join(root, 'config.json')).read()).providers[
+      'thinking-test'
+    ].models[0]
+    assert.equal(saved.supportsXhigh, supportsXhigh)
+    assert.equal(saved.supportsMax, supportsMax)
+    assert.deepEqual(
+      getSupportedThinkingLevels(
+        (await reloaded.models()).runtime.getModel('thinking-test', 'chat')
+      ),
+      [...standardLevels, ...(supportsXhigh ? ['xhigh'] : []), ...(supportsMax ? ['max'] : [])]
+    )
+  }
+  await service.change({
+    action: 'saveModel',
+    id: 'thinking-test',
+    model: { ...model, reasoning: false, supportsXhigh: true, supportsMax: true }
+  })
+  assert.deepEqual(
+    getSupportedThinkingLevels((await service.models()).runtime.getModel('thinking-test', 'chat')),
+    ['off']
+  )
+  for (const field of ['supportsXhigh', 'supportsMax'])
+    await assert.rejects(
+      service.change({
+        action: 'saveModel',
+        id: 'thinking-test',
+        model: { ...model, [field]: 'true' }
+      }),
+      /模型能力或 token 上限无效/
+    )
+})
+
+test('内置模型编辑扩展档位时保留其余思考限制和接口适配能力', async (t) => {
+  const root = await fixture(t)
+  const service = new ProvidersService(root, () => {})
+  const original = (await service.models()).runtime.getModel('google', 'gemini-3-flash-preview')
+  assert.ok(original)
+  const findModel = (snapshot) =>
+    snapshot.providers.find(({ id }) => id === 'google').models.find(({ id }) => id === original.id)
+  const initial = findModel(await service.get())
+  assert.equal(initial.supportsXhigh, false)
+  assert.equal(initial.supportsMax, false)
+  await service.change({
+    action: 'saveModel',
+    id: 'google',
+    model: { ...initial, supportsXhigh: true, supportsMax: true }
+  })
+  const changed = (await service.models()).runtime.getModel('google', original.id)
+  assert.deepEqual(getSupportedThinkingLevels(changed), [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max'
+  ])
+  assert.deepEqual(changed.compat, original.compat)
+  assert.deepEqual(changed.cost, original.cost)
+  assert.equal(changed.thinkingLevelMap.off, null)
+  assert.equal(changed.thinkingLevelMap.minimal, original.thinkingLevelMap.minimal)
+  await service.change({
+    action: 'saveModel',
+    id: 'google',
+    model: { ...findModel(await service.get()), supportsXhigh: false, supportsMax: false }
+  })
+  assert.deepEqual(
+    getSupportedThinkingLevels((await service.models()).runtime.getModel('google', original.id)),
+    getSupportedThinkingLevels(original)
+  )
+  const native = (await service.get()).providers
+    .find(({ id }) => id === 'anthropic')
+    .models.find(({ id }) => id === 'claude-opus-5-5')
+  assert.equal(native.supportsXhigh, true)
+  assert.equal(native.supportsMax, true)
 })
 
 test('供应商配置覆盖保留 SDK 的非聊天模型能力', async (t) => {

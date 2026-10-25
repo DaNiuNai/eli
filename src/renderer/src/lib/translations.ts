@@ -208,6 +208,8 @@ const english: Record<string, string> = {
   上下文窗口: 'Context window',
   '最大输出 token': 'Maximum output tokens',
   支持思考: 'Supports reasoning',
+  '启用 xhigh（极高）': 'Enable xhigh reasoning',
+  '启用 max（最高）': 'Enable max reasoning',
   支持图片输入: 'Supports image input',
   '订阅 / OAuth': 'Subscription / OAuth',
   自定义供应商: 'Custom provider',

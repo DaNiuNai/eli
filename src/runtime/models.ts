@@ -34,9 +34,16 @@ export function modelDefinition(
   model: ProviderModelInput,
   api: string,
   baseUrl: string,
-  provider: string
+  provider: string,
+  base?: Model<Api>
 ): Model<Api> {
+  const thinkingLevelMap = { ...base?.thinkingLevelMap }
+  if (model.supportsXhigh !== undefined)
+    thinkingLevelMap.xhigh = model.supportsXhigh ? (base?.thinkingLevelMap?.xhigh ?? 'xhigh') : null
+  if (model.supportsMax !== undefined)
+    thinkingLevelMap.max = model.supportsMax ? (base?.thinkingLevelMap?.max ?? 'max') : null
   return {
+    ...base,
     id: model.id,
     name: model.name,
     provider,
@@ -46,7 +53,8 @@ export function modelDefinition(
     input: model.vision ? ['text', 'image'] : ['text'],
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+    cost: base?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    ...(Object.keys(thinkingLevelMap).length ? { thinkingLevelMap } : {})
   }
 }
 
@@ -104,7 +112,10 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
         ])
       )
       for (const model of pref.models ?? [])
-        models.set(model.id, modelDefinition(model, api, endpoint, provider.id))
+        models.set(
+          model.id,
+          modelDefinition(model, api, endpoint, provider.id, models.get(model.id))
+        )
       return [...models.values()]
     }
     catalogSources.set(provider.id, catalog)

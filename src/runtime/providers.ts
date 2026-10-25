@@ -34,6 +34,8 @@ function parseModel(value: ProviderModelInput): ProviderModelInput {
   if (!value || typeof value !== 'object') throw new Error('模型格式无效')
   if (
     typeof value.reasoning !== 'boolean' ||
+    (value.supportsXhigh !== undefined && typeof value.supportsXhigh !== 'boolean') ||
+    (value.supportsMax !== undefined && typeof value.supportsMax !== 'boolean') ||
     typeof value.vision !== 'boolean' ||
     !Number.isSafeInteger(value.contextWindow) ||
     value.contextWindow < 1 ||
@@ -47,6 +49,8 @@ function parseModel(value: ProviderModelInput): ProviderModelInput {
     id: text(value.id, '模型 ID', 300),
     name: text(value.name, '模型名称'),
     reasoning: value.reasoning,
+    ...(value.supportsXhigh === undefined ? {} : { supportsXhigh: value.supportsXhigh }),
+    ...(value.supportsMax === undefined ? {} : { supportsMax: value.supportsMax }),
     vision: value.vision,
     contextWindow: value.contextWindow,
     maxTokens: value.maxTokens
@@ -57,6 +61,8 @@ function viewModel(model: Model<Api>): ProviderModelInput {
     id: model.id,
     name: model.name,
     reasoning: model.reasoning,
+    supportsXhigh: typeof model.thinkingLevelMap?.xhigh === 'string',
+    supportsMax: typeof model.thinkingLevelMap?.max === 'string',
     vision: model.input.includes('image'),
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens

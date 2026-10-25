@@ -11,6 +11,8 @@ export interface ProviderModelInput {
   id: string
   name: string
   reasoning: boolean
+  supportsXhigh?: boolean
+  supportsMax?: boolean
   vision: boolean
   contextWindow: number
   maxTokens: number

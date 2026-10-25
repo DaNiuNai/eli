@@ -172,6 +172,22 @@ app.whenReady().then(async () => {
       cwd,
       firstLaunch: false
     })
+    const models = await request('changeProvider', {
+      action: 'saveModel',
+      id: 'electron-test',
+      model: {
+        ...config.providers['electron-test'].models[0],
+        reasoning: true,
+        supportsXhigh: true,
+        supportsMax: true
+      }
+    })
+    const localModel = models.providers
+      .find(({ id }) => id === 'electron-test')
+      .models.find(({ id }) => id === 'local')
+    assert.equal(localModel.supportsXhigh, true)
+    assert.equal(localModel.supportsMax, true)
+    await request('saveSettings', [{ key: 'defaultThinkingLevel', value: 'max' }])
     const instructions = await request('saveSettings', [
       { key: 'agentsFiles', value: [customInstructionPath, customInstructionPath] }
     ])
@@ -270,6 +286,9 @@ app.whenReady().then(async () => {
       terminal: { kind: 'powershell', path: 'powershell.exe' }
     })
     assert.equal(state.snapshot.connection, 'ready')
+    assert.ok(state.snapshot.thinkingLevels.includes('xhigh'))
+    assert.ok(state.snapshot.thinkingLevels.includes('max'))
+    assert.equal(state.snapshot.session.thinkingLevel, 'max')
     assert.equal(state.persistedFile, undefined)
     assert.deepEqual(await request('getSkills'), [
       { name: 'skill:project-agents', description: 'Project agents Electron fixture' },
@@ -285,10 +304,11 @@ app.whenReady().then(async () => {
     for (let index = 0; index < 3; index++)
       assert.equal(readFileSync(join(cwd, `approved-${index}.txt`), 'utf8'), 'electron-approved')
     assert.ok(requests.some((body) => body.model === 'reviewer' && !body.tools?.length))
+    assert.ok(requests.some((body) => body.model === 'local' && body.reasoning_effort === 'max'))
     assert.ok(states.every((state) => !state.snapshot.toolApprovals.length))
     const systemPrompt = requests
       .find((body) => body.model === 'local')
-      .messages.find(({ role }) => role === 'system').content
+      .messages.find(({ role }) => role === 'system' || role === 'developer').content
     assert.doesNotMatch(systemPrompt, /user-disabled|Disabled Electron fixture/)
     assert.match(systemPrompt, /Project agents Electron fixture/)
     assert.equal(systemPrompt.split(customInstruction).length - 1, 1)

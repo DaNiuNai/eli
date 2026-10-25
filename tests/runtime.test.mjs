@@ -818,6 +818,55 @@ test('默认模型在启用范围内选择，项目扩展注册的模型也参�
   )
 })
 
+test('模型扩展思考档位经 Runtime 可选择并发送，切换模型后校验可用档位', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const configPath = join(f.data, 'config.json')
+  const config = JSON.parse(await readFile(configPath, 'utf8'))
+  const model = config.providers['eli-test'].models[0]
+  Object.assign(model, { reasoning: true, supportsXhigh: true, supportsMax: true })
+  config.providers['eli-test'].models.push({
+    ...model,
+    id: 'standard',
+    supportsXhigh: false,
+    supportsMax: false
+  })
+  await writeFile(configPath, JSON.stringify(config))
+  const client = runtime(t)
+  const initial = await initialize(client.connection, f)
+  assert.deepEqual(initial.snapshot.thinkingLevels, [
+    'off',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max'
+  ])
+  for (const level of ['xhigh', 'max']) {
+    const selected = await client.connection.call('setThinkingLevel', level)
+    assert.equal(selected.snapshot.session.thinkingLevel, level)
+    await client.connection.call('prompt', `测试 ${level} 档位`)
+    await until(() =>
+      client.states.some(
+        (state) =>
+          !state.snapshot.running &&
+          state.snapshot.messages.some(
+            (message) =>
+              message.role === 'user' &&
+              JSON.stringify(message.content).includes(`测试 ${level} 档位`)
+          )
+      )
+    )
+    assert.equal(requests.at(-1).reasoning_effort, level)
+  }
+  const changed = await client.connection.call('setModel', 'eli-test', 'standard')
+  assert.deepEqual(changed.snapshot.thinkingLevels, ['off', 'minimal', 'low', 'medium', 'high'])
+  assert.ok(changed.snapshot.thinkingLevels.includes(changed.snapshot.session.thinkingLevel))
+  await assert.rejects(client.connection.call('setThinkingLevel', 'xhigh'), /不支持该思考强度/)
+  await assert.rejects(client.connection.call('setThinkingLevel', 'max'), /不支持该思考强度/)
+})
+
 test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
   const f = await fixture(t)
   const requests = await modelServer(t, f.data)
