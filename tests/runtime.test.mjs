@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promis
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
+import { getPowerShellConfig } from '@earendil-works/pi-coding-agent'
 import { RuntimeConnection } from '../src/runtime/connection.ts'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
 import { mcpHttpServer } from './fixtures/mcp-http.mjs'
@@ -97,15 +98,22 @@ async function modelServer(t, data, review) {
     const repeated =
       content?.includes('REPEAT_TOOL') &&
       body.messages.filter((message) => message.role === 'tool').length < 3
+    const taskText =
+      typeof user?.content === 'string'
+        ? user.content
+        : user?.content?.map((part) => part.text ?? '').join('\n')
+    const taskCall = taskText?.startsWith('TASK_TOOL:') ? JSON.parse(taskText.slice(10)) : null
     const tool =
-      content?.includes('WRITE_TOOL') && (last.role !== 'tool' || repeated)
-        ? 'write'
-        : content?.includes('ASK_TOOL') && last.role !== 'tool'
-          ? 'ask_user_question'
-          : content?.includes('MCP_TOOL') && last.role !== 'tool'
-            ? body.tools?.find(({ function: tool }) => tool.name === 'mcp__managed__echo')?.function
-                .name
-            : null
+      taskCall && last.role !== 'tool'
+        ? taskCall.name
+        : content?.includes('WRITE_TOOL') && (last.role !== 'tool' || repeated)
+          ? 'write'
+          : content?.includes('ASK_TOOL') && last.role !== 'tool'
+            ? 'ask_user_question'
+            : content?.includes('MCP_TOOL') && last.role !== 'tool'
+              ? body.tools?.find(({ function: tool }) => tool.name === 'mcp__managed__echo')
+                  ?.function.name
+              : null
     const send = (delta, finish_reason = null) =>
       res.write(
         `data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: 'local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
@@ -138,8 +146,9 @@ async function modelServer(t, data, review) {
     }
     if (content?.includes('WAIT_FOREVER')) return
     if (tool) {
-      const args =
-        tool === 'write'
+      const args = taskCall
+        ? taskCall.arguments
+        : tool === 'write'
           ? { path: 'approved.txt', content: 'approved' }
           : tool === 'mcp__managed__echo'
             ? { value: 'runtime-approved' }
@@ -266,7 +275,7 @@ async function initialize(
     sessionKey: key,
     sessionFile,
     approvalMode,
-    terminal: { kind: 'powershell', path: 'powershell.exe' }
+    terminal: { kind: 'powershell', path: getPowerShellConfig().shell }
   })
 }
 
@@ -948,8 +957,9 @@ test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
   assert.match(systemPrompt, /expert coding assistant operating inside pi/)
   assert.match(
     systemPrompt,
-    /<tools>[\s\S]*- powershell: Execute PowerShell commands[\s\S]*<\/tools>/
+    /<tools>[\s\S]*- powershell: 执行命令；耗时操作自动转为后台任务[\s\S]*<\/tools>/
   )
+  assert.match(systemPrompt, /- get_task: 通过任务 ID 查询后台任务状态与输出/)
   assert.match(
     systemPrompt,
     /<rules>[\s\S]*Use write only for new files or complete rewrites\.[\s\S]*<\/rules>/
@@ -1563,4 +1573,157 @@ test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
   assert.equal(compacted.snapshot.activity, '上下文压缩完成')
   assert.equal(compacted.snapshot.error, null)
   assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction"'))
+})
+
+async function callTaskTool(r, name, args) {
+  r.states.length = 0
+  await r.connection.call('prompt', `TASK_TOOL:${JSON.stringify({ name, arguments: args })}`)
+  return until(() =>
+    r.states.findLast((state) => !state.snapshot.running && state.snapshot.messages.length)
+  )
+}
+
+test('后台命令经过审批后释放聊天，支持查询、用户停止进程树与重启恢复记录', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  const quote = (text) => `'${text.replaceAll("'", "''")}'`
+  const pidPath = join(f.root, 'child.pid')
+  const command = `& ${quote(process.execPath)} ${quote(join(project, 'tests/fixtures/background-process.mjs'))} ${quote(pidPath)}`
+  await r.connection.call(
+    'prompt',
+    `TASK_TOOL:${JSON.stringify({ name: 'powershell', arguments: { command, background: true } })}`
+  )
+  const approval = await until(() =>
+    r.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  assert.equal(approval.snapshot.toolApprovals[0].toolName, 'powershell')
+  assert.equal(approval.snapshot.backgroundTasks.length, 0)
+  await r.connection.call('approve', approval.snapshot.toolApprovals[0].id, true)
+  const finished = await until(() =>
+    r.states.findLast((state) => !state.snapshot.running && state.snapshot.backgroundTasks.length)
+  )
+  const task = finished.snapshot.backgroundTasks[0]
+  assert.equal(task.status, 'running', task.error)
+  const result = finished.snapshot.messages.findLast((message) => message.role === 'toolResult')
+  assert.equal(result.isError, false)
+  assert.equal(result.details.id, task.id)
+  assert.ok(requests[0].tools.some(({ function: tool }) => tool.name === 'get_task'))
+  await until(() => r.states.at(-1)?.snapshot.backgroundTasks[0]?.output.includes('stderr ready'))
+  const pid = Number(await readFile(pidPath, 'utf8'))
+  assert.doesNotThrow(() => process.kill(pid, 0))
+  const queried = await callTaskTool(r, 'get_task', { task_id: task.id })
+  assert.equal(
+    queried.snapshot.messages.findLast((message) => message.role === 'toolResult').details.status,
+    'running'
+  )
+  assert.match(queried.snapshot.backgroundTasks[0].output, /后台进程已就绪/)
+  const listed = await callTaskTool(r, 'list_tasks', {})
+  assert.equal(
+    listed.snapshot.messages.findLast((message) => message.role === 'toolResult').details.tasks[0]
+      .id,
+    task.id
+  )
+  await r.connection.call('prompt', 'WAIT_FOREVER')
+  const stoppedChat = await r.connection.call('abort')
+  assert.equal(stoppedChat.snapshot.backgroundTasks[0].status, 'running')
+  await r.connection.call('prompt', 'WAIT_FOREVER')
+  await r.connection.call('stopBackgroundTask', task.id)
+  await until(() => r.states.at(-1)?.snapshot.backgroundTasks[0]?.status === 'cancelled')
+  assert.throws(() => process.kill(pid, 0))
+  await r.connection.call('abort')
+  await r.connection.stop()
+  const reopened = runtime(t)
+  const restored = await initialize(
+    reopened.connection,
+    f,
+    'restored-session',
+    finished.persistedFile
+  )
+  assert.equal(restored.snapshot.backgroundTasks[0].id, task.id)
+  assert.equal(restored.snapshot.backgroundTasks[0].status, 'cancelled')
+  assert.match(restored.snapshot.backgroundTasks[0].output, /stderr ready/)
+  assert.match(await readFile(task.logPath, 'utf8'), /后台进程已就绪/)
+  await assert.rejects(reopened.connection.call('stopBackgroundTask', '../outside'), /不存在/)
+})
+
+test('普通命令自动转后台并完成，模型可停止任务，超时与退出清理保留状态', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f, undefined, undefined, 'all')
+  const automatic = await callTaskTool(r, 'powershell', {
+    command: "Write-Output 'automatic'; Start-Sleep -Seconds 1; Write-Output 'done'",
+    yield_time_ms: 10
+  })
+  const task = automatic.snapshot.backgroundTasks[0]
+  assert.equal(task.status, 'running', task.error)
+  await until(
+    () =>
+      r.states.at(-1)?.snapshot.backgroundTasks.find(({ id }) => id === task.id)?.status ===
+      'completed'
+  )
+  const result = await callTaskTool(r, 'get_task', { task_id: task.id })
+  assert.match(
+    result.snapshot.messages.findLast((message) => message.role === 'toolResult').content[0].text,
+    /done/
+  )
+  const service = await callTaskTool(r, 'powershell', {
+    command: 'Start-Sleep -Seconds 60',
+    background: true
+  })
+  const id = service.snapshot.backgroundTasks[0].id
+  await callTaskTool(r, 'stop_task', { task_id: id })
+  await until(
+    () =>
+      r.states.at(-1)?.snapshot.backgroundTasks.find((task) => task.id === id)?.status ===
+      'cancelled'
+  )
+  const timeout = await callTaskTool(r, 'powershell', {
+    command: 'Start-Sleep -Seconds 60',
+    timeout: 0.1,
+    background: true
+  })
+  const timeoutId = timeout.snapshot.backgroundTasks[0].id
+  await until(
+    () =>
+      r.states.at(-1)?.snapshot.backgroundTasks.find((task) => task.id === timeoutId)?.status ===
+      'timed_out'
+  )
+  const exitTask = await callTaskTool(r, 'powershell', {
+    command: "Write-Output 'shutdown'; Start-Sleep -Seconds 60",
+    background: true
+  })
+  const shutdownId = exitTask.snapshot.backgroundTasks[0].id
+  await until(() =>
+    r.states
+      .at(-1)
+      ?.snapshot.backgroundTasks.find((task) => task.id === shutdownId)
+      ?.output.includes('shutdown')
+  )
+  await r.connection.stop()
+  const reopened = runtime(t)
+  const restored = await initialize(reopened.connection, f, 'reopened', exitTask.persistedFile)
+  assert.equal(
+    restored.snapshot.backgroundTasks.find((task) => task.id === shutdownId)?.status,
+    'cancelled'
+  )
+})
+
+test('拒绝后台命令审批不会启动任务', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  await r.connection.call(
+    'prompt',
+    `TASK_TOOL:${JSON.stringify({ name: 'powershell', arguments: { command: 'Start-Sleep -Seconds 60', background: true } })}`
+  )
+  const approval = await until(() =>
+    r.states.findLast((state) => state.snapshot.toolApprovals.length)
+  )
+  await r.connection.call('approve', approval.snapshot.toolApprovals[0].id, false)
+  const finished = await until(() => r.states.findLast((state) => !state.snapshot.running))
+  assert.deepEqual(finished.snapshot.backgroundTasks, [])
 })

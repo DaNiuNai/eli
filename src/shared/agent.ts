@@ -6,6 +6,7 @@ import type { ManagedMcpServer, McpConnectionTest, McpServerChange } from './mcp
 import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 import type { UserSkill } from './skills'
+import type { BackgroundTask } from './background-tasks'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
 export type AgentMessage = AgentSession['messages'][number]
@@ -61,6 +62,7 @@ export interface AgentSessionSnapshot {
   activeThinking: { messageIndex: number; contentIndex: number } | null
   response: AgentResponseState
   tools: Record<string, AgentToolEvent>
+  backgroundTasks: BackgroundTask[]
   toolApprovals: ToolApprovalRequest[]
   autoApproval: AutoApprovalState
   userQuestions: UserQuestionRequest[]
@@ -77,6 +79,7 @@ export interface AgentLiveSession extends SavedSession {
   pending: boolean
   approvalCount: number
   questionCount: number
+  backgroundTaskCount: number
 }
 
 export interface AgentSnapshot extends AgentSessionSnapshot {
@@ -95,6 +98,7 @@ export interface AgentApi {
   editMessage(target: AgentMessageTarget, message: string): Promise<void>
   forkMessage(target: AgentMessageTarget): Promise<void>
   abort(sessionKey: string): Promise<void>
+  stopBackgroundTask(sessionKey: string, id: string): Promise<void>
   respondToToolApproval(sessionKey: string, id: string, approved: boolean): Promise<void>
   respondToUserQuestion(
     sessionKey: string,
@@ -130,6 +134,7 @@ export const agentChannels = {
   editMessage: 'agent:edit-message',
   forkMessage: 'agent:fork-message',
   abort: 'agent:abort',
+  stopBackgroundTask: 'agent:stop-background-task',
   respondToToolApproval: 'agent:respond-to-tool-approval',
   respondToUserQuestion: 'agent:respond-to-user-question',
   newSession: 'agent:new-session',

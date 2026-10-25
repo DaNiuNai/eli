@@ -18,6 +18,7 @@ export function emptySessionSnapshot(
     activeThinking: null,
     response: { id: 0, messageIndex: 0, phase: 'idle', toolCallDrafts: {} },
     tools: {},
+    backgroundTasks: [],
     toolApprovals: [],
     autoApproval: { reviewing: 0, paused: false, lastDenied: null },
     userQuestions: [],

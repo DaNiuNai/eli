@@ -125,6 +125,9 @@ export class RuntimeHost {
         case 'abort':
           await session.abort()
           break
+        case 'stopBackgroundTask':
+          session.stopBackgroundTask(...request.args)
+          break
         case 'setModel':
           await session.setModel(...request.args)
           break

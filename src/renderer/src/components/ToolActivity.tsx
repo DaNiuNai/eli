@@ -33,6 +33,10 @@ import { ChatMarkdown } from './ChatMarkdown'
 const toolActions: Record<string, string> = {
   ask_user_question: '询问用户',
   bash: '运行命令',
+  powershell: '运行命令',
+  get_task: '查询后台任务',
+  list_tasks: '列出后台任务',
+  stop_task: '停止后台任务',
   read: '读取文件',
   write: '写入文件',
   edit: '编辑文件',
@@ -44,6 +48,10 @@ const toolActions: Record<string, string> = {
 const summaryActions: Record<string, string> = {
   ask_user_question: '询问用户 {count} 次',
   bash: '运行 {count} 条命令',
+  powershell: '运行 {count} 条命令',
+  get_task: '查询 {count} 个后台任务',
+  list_tasks: '列出后台任务 {count} 次',
+  stop_task: '停止 {count} 个后台任务',
   read: '读取 {count} 个文件',
   write: '写入 {count} 个文件',
   edit: '编辑 {count} 个文件',
@@ -148,11 +156,14 @@ function ToolCallView({ call, state, diff }: ToolItem): React.JSX.Element {
   const { t } = useLanguage()
   const target = getToolTarget(call, state.args)
   const action = t(toolActions[call.name] ?? '调用工具')
-  const label = `${t(toolPhaseLabels[state.phase])} · ${action}`
+  const details = state.output?.details as { status?: string } | undefined
+  const background =
+    state.finished && ['bash', 'powershell'].includes(call.name) && details?.status === 'running'
+  const label = `${t(background ? '已转入后台' : toolPhaseLabels[state.phase])} · ${action}`
   const Icon =
     call.name === 'ask_user_question'
       ? MessageCircleQuestionIcon
-      : call.name === 'bash'
+      : ['bash', 'powershell', 'get_task', 'list_tasks', 'stop_task'].includes(call.name)
         ? TerminalIcon
         : call.name === 'write' || call.name === 'edit'
           ? FilePenLineIcon

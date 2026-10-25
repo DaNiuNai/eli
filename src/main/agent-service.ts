@@ -248,6 +248,7 @@ export class AgentService {
       })
     })
     handle(agentChannels.abort, async (key) => this.session(key).abort())
+    handle(agentChannels.stopBackgroundTask, (key, id) => this.session(key).stopBackgroundTask(id))
     handle(agentChannels.respondToToolApproval, async (key, id, approved) => {
       const session = this.session(key)
       if (approved === true) await this.requireWorkspace(session.snapshot.cwd)

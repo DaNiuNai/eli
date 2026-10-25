@@ -315,6 +315,52 @@
   height: 100%;
 }
 
+.background-tasks-layout {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.background-tasks-position {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 2rem);
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.background-tasks-conversation {
+  flex: 1;
+  isolation: isolate;
+}
+
+.background-tasks-card {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.background-tasks-card > [data-slot='card-header'] {
+  /* 收起时按标签内容计算宽度，不能使用 CardHeader 默认的尺寸隔离。 */
+  container-type: normal;
+}
+
+.background-tasks-card[data-background-tasks-open='true'] {
+  width: 20rem;
+}
+
+.background-tasks-list {
+  max-height: min(36rem, calc(100dvh - 12rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 [data-mobile='true'] .desktop-sidebar-header {
   padding-top: var(--desktop-titlebar-height);
 }

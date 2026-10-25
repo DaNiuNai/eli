@@ -138,6 +138,31 @@ app.whenReady().then(async () => {
           send({}, 'tool_calls')
         }
       } else if (body.messages.at(-1).role !== 'tool') {
+        if (
+          JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
+            'BACKGROUND_TEST'
+          )
+        ) {
+          send({
+            tool_calls: [
+              {
+                index: 0,
+                id: 'electron-background',
+                type: 'function',
+                function: {
+                  name: 'powershell',
+                  arguments: JSON.stringify({
+                    command: "Write-Output 'electron-background-ready'; Start-Sleep -Seconds 60",
+                    background: true
+                  })
+                }
+              }
+            ]
+          })
+          send({}, 'tool_calls')
+          res.end('data: [DONE]\n\n')
+          return
+        }
         send({
           tool_calls: Array.from({ length: 3 }, (_, index) => ({
             index,
@@ -305,7 +330,10 @@ app.whenReady().then(async () => {
       cwd,
       sessionKey: '55555555-5555-4555-8555-555555555555',
       approvalMode: 'auto',
-      terminal: { kind: 'powershell', path: 'powershell.exe' }
+      terminal: {
+        kind: 'powershell',
+        path: (await import('@earendil-works/pi-coding-agent')).getPowerShellConfig().shell
+      }
     })
     assert.equal(state.snapshot.connection, 'ready')
     assert.ok(state.snapshot.thinkingLevels.includes('xhigh'))
@@ -350,6 +378,30 @@ app.whenReady().then(async () => {
         systemPrompt.indexOf(customInstruction)
     )
     assert.equal(readFileSync(disabledSkillPath, 'utf8'), disabledSkillContent)
+    await request('configure', 'all')
+    await request('prompt', 'BACKGROUND_TEST')
+    while (
+      !states
+        .at(-1)
+        ?.snapshot.backgroundTasks.some((task) =>
+          task.output.includes('electron-background-ready')
+        ) ||
+      states.at(-1)?.snapshot.running
+    ) {
+      const failed = states
+        .at(-1)
+        ?.snapshot.backgroundTasks.find((task) => task.status === 'failed')
+      if (failed) throw new Error(failed.error ?? failed.output)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const background = states.at(-1).snapshot.backgroundTasks[0]
+    assert.equal(background.status, 'running')
+    await request('abort')
+    assert.equal(states.at(-1).snapshot.backgroundTasks[0].status, 'running')
+    await request('stopBackgroundTask', background.id)
+    while (states.at(-1)?.snapshot.backgroundTasks[0]?.status !== 'cancelled')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.match(readFileSync(background.logPath, 'utf8'), /electron-background-ready/)
     await request('shutdown')
     await exited
     assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), savedConfig)

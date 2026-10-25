@@ -17,6 +17,7 @@ import { WelcomeDialog } from '@renderer/components/WelcomeDialog'
 import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
+import { BackgroundTasksPanel } from '@renderer/components/BackgroundTasksPanel'
 import { UserQuestionPanel } from '@renderer/components/UserQuestionPanel'
 import { AgentSidebar } from '@renderer/components/AgentSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
@@ -334,152 +335,170 @@ function App(): React.JSX.Element {
         }
       >
         <main className="desktop-main flex min-h-0 min-w-0 flex-1 flex-col">
-          {(problem || preferencesError) && (
-            <div className="mx-auto w-full max-w-4xl shrink-0 px-6 pt-3 sm:px-8">
-              {preferencesError && (
-                <Alert variant="destructive">
-                  <AlertTitle>{t('设置保存失败')}</AlertTitle>
-                  <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
-                    {preferencesError}
-                  </AlertDescription>
-                </Alert>
+          <div className="background-tasks-layout">
+            <aside className="background-tasks-position" aria-label={t('后台任务')}>
+              <BackgroundTasksPanel
+                key={draftKey}
+                tasks={snapshot?.backgroundTasks ?? []}
+                disabled={!ready}
+                onStop={(id) =>
+                  perform(() => window.api.stopBackgroundTask(draftKey, id), draftKey)
+                }
+              />
+            </aside>
+            <div className="background-tasks-conversation flex min-h-0 min-w-0 flex-col">
+              {(problem || preferencesError) && (
+                <div className="mx-auto w-full max-w-4xl shrink-0 px-6 pt-3 sm:px-8">
+                  {preferencesError && (
+                    <Alert variant="destructive">
+                      <AlertTitle>{t('设置保存失败')}</AlertTitle>
+                      <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
+                        {preferencesError}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {problem && (
+                    <Alert variant="destructive">
+                      <AlertTitle>{t('需要处理')}</AlertTitle>
+                      <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
+                        {t(problem)}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
               )}
-              {problem && (
-                <Alert variant="destructive">
-                  <AlertTitle>{t('需要处理')}</AlertTitle>
-                  <AlertDescription className="max-h-24 overflow-auto whitespace-pre-wrap break-words">
-                    {t(problem)}
-                  </AlertDescription>
-                </Alert>
-              )}
+              <div className="min-h-0 flex-1">
+                {visibleMessages.length > 0 ? (
+                  <MessageScrollerProvider key={snapshot?.sessionKey} autoScroll>
+                    <MessageScroller>
+                      <MessageScrollerViewport aria-label={t('对话消息')}>
+                        <MessageScrollerContent className="mx-auto max-w-4xl gap-8 px-6 py-8 sm:px-8">
+                          {visibleMessages.map((entry) => {
+                            const entryId = snapshot?.messageEntryIds?.[entry.lastMessageIndex]
+                            const target =
+                              entryId && snapshot?.session
+                                ? { sessionId: snapshot.session.sessionId, entryId }
+                                : null
+                            const isEditing =
+                              !!editing &&
+                              editing.target.sessionId === target?.sessionId &&
+                              editing.target.entryId === target?.entryId
+                            return (
+                              <MessageScrollerItem
+                                key={entry.id}
+                                messageId={entry.id}
+                                scrollAnchor={entry.role === 'user'}
+                              >
+                                <ChatMessage
+                                  entry={entry}
+                                  results={toolResults}
+                                  tools={snapshot?.tools ?? {}}
+                                  running={
+                                    responseActive &&
+                                    entry.lastMessageIndex >=
+                                      (snapshot?.response.messageIndex ?? 0) &&
+                                    entry === visibleMessages.at(-1)
+                                  }
+                                  responseStatus={
+                                    entry === visibleMessages.at(-1) &&
+                                    (!snapshot?.userQuestions.length || stopping)
+                                      ? responseStatus
+                                      : null
+                                  }
+                                  actionDisabled={
+                                    !target ||
+                                    busy ||
+                                    !ready ||
+                                    workspaceUnavailable ||
+                                    (entry.role === 'user' && !hasModel)
+                                  }
+                                  editing={
+                                    isEditing && editing && !workspaceUnavailable
+                                      ? { text: editing.text, busy }
+                                      : undefined
+                                  }
+                                  onStartEdit={(text) => target && setEditing({ target, text })}
+                                  onEditChange={(text) =>
+                                    setEditing((current) => (current ? { ...current, text } : null))
+                                  }
+                                  onEditCancel={() => setEditing(null)}
+                                  onEditSend={() => void sendEdit()}
+                                  onFork={() => target && void forkMessage(target)}
+                                />
+                              </MessageScrollerItem>
+                            )
+                          })}
+                          {snapshot?.userQuestions.map((request) => (
+                            <MessageScrollerItem
+                              key={request.id}
+                              messageId={`question:${request.id}`}
+                            >
+                              <UserQuestionPanel
+                                request={request}
+                                state={userQuestions.stateFor(request)}
+                                disabled={!ready || stopping || workspaceUnavailable}
+                                onDraft={(index, draft) =>
+                                  userQuestions.updateDraft(request, index, draft)
+                                }
+                                onItemChange={(item) => userQuestions.setItem(request, item)}
+                                onSubmit={() => {
+                                  if (ready && !stopping && !workspaceUnavailable)
+                                    void userQuestions.submit(draftKey, request)
+                                }}
+                              />
+                            </MessageScrollerItem>
+                          ))}
+                        </MessageScrollerContent>
+                      </MessageScrollerViewport>
+                      <MessageScrollerButton aria-label={t('跳转到最新消息')}>
+                        <ArrowDownIcon />
+                      </MessageScrollerButton>
+                    </MessageScroller>
+                  </MessageScrollerProvider>
+                ) : (
+                  <ScrollArea className="h-full">
+                    <UsageDashboard library={library} loading={loading} error={libraryError} />
+                  </ScrollArea>
+                )}
+              </div>
+              <ToolApprovalPanel
+                key={draftKey}
+                requests={snapshot?.toolApprovals ?? []}
+                autoApproval={snapshot?.autoApproval}
+                disabled={!ready || stopping}
+                onRespond={(id, approved) =>
+                  perform(() => window.api.respondToToolApproval(draftKey, id, approved), draftKey)
+                }
+              />
+              <ChatComposer
+                snapshot={snapshot}
+                hasMessages={visibleMessages.length > 0}
+                draft={draft}
+                images={chatImages.images}
+                addingImages={chatImages.adding}
+                busy={busy}
+                commandPending={commandPending}
+                stopping={stopping}
+                textarea={textarea}
+                onDraft={updateDraft}
+                onChooseImages={() => void chatImages.choose()}
+                onDropImages={chatImages.addFiles}
+                onPasteImages={(files) => chatImages.addFiles(files, true)}
+                onRemoveImage={(id) => chatImages.remove([id])}
+                onSend={() => void send()}
+                onStop={() => void stop()}
+                onChooseDirectory={() => void chooseDirectory()}
+                onOpenLogin={() => auth.onOpenChange(true)}
+                onModel={(provider, id) =>
+                  void perform(() => window.api.setModel(draftKey, provider, id), draftKey)
+                }
+                onThinking={(level) =>
+                  perform(() => window.api.setThinkingLevel(draftKey, level), draftKey)
+                }
+                onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
+              />
             </div>
-          )}
-          <div className="min-h-0 flex-1">
-            {visibleMessages.length > 0 ? (
-              <MessageScrollerProvider key={snapshot?.sessionKey} autoScroll>
-                <MessageScroller>
-                  <MessageScrollerViewport aria-label={t('对话消息')}>
-                    <MessageScrollerContent className="mx-auto max-w-4xl gap-8 px-6 py-8 sm:px-8">
-                      {visibleMessages.map((entry) => {
-                        const entryId = snapshot?.messageEntryIds?.[entry.lastMessageIndex]
-                        const target =
-                          entryId && snapshot?.session
-                            ? { sessionId: snapshot.session.sessionId, entryId }
-                            : null
-                        const isEditing =
-                          !!editing &&
-                          editing.target.sessionId === target?.sessionId &&
-                          editing.target.entryId === target?.entryId
-                        return (
-                          <MessageScrollerItem
-                            key={entry.id}
-                            messageId={entry.id}
-                            scrollAnchor={entry.role === 'user'}
-                          >
-                            <ChatMessage
-                              entry={entry}
-                              results={toolResults}
-                              tools={snapshot?.tools ?? {}}
-                              running={
-                                responseActive &&
-                                entry.lastMessageIndex >= (snapshot?.response.messageIndex ?? 0) &&
-                                entry === visibleMessages.at(-1)
-                              }
-                              responseStatus={
-                                entry === visibleMessages.at(-1) &&
-                                (!snapshot?.userQuestions.length || stopping)
-                                  ? responseStatus
-                                  : null
-                              }
-                              actionDisabled={
-                                !target ||
-                                busy ||
-                                !ready ||
-                                workspaceUnavailable ||
-                                (entry.role === 'user' && !hasModel)
-                              }
-                              editing={
-                                isEditing && editing && !workspaceUnavailable
-                                  ? { text: editing.text, busy }
-                                  : undefined
-                              }
-                              onStartEdit={(text) => target && setEditing({ target, text })}
-                              onEditChange={(text) =>
-                                setEditing((current) => (current ? { ...current, text } : null))
-                              }
-                              onEditCancel={() => setEditing(null)}
-                              onEditSend={() => void sendEdit()}
-                              onFork={() => target && void forkMessage(target)}
-                            />
-                          </MessageScrollerItem>
-                        )
-                      })}
-                      {snapshot?.userQuestions.map((request) => (
-                        <MessageScrollerItem key={request.id} messageId={`question:${request.id}`}>
-                          <UserQuestionPanel
-                            request={request}
-                            state={userQuestions.stateFor(request)}
-                            disabled={!ready || stopping || workspaceUnavailable}
-                            onDraft={(index, draft) =>
-                              userQuestions.updateDraft(request, index, draft)
-                            }
-                            onItemChange={(item) => userQuestions.setItem(request, item)}
-                            onSubmit={() => {
-                              if (ready && !stopping && !workspaceUnavailable)
-                                void userQuestions.submit(draftKey, request)
-                            }}
-                          />
-                        </MessageScrollerItem>
-                      ))}
-                    </MessageScrollerContent>
-                  </MessageScrollerViewport>
-                  <MessageScrollerButton aria-label={t('跳转到最新消息')}>
-                    <ArrowDownIcon />
-                  </MessageScrollerButton>
-                </MessageScroller>
-              </MessageScrollerProvider>
-            ) : (
-              <ScrollArea className="h-full">
-                <UsageDashboard library={library} loading={loading} error={libraryError} />
-              </ScrollArea>
-            )}
           </div>
-          <ToolApprovalPanel
-            key={draftKey}
-            requests={snapshot?.toolApprovals ?? []}
-            autoApproval={snapshot?.autoApproval}
-            disabled={!ready || stopping}
-            onRespond={(id, approved) =>
-              perform(() => window.api.respondToToolApproval(draftKey, id, approved), draftKey)
-            }
-          />
-          <ChatComposer
-            snapshot={snapshot}
-            hasMessages={visibleMessages.length > 0}
-            draft={draft}
-            images={chatImages.images}
-            addingImages={chatImages.adding}
-            busy={busy}
-            commandPending={commandPending}
-            stopping={stopping}
-            textarea={textarea}
-            onDraft={updateDraft}
-            onChooseImages={() => void chatImages.choose()}
-            onDropImages={chatImages.addFiles}
-            onPasteImages={(files) => chatImages.addFiles(files, true)}
-            onRemoveImage={(id) => chatImages.remove([id])}
-            onSend={() => void send()}
-            onStop={() => void stop()}
-            onChooseDirectory={() => void chooseDirectory()}
-            onOpenLogin={() => auth.onOpenChange(true)}
-            onModel={(provider, id) =>
-              void perform(() => window.api.setModel(draftKey, provider, id), draftKey)
-            }
-            onThinking={(level) =>
-              perform(() => window.api.setThinkingLevel(draftKey, level), draftKey)
-            }
-            onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
-          />
         </main>
       </WorkspaceLayout>
     </SidebarProvider>

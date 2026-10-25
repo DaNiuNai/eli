@@ -48,6 +48,7 @@ export interface RuntimeMethods {
   prompt: { args: [string]; result: RuntimeSessionState }
   compact: { args: [string?]; result: RuntimeSessionState }
   abort: { args: []; result: RuntimeSessionState }
+  stopBackgroundTask: { args: [string]; result: RuntimeSessionState }
   setModel: { args: [string, string]; result: RuntimeSessionState }
   setThinkingLevel: { args: [AgentThinkingLevel]; result: RuntimeSessionState }
   editMessage: { args: [AgentMessageTarget, string]; result: RuntimeSessionState }

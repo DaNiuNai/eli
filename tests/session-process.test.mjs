@@ -133,3 +133,32 @@ test('关闭正在初始化的会话会立即发起停止，而不是等待启�
     await Promise.all([closing, rejected])
   }
 })
+
+test('后台任务运行时保持 Runtime，可继续聊天并停止任务，完成后才应用设置重启', async (t) => {
+  const { session, runtimes } = harness(t)
+  await session.load()
+  runtimes[0].state.snapshot.backgroundTasks = [{ id: 'task', status: 'running' }]
+  runtimes[0].event({ kind: 'session', state: structuredClone(runtimes[0].state) })
+  assert.equal(session.busy, false)
+  session.invalidateSettings()
+  await session.prompt('后台任务期间继续工作')
+  await session.stopBackgroundTask('task')
+  assert.equal(runtimes.length, 1)
+  assert.equal(runtimes[0].stopped, 0)
+  assert.ok(runtimes[0].calls.some(({ method }) => method === 'stopBackgroundTask'))
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  runtimes[0].event({ kind: 'session', state: structuredClone(runtimes[0].state) })
+  t.mock.timers.tick(6 * 60 * 1000)
+  assert.equal(runtimes[0].stopped, 0)
+  runtimes[0].state.snapshot.backgroundTasks[0].status = 'completed'
+  runtimes[0].state.snapshot.running = true
+  runtimes[0].event({ kind: 'session', state: structuredClone(runtimes[0].state) })
+  await session.stopBackgroundTask('task')
+  assert.equal(runtimes.length, 1)
+  assert.equal(runtimes[0].stopped, 0)
+  runtimes[0].state.snapshot.running = false
+  runtimes[0].event({ kind: 'session', state: structuredClone(runtimes[0].state) })
+  await session.prompt('后台任务完成后继续工作')
+  assert.equal(runtimes.length, 2)
+  assert.equal(runtimes[0].stopped, 1)
+})

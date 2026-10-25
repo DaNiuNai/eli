@@ -6,6 +6,7 @@ import type { RuntimeConnection } from '../runtime/connection'
 import type { ToolApprovalMode } from '../shared/tool-approval'
 import type { TerminalPreference } from '../shared/terminal'
 import type { UserQuestionAnswer } from '../shared/user-question'
+import { isTaskActive } from '../shared/background-tasks'
 
 type SessionRuntime = Pick<RuntimeConnection, 'call' | 'stop'>
 
@@ -55,6 +56,9 @@ export class SessionProcess {
   get busy(): boolean {
     return this.locked || this.snapshot.running || this.snapshot.pending
   }
+  private get hasRunningTasks(): boolean {
+    return this.snapshot.backgroundTasks.some(isTaskActive)
+  }
 
   private apply(state: RuntimeSessionState, libraryChanged = false): void {
     this.state = state
@@ -82,7 +86,8 @@ export class SessionProcess {
   private async start(): Promise<SessionRuntime> {
     await this.stopping
     if (this.disposed) throw new Error('会话已关闭')
-    if (this.client && this.version === this.appliedVersion) return this.client
+    if (this.client && (this.version === this.appliedVersion || this.hasRunningTasks))
+      return this.client
     if (this.client) await this.stopClient()
     const version = this.version
     this.snapshot.connection = 'connecting'
@@ -161,6 +166,14 @@ export class SessionProcess {
   async abort(): Promise<void> {
     if (this.client) this.apply(await this.client.call('abort'))
   }
+  async stopBackgroundTask(id: unknown): Promise<void> {
+    if (this.disposed) throw new Error('会话已关闭')
+    if (typeof id !== 'string') throw new Error('无效的后台任务 ID')
+    // 任务可能刚结束；此时不能因设置失效而重启正在回复的 Runtime。
+    const client = this.client ?? (await this.ensureClient())
+    const state = await client.call('stopBackgroundTask', id)
+    if (this.client === client && !this.disposed) this.apply(state)
+  }
   async setModel(provider: string, id: string): Promise<void> {
     await this.exclusive(async () =>
       this.apply(await (await this.ensureClient()).call('setModel', provider, id))
@@ -226,7 +239,7 @@ export class SessionProcess {
   }
   async refreshProviders(): Promise<void> {
     this.invalidateSettings()
-    if (this.busy || this.starting) {
+    if (this.busy || this.starting || this.hasRunningTasks) {
       this.providerRefreshPending = true
       return
     }
@@ -245,20 +258,24 @@ export class SessionProcess {
     this.snapshot.toolApprovals = []
     this.snapshot.autoApproval = { reviewing: 0, paused: false, lastDenied: null }
     this.snapshot.userQuestions = []
+    this.snapshot.backgroundTasks = this.snapshot.backgroundTasks.map((task) =>
+      isTaskActive(task) ? { ...task, status: 'interrupted', finishedAt: Date.now() } : task
+    )
     this.snapshot.error = error instanceof Error ? error.message : String(error)
     if (this.state.summary)
       Object.assign(this.state.summary, {
         running: false,
         pending: false,
         approvalCount: 0,
-        questionCount: 0
+        questionCount: 0,
+        backgroundTaskCount: 0
       })
     void this.stopClient()
     this.changed()
   }
   private scheduleIdle(): void {
     clearTimeout(this.idleTimer)
-    if (this.busy || !this.client || this.disposed) return
+    if (this.busy || this.hasRunningTasks || !this.client || this.disposed) return
     if (this.providerRefreshPending && !this.starting) {
       this.providerRefreshPending = false
       void this.refreshProviders().catch((error: unknown) => this.fail(error))
@@ -266,7 +283,7 @@ export class SessionProcess {
     }
     this.idleTimer = setTimeout(
       () => {
-        if (!this.busy) void this.stopClient()
+        if (!this.busy && !this.hasRunningTasks) void this.stopClient()
       },
       5 * 60 * 1000
     )

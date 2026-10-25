@@ -7,6 +7,7 @@ import {
   ChevronRightIcon,
   Code2Icon,
   EllipsisIcon,
+  ListTodoIcon,
   MessageCircleQuestionIcon,
   PlusIcon,
   SearchIcon,
@@ -352,6 +353,12 @@ export function AgentSidebar({
                                               (entry.running || entry.pending)
                                           ) ? (
                                           <Spinner aria-label={t('正在处理')} />
+                                        ) : snapshot?.liveSessions.some(
+                                            (entry) =>
+                                              entry.path === session.path &&
+                                              entry.backgroundTaskCount > 0
+                                          ) ? (
+                                          <ListTodoIcon aria-label={t('后台任务运行中')} />
                                         ) : (
                                           <span aria-hidden="true" className="size-4 shrink-0" />
                                         )}

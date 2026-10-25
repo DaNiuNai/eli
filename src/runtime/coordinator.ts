@@ -25,6 +25,8 @@ import { mapMessageEntryIds } from './history'
 import { configureNetwork } from './network'
 import { desktopExtensionUi } from './extension-ui'
 import { reviewTool } from './auto-approval'
+import { BackgroundTasks } from './background-tasks'
+import { isTaskActive } from '../shared/background-tasks'
 
 export function modelInfo({
   provider,
@@ -55,6 +57,7 @@ export class RuntimeCoordinator {
   private activeTools = new Set<string>()
   private abortRequested = false
   private approvalCheckpoint = ''
+  private backgroundTasks!: BackgroundTasks
 
   constructor(
     private readonly options: Extract<RuntimeInit, { kind: 'session' }>,
@@ -107,6 +110,7 @@ export class RuntimeCoordinator {
       this.modified = info.mtimeMs
       this.submitted = true
     }
+    this.backgroundTasks = new BackgroundTasks(root, manager.getSessionId(), () => this.publish())
     await this.openAgent(manager, selection)
     this.sync()
     this.snapshot.connection = 'ready'
@@ -127,7 +131,12 @@ export class RuntimeCoordinator {
       this.options.root,
       this.options.cwd,
       this.settings,
-      hostExtension(this.interactions, this.options.terminal, () => this.agent.agent)
+      hostExtension(
+        this.interactions,
+        this.options.terminal,
+        () => this.agent.agent,
+        this.backgroundTasks
+      )
     )
     await this.loader.reload()
     const { session } = await createAgentSession({
@@ -207,6 +216,7 @@ export class RuntimeCoordinator {
     this.snapshot.toolApprovals = this.interactions.toolApprovals
     this.snapshot.autoApproval = this.interactions.autoApproval
     this.snapshot.userQuestions = this.interactions.userQuestions
+    this.snapshot.backgroundTasks = this.backgroundTasks?.list() ?? []
     const manager = this.agent?.sessionManager
     const file = manager?.getSessionFile()
     const persisted = file && existsSync(file) ? file : undefined
@@ -239,7 +249,8 @@ export class RuntimeCoordinator {
             running: this.snapshot.running,
             pending: this.snapshot.pending,
             approvalCount: this.snapshot.toolApprovals.length,
-            questionCount: this.snapshot.userQuestions.length
+            questionCount: this.snapshot.userQuestions.length,
+            backgroundTaskCount: this.snapshot.backgroundTasks.filter(isTaskActive).length
           }
         : null
     }
@@ -368,6 +379,12 @@ export class RuntimeCoordinator {
     this.publish()
     await this.agent?.abort()
     await this.operation
+  }
+
+  stopBackgroundTask(id: string): void {
+    if (typeof id !== 'string') throw new Error('无效的后台任务 ID')
+    this.backgroundTasks.stop(id)
+    this.publish()
   }
 
   async setModel(provider: string, id: string): Promise<void> {
@@ -572,6 +589,7 @@ export class RuntimeCoordinator {
     if (this.disposed) return
     this.disposed = true
     await this.abort()
+    await this.backgroundTasks?.close()
     this.unsubscribe?.()
     await this.closeAgent('quit')
     await this.settings?.flush()

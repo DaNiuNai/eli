@@ -4,6 +4,7 @@ import { Type } from 'typebox'
 import { configureTerminal } from './terminal-tool'
 import type { TerminalPreference } from '../shared/terminal'
 import type { RuntimeInteractions } from './interactions'
+import type { BackgroundTasks } from './background-tasks'
 
 const questionParameters = Type.Object({
   questions: Type.Array(
@@ -34,7 +35,8 @@ const questionParameters = Type.Object({
 export function hostExtension(
   interactions: RuntimeInteractions,
   terminal: TerminalPreference,
-  getAgent: () => AgentSession['agent']
+  getAgent: () => AgentSession['agent'],
+  tasks: BackgroundTasks
 ): ExtensionFactory {
   return (pi) => {
     let approvalBatchId: string | undefined
@@ -46,7 +48,7 @@ export function hostExtension(
     pi.on('agent_end', clearBatch)
     pi.on('session_start', (_event, ctx) => {
       clearBatch()
-      configureTerminal(pi, ctx.cwd, terminal)
+      configureTerminal(pi, ctx.cwd, terminal, tasks)
     })
     pi.registerTool({
       name: 'ask_user_question',
