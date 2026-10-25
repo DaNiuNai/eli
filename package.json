@@ -1,6 +1,6 @@
 {
   "name": "eli",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.mjs",
   "author": "example.com",
