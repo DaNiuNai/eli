@@ -69,7 +69,11 @@ export function ToolApprovalControl({
         {t(selected.label)}
         <ChevronDownIcon data-icon="inline-end" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="w-max min-w-80 max-w-[calc(100vw-2rem)]"
+      >
         <DropdownMenuGroup>
           <DropdownMenuLabel>{t('全局工具审批')}</DropdownMenuLabel>
           <DropdownMenuRadioGroup

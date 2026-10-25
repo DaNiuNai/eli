@@ -4,7 +4,7 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
-import { reviewHistory, parseToolReview, reviewTool } from '../src/runtime/auto-approval.ts'
+import { reviewHistory, reviewTool } from '../src/runtime/auto-approval.ts'
 import { parseAppPreferences } from '../src/shared/app-preferences.ts'
 
 const request = {
@@ -13,6 +13,56 @@ const request = {
   input: { path: 'file.txt', content: 'safe' }
 }
 const verdict = (decision) => ({ decision, reason: `审核结果：${decision}` })
+
+const reviewResponse = (arguments_) => ({
+  role: 'assistant',
+  stopReason: 'toolUse',
+  content: [
+    { type: 'text', text: '审核结果见工具参数。' },
+    { type: 'toolCall', id: 'review', name: 'structured_output', arguments: arguments_ }
+  ]
+})
+
+async function reviewerFixture(t, complete) {
+  const temporary = resolve('.tmp')
+  await mkdir(temporary, { recursive: true })
+  const root = await mkdtemp(join(temporary, 'auto-approval-'))
+  t.after(async () => {
+    assert.ok(root.startsWith(temporary + '\\') || root.startsWith(temporary + '/'))
+    await rm(root, { recursive: true, force: true })
+  })
+  const model = {
+    api: 'openai-completions',
+    provider: 'test',
+    id: 'review',
+    contextWindow: 32768,
+    maxTokens: 4096
+  }
+  const calls = []
+  return {
+    calls,
+    options: {
+      root,
+      cwd: root,
+      terminal: 'powershell.exe',
+      models: {
+        getAvailable: async () => [model],
+        complete: async (...args) => {
+          calls.push([
+            args[0],
+            { ...args[1], messages: structuredClone(args[1].messages) },
+            args[2]
+          ])
+          return complete(...args)
+        }
+      },
+      currentModel: model,
+      request,
+      messages: [{ role: 'user', content: '修改文件' }],
+      signal: new AbortController().signal
+    }
+  }
+}
 
 test('审核配置兼容旧设置，拒绝无效的模型选择', () => {
   assert.equal(parseAppPreferences({}).autoApprovalModel, null)
@@ -52,65 +102,190 @@ test('审核输入只保留用户消息、工具调用与用户提问答复', ()
   ])
 })
 
-test('审核响应严格校验，非结构化、缺原因、非法裁决均不能放行', () => {
-  assert.deepEqual(parseToolReview('```json\n{"decision":"allow","reason":"正常修改"}\n```'), {
-    decision: 'allow',
-    reason: '正常修改'
+test('审核使用专用结构化输出工具，正文无需是 JSON，三种裁决均读取工具参数', async (t) => {
+  let response
+  const { options, calls } = await reviewerFixture(t, () => response)
+  for (const decision of ['allow', 'deny', 'ask']) {
+    response = reviewResponse({ decision, reason: ' 正常修改 ' })
+    assert.deepEqual(await reviewTool(options), { decision, reason: '正常修改' })
+  }
+  const [, context, completionOptions] = calls[0]
+  assert.equal(context.tools.length, 1)
+  const [tool] = context.tools
+  assert.equal(tool.name, 'structured_output')
+  assert.equal(tool.execute, undefined)
+  assert.deepEqual(tool.parameters.required, ['decision', 'reason'])
+  assert.equal(tool.parameters.additionalProperties, false)
+  assert.deepEqual(
+    tool.parameters.properties.decision.anyOf.map(({ const: value }) => value),
+    ['allow', 'deny', 'ask']
+  )
+  assert.equal(completionOptions.toolChoice, 'required')
+  assert.equal(completionOptions.signal, options.signal)
+  assert.equal(completionOptions.maxRetries, 0)
+  assert.equal(calls.length, 3)
+  assert.notEqual(calls[0][1].tools[0], calls[1][1].tools[0])
+})
+
+test('未调用工具、JSON 解析失败或 Schema 校验失败时纠错，最多三次重试后仍可成功', async (t) => {
+  const malformed = reviewResponse({ decision: 'allow', reason: 'ok' })
+  malformed.content[1].argumentsError = 'invalid JSON'
+  const responses = [
+    { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: '允许修改' }] },
+    malformed,
+    reviewResponse({ decision: 'allow' }),
+    reviewResponse(verdict('allow'))
+  ]
+  let next = 0
+  const { options, calls } = await reviewerFixture(t, () => responses[next++])
+  assert.deepEqual(await reviewTool(options), verdict('allow'))
+  assert.equal(calls.length, 4)
+  for (let index = 0; index < calls.length; index++) {
+    const [, context, completionOptions] = calls[index]
+    assert.equal(context.messages.length, 1 + index * 2)
+    assert.deepEqual(context.messages[0], calls[0][1].messages[0])
+    assert.equal(completionOptions.signal, options.signal)
+    assert.equal(completionOptions.maxRetries, 0)
+    if (index === 0) continue
+    assert.deepEqual(context.messages.at(-2), responses[index - 1])
+    const feedback = context.messages.at(-1)
+    const text = typeof feedback.content === 'string' ? feedback.content : feedback.content[0].text
+    assert.match(text, /未通过格式校验/)
+    assert.match(text, /JSON Schema/)
+    assert.match(text, /不增加用户授权/)
+    if (index === 1) assert.equal(feedback.role, 'user')
+    else {
+      assert.equal(feedback.role, 'toolResult')
+      assert.equal(feedback.isError, true)
+      assert.equal(feedback.toolCallId, 'review')
+      assert.equal(feedback.toolName, 'structured_output')
+    }
+  }
+  assert.deepEqual(options.messages, [{ role: 'user', content: '修改文件' }])
+})
+
+test('连续未调用输出工具只请求四次，三次纠错仍失败才转人工', async (t) => {
+  const { options, calls } = await reviewerFixture(t, () => ({
+    role: 'assistant',
+    stopReason: 'stop',
+    content: [{ type: 'text', text: '{"decision":"allow","reason":"正文 JSON 也不算工具调用"}' }]
+  }))
+  const result = await reviewTool(options)
+  assert.equal(result.decision, 'ask')
+  assert.match(result.reason, /已重试 3 次/)
+  assert.equal(calls.length, 4)
+})
+
+test('格式纠错后返回合法 deny 或 ask 会立即生效，不继续重试裁决', async (t) => {
+  for (const decision of ['deny', 'ask']) {
+    let count = 0
+    const { options, calls } = await reviewerFixture(t, () =>
+      reviewResponse(count++ === 0 ? {} : verdict(decision))
+    )
+    assert.deepEqual(await reviewTool(options), verdict(decision))
+    assert.equal(calls.length, 2)
+  }
+})
+
+test('请求异常或供应商错误不触发格式重试，取消后迟到的结果不能继续重试或放行', async (t) => {
+  for (const stopReason of ['error', 'aborted']) {
+    const { options, calls } = await reviewerFixture(t, () => ({
+      ...reviewResponse(verdict('allow')),
+      stopReason
+    }))
+    assert.equal((await reviewTool(options)).decision, 'ask')
+    assert.equal(calls.length, 1)
+  }
+  const failed = await reviewerFixture(t, () => {
+    throw new Error('request failed')
   })
-  for (const result of [
+  await assert.rejects(reviewTool(failed.options), /request failed/)
+  assert.equal(failed.calls.length, 1)
+  for (const abortOn of [1, 2]) {
+    const controller = new AbortController()
+    let count = 0
+    const { options, calls } = await reviewerFixture(t, () => {
+      if (++count === abortOn) controller.abort()
+      return reviewResponse(count === 1 ? {} : verdict('allow'))
+    })
+    await assert.rejects(reviewTool({ ...options, signal: controller.signal }), {
+      name: 'AbortError'
+    })
+    assert.equal(calls.length, abortOn)
+  }
+})
+
+test('纠错历史也计入上下文预算，超出后转人工且不截断原始审核输入', async (t) => {
+  const { options, calls } = await reviewerFixture(t, () => ({
+    role: 'assistant',
+    stopReason: 'stop',
+    content: [{ type: 'text', text: 'x'.repeat(40000) }]
+  }))
+  const review = await reviewTool(options)
+  assert.equal(review.decision, 'ask')
+  assert.match(review.reason, /上下文过大/)
+  assert.equal(calls.length, 1)
+  assert.equal(JSON.parse(calls[0][1].messages[0].content).history[0].content, '修改文件')
+})
+
+test('完整 API 调用保留审核请求关闭扩展思考的设置，并遵守模型输出上限', async (t) => {
+  const { options, calls } = await reviewerFixture(t, () => reviewResponse(verdict('allow')))
+  options.currentModel.maxTokens = 512
+  for (const api of ['anthropic-messages', 'google-generative-ai', 'google-vertex']) {
+    options.currentModel.api = api
+    assert.equal((await reviewTool(options)).decision, 'allow')
+    const completionOptions = calls.at(-1)[2]
+    assert.equal(completionOptions.toolChoice, api === 'anthropic-messages' ? 'auto' : 'any')
+    assert.equal(completionOptions.maxTokens, 512)
+    if (api === 'anthropic-messages') assert.equal(completionOptions.thinkingEnabled, false)
+    else assert.deepEqual(completionOptions.thinking, { enabled: false })
+  }
+})
+
+test('审核工具参数严格校验，非对象、缺原因、非法裁决和额外字段均不能放行', async (t) => {
+  let response
+  const { options, calls } = await reviewerFixture(t, () => response)
+  for (const value of [
+    null,
+    [],
     'allow',
-    '{}',
-    '{"decision":"allow"}',
-    '{"decision":"allow","reason":""}',
-    '{"decision":"approved","reason":"yes"}',
-    '{"decision":"allow","reason":"ok"} extra'
+    {},
+    { decision: 'allow' },
+    { decision: 'allow', reason: '' },
+    { decision: 'allow', reason: ' \n\t' },
+    { decision: 'allow', reason: 123 },
+    { decision: 'allow', reason: 'x'.repeat(1001) },
+    { decision: 'approved', reason: 'yes' },
+    { decision: 'allow', reason: 'ok', extra: true }
   ]) {
-    assert.throws(() => parseToolReview(result))
+    response = reviewResponse(value)
+    const before = calls.length
+    const review = await reviewTool(options)
+    assert.equal(review.decision, 'ask')
+    assert.match(review.reason, /格式无效/)
+    assert.match(review.reason, /已重试 3 次/)
+    assert.equal(calls.length - before, 4)
   }
 })
 
 test('完整上下文超出预算或模型输出截断时不能批准，不截掉用户早期限制', async (t) => {
-  const temporary = resolve('.tmp')
-  await mkdir(temporary, { recursive: true })
-  const root = await mkdtemp(join(temporary, 'auto-approval-'))
-  t.after(async () => {
-    assert.ok(root.startsWith(temporary + '\\') || root.startsWith(temporary + '/'))
-    await rm(root, { recursive: true, force: true })
-  })
-  const model = { provider: 'test', id: 'review', contextWindow: 32768 }
-  let requests = 0
-  const models = {
-    getAvailable: async () => [model],
-    completeSimple: async () => {
-      requests++
-      return {
-        stopReason: 'length',
-        content: [{ type: 'text', text: '{"decision":"allow","reason":"ok"}' }]
-      }
-    }
-  }
-  const options = {
-    root,
-    cwd: root,
-    terminal: 'powershell.exe',
-    models,
-    currentModel: model,
-    request,
-    signal: new AbortController().signal
-  }
+  const { options, calls } = await reviewerFixture(t, () => ({
+    ...reviewResponse(verdict('allow')),
+    stopReason: 'length'
+  }))
   const tooLarge = await reviewTool({
     ...options,
     messages: [{ role: 'user', content: '不得删除文件。' + 'x'.repeat(40000) }]
   })
   assert.equal(tooLarge.decision, 'ask')
   assert.match(tooLarge.reason, /上下文过大/)
-  assert.equal(requests, 0)
+  assert.equal(calls.length, 0)
   const truncated = await reviewTool({
     ...options,
     messages: [{ role: 'user', content: '修改文件' }]
   })
   assert.equal(truncated.decision, 'ask')
-  assert.equal(requests, 1)
+  assert.equal(calls.length, 4)
 })
 
 test('自动拒绝可继续，连续第三次拒绝转人工；重新开启后恢复且不影响其他会话', async () => {

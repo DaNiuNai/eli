@@ -108,13 +108,35 @@ app.whenReady().then(async () => {
         )
       send({ role: 'assistant', content: '' })
       if (body.model === 'reviewer') {
-        // 三个审核全部到达才返回，串行审核会卡住此屏障。
-        await new Promise((resolve) => {
-          reviewReplies.push(resolve)
-          if (reviewReplies.length === 3) for (const finish of reviewReplies.toReversed()) finish()
-        })
-        send({ content: JSON.stringify({ decision: 'allow', reason: '用户要求创建测试文件' }) })
-        send({}, 'stop')
+        const firstAttempt = !body.messages.some(({ role }) => role === 'assistant')
+        if (firstAttempt) {
+          // 三个首次审核全部到达才返回，串行审核会卡住此屏障。
+          await new Promise((resolve) => {
+            reviewReplies.push(resolve)
+            if (reviewReplies.length === 3)
+              for (const finish of reviewReplies.toReversed()) finish()
+          })
+        }
+        const context = JSON.parse(body.messages.find(({ role }) => role === 'user').content)
+        if (firstAttempt && context.pendingTool.input.path === 'approved-0.txt') {
+          send({ content: '允许创建测试文件' })
+          send({}, 'stop')
+        } else {
+          send({
+            tool_calls: [
+              {
+                index: 0,
+                id: 'structured-review',
+                type: 'function',
+                function: {
+                  name: 'structured_output',
+                  arguments: JSON.stringify({ decision: 'allow', reason: '用户要求创建测试文件' })
+                }
+              }
+            ]
+          })
+          send({}, 'tool_calls')
+        }
       } else if (body.messages.at(-1).role !== 'tool') {
         send({
           tool_calls: Array.from({ length: 3 }, (_, index) => ({
@@ -303,7 +325,18 @@ app.whenReady().then(async () => {
     assert.equal(reviewReplies.length, 3)
     for (let index = 0; index < 3; index++)
       assert.equal(readFileSync(join(cwd, `approved-${index}.txt`), 'utf8'), 'electron-approved')
-    assert.ok(requests.some((body) => body.model === 'reviewer' && !body.tools?.length))
+    const reviews = requests.filter((body) => body.model === 'reviewer')
+    assert.equal(reviews.length, 4)
+    for (const body of reviews) {
+      assert.equal(body.tools.length, 1)
+      assert.equal(body.tools[0].function.name, 'structured_output')
+      assert.deepEqual(body.tools[0].function.parameters.required, ['decision', 'reason'])
+      assert.equal(body.tool_choice, 'required')
+    }
+    const retried = reviews.find((body) => body.messages.some(({ role }) => role === 'assistant'))
+    assert.ok(retried)
+    assert.equal(retried.messages.at(-2).content, '允许创建测试文件')
+    assert.match(retried.messages.at(-1).content, /未通过格式校验/)
     assert.ok(requests.some((body) => body.model === 'local' && body.reasoning_effort === 'max'))
     assert.ok(states.every((state) => !state.snapshot.toolApprovals.length))
     const systemPrompt = requests

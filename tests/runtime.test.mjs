@@ -113,13 +113,26 @@ async function modelServer(t, data, review) {
     send({ role: 'assistant', content: '' })
     if (reviewing) {
       const result = await review?.(body)
-      send({
-        content:
-          typeof result === 'string'
-            ? result
-            : JSON.stringify(result ?? { decision: 'ask', reason: '测试需手动确认' })
-      })
-      send({}, 'stop')
+      if (typeof result === 'string') {
+        send({ content: result })
+        send({}, 'stop')
+      } else {
+        send({ content: '审核结果已通过工具提交。' })
+        send({
+          tool_calls: [
+            {
+              index: 0,
+              id: 'structured-review',
+              type: 'function',
+              function: {
+                name: 'structured_output',
+                arguments: JSON.stringify(result ?? { decision: 'ask', reason: '测试需手动确认' })
+              }
+            }
+          ]
+        })
+        send({}, 'tool_calls')
+      }
       res.end('data: [DONE]\n\n')
       return
     }
@@ -483,7 +496,10 @@ test('自动批准使用独立模型，真实写入通过审核后执行', async
   assert.equal(await readFile(join(paths.cwd, 'approved.txt'), 'utf8'), 'approved')
   const review = requests.find((body) => body.model === 'reviewer')
   assert.ok(review)
-  assert.ok(!review.tools?.length)
+  assert.equal(review.tools.length, 1)
+  assert.equal(review.tools[0].function.name, 'structured_output')
+  assert.deepEqual(review.tools[0].function.parameters.required, ['decision', 'reason'])
+  assert.equal(review.tool_choice, 'required')
   const context = JSON.parse(review.messages.find((message) => message.role === 'user').content)
   assert.ok(
     context.history.some(
@@ -493,6 +509,48 @@ test('自动批准使用独立模型，真实写入通过审核后执行', async
   assert.equal(context.pendingTool.toolName, 'write')
   assert.ok(requests.filter((body) => body.model === 'local').length >= 2)
   assert.ok(session.states.every((state) => state.snapshot.toolApprovals.length === 0))
+})
+
+test('审核先漏掉工具调用、再返回无效参数，纠错成功后才执行实际工具', async (t) => {
+  const paths = await fixture(t)
+  let count = 0
+  const requests = await modelServer(t, paths.data, () => {
+    count++
+    if (count === 1) return '允许创建文件'
+    if (count === 2) return { decision: 'allow' }
+    return { decision: 'allow', reason: '用户要求写入项目文件' }
+  })
+  const session = runtime(t)
+  await initialize(session.connection, paths, undefined, undefined, 'auto')
+  await session.connection.call('prompt', 'WRITE_TOOL 请创建 approved.txt')
+  await until(() =>
+    session.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.length >= 4
+    )
+  )
+  assert.equal(count, 3)
+  assert.equal(await readFile(join(paths.cwd, 'approved.txt'), 'utf8'), 'approved')
+  const reviews = requests.filter((body) => body.model === 'reviewer')
+  assert.equal(reviews.length, 3)
+  assert.equal(reviews[1].messages.at(-2).content, '允许创建文件')
+  assert.equal(reviews[1].messages.at(-1).role, 'user')
+  assert.match(reviews[1].messages.at(-1).content, /未通过格式校验/)
+  assert.equal(reviews[2].messages.at(-1).role, 'tool')
+  assert.equal(reviews[2].messages.at(-1).tool_call_id, reviews[2].messages.at(-2).tool_calls[0].id)
+  assert.match(reviews[2].messages.at(-1).content, /JSON Schema/)
+  for (const review of reviews) assert.deepEqual(review.messages[1], reviews[0].messages[1])
+  assert.ok(session.states.every((state) => state.snapshot.toolApprovals.length === 0))
+  assert.ok(
+    session.states.every((state) =>
+      state.snapshot.messages.every(
+        (message) =>
+          message.role !== 'assistant' ||
+          !message.content.some(
+            (part) => part.type === 'toolCall' && part.name === 'structured_output'
+          )
+      )
+    )
+  )
 })
 
 test('同轮工具并行审核，乱序返回与人工确认仍对应各自调用', async (t) => {
@@ -662,21 +720,27 @@ test('自动拒绝返回原因供 Agent 继续，连续三次后人工接管', a
 test('审核返回 ask 或无效响应均回退人工，用户拒绝结束本轮', async (t) => {
   const paths = await fixture(t)
   let result = 'invalid classifier response'
-  await modelServer(t, paths.data, () => result)
+  const requests = await modelServer(t, paths.data, () => result)
   const session = runtime(t)
   await initialize(session.connection, paths)
   await session.connection.call('configure', 'auto')
   for (let i = 0; i < 2; i++) {
+    const before = requests.filter((body) => body.model === 'reviewer').length
     session.states.length = 0
     await session.connection.call('prompt', 'WRITE_TOOL')
     const pending = await until(() =>
       session.states.findLast((state) => state.snapshot.toolApprovals.length)
     )
     assert.match(pending.snapshot.toolApprovals[0].reason, i === 0 ? /格式无效/ : /请明确目标/)
+    assert.equal(
+      requests.filter((body) => body.model === 'reviewer').length - before,
+      i === 0 ? 4 : 1
+    )
+    if (i === 0) assert.match(pending.snapshot.toolApprovals[0].reason, /已重试 3 次/)
     await session.connection.call('approve', pending.snapshot.toolApprovals[0].id, false)
     await until(() => session.states.findLast((state) => !state.snapshot.running))
     await assert.rejects(readFile(join(paths.cwd, 'approved.txt')), { code: 'ENOENT' })
-    result = JSON.stringify({ decision: 'ask', reason: '请明确目标' })
+    result = { decision: 'ask', reason: '请明确目标' }
   }
 })
 
