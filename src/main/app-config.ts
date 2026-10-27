@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import { EliConfigStore } from '../config/store'
 import {
   defaultAppPreferences,
@@ -29,6 +30,7 @@ export class AppConfig {
       }
     )
     this.preferences = (await this.store.read()).app
+    this.validateWorkingDirectory(this.preferences)
     if (this.firstLaunch) await this.store.update(() => {})
   }
 
@@ -38,6 +40,7 @@ export class AppConfig {
 
   set(value: unknown): Promise<void> {
     const next = parseAppPreferences(value)
+    this.validateWorkingDirectory(next)
     const writing = this.pending.then(async () => {
       await this.store.update((config) => {
         config.app = next
@@ -50,5 +53,11 @@ export class AppConfig {
 
   flush(): Promise<void> {
     return this.pending
+  }
+
+  private validateWorkingDirectory(preferences: AppPreferences): void {
+    if (preferences.defaultWorkingDirectory && !isAbsolute(preferences.defaultWorkingDirectory)) {
+      throw new Error('默认工作目录必须是绝对路径')
+    }
   }
 }

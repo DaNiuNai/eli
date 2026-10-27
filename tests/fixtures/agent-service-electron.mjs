@@ -3,7 +3,16 @@ import { emptySessionSnapshot } from '../../src/shared/agent-state.ts'
 
 export const fixture = {
   runtimes: [],
+  documents: '',
+  models: [],
   library: { sessions: [], usage: [], updatedAt: 0, warning: null }
+}
+
+export const app = {
+  getPath(name) {
+    if (name !== 'documents') throw new Error(`未预期的系统目录：${name}`)
+    return fixture.documents
+  }
 }
 
 export class BrowserWindow extends EventEmitter {
@@ -63,7 +72,16 @@ export const utilityProcess = {
                 child.state = {
                   snapshot: {
                     ...emptySessionSnapshot(options.cwd, options.sessionKey, options.sessionFile),
-                    connection: 'ready'
+                    connection: 'ready',
+                    models: fixture.models,
+                    model:
+                      fixture.models.find(
+                        (model) =>
+                          model.provider === options.selection?.provider &&
+                          model.id === options.selection.modelId
+                      ) ??
+                      fixture.models[0] ??
+                      null
                   },
                   summary: null,
                   persistedFile: options.sessionFile
@@ -71,6 +89,15 @@ export const utilityProcess = {
               }
               result = child.state ?? null
               break
+            case 'setModel': {
+              const [provider, id] = request.args
+              child.state.snapshot.model = fixture.models.find(
+                (model) => model.provider === provider && model.id === id
+              )
+              if (!child.state.snapshot.model) throw new Error('请选择可用的模型')
+              result = child.state
+              break
+            }
             case 'getLibrary':
               result = fixture.library
               break

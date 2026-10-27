@@ -4,7 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { AgentService } from './agent-service'
 import { windowAppearanceChannel } from '../shared/window-appearance'
-import { appPreferencesChannels } from '../shared/app-preferences'
+import { appPreferencesChannels, isUiLanguage } from '../shared/app-preferences'
 import { AppConfig } from './app-config'
 import { terminalChannels } from '../shared/terminal'
 import { discoverTerminals, validateTerminal } from './terminal'
@@ -81,6 +81,16 @@ function createWindow(): void {
     assertSender(event)
     return appConfig.get()
   })
+  ipcMain.handle(appPreferencesChannels.chooseDirectory, async (event, language: unknown) => {
+    assertSender(event)
+    if (language !== undefined && !isUiLanguage(language)) throw new Error('无效的界面语言')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: language === 'en' ? 'Choose default workspace' : '选择默认工作目录',
+      defaultPath: appConfig.get().defaultWorkingDirectory ?? join(app.getPath('documents'), 'eli'),
+      properties: ['openDirectory']
+    })
+    return result.canceled ? undefined : result.filePaths[0]
+  })
   ipcMain.handle(appUpdatesChannels.get, (event) => {
     assertSender(event)
     return appUpdates.get()
@@ -127,12 +137,14 @@ function createWindow(): void {
     mainWindow,
     appConfig.firstLaunch,
     () => appConfig.get().toolApprovalMode,
-    () => appConfig.get().terminal
+    () => appConfig.get().terminal,
+    () => appConfig.get().defaultWorkingDirectory
   )
   agentService.register()
   mainWindow.on('closed', () => {
     ipcMain.removeHandler(appPreferencesChannels.get)
     ipcMain.removeHandler(appPreferencesChannels.set)
+    ipcMain.removeHandler(appPreferencesChannels.chooseDirectory)
     ipcMain.removeHandler(appUpdatesChannels.get)
     ipcMain.removeHandler(appUpdatesChannels.check)
     ipcMain.removeHandler(appUpdatesChannels.openRelease)

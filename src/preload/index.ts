@@ -109,7 +109,9 @@ contextBridge.exposeInMainWorld('providers', providers)
 
 const appPreferences: AppPreferencesApi = {
   get: () => ipcRenderer.invoke(appPreferencesChannels.get),
-  set: (preferences) => ipcRenderer.invoke(appPreferencesChannels.set, preferences)
+  set: (preferences) => ipcRenderer.invoke(appPreferencesChannels.set, preferences),
+  chooseDirectory: (language) =>
+    ipcRenderer.invoke(appPreferencesChannels.chooseDirectory, language)
 }
 
 contextBridge.exposeInMainWorld('appPreferences', appPreferences)

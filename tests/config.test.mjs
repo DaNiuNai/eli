@@ -195,6 +195,38 @@ test('旧版顶层应用偏好不自动迁移到新配置', async (t) => {
   assert.equal(Object.hasOwn(saved, 'theme'), false)
 })
 
+test('默认工作目录可保存、重载和恢复默认，并拒绝无效路径', async (t) => {
+  const { root, path } = await fixture(t)
+  const app = new AppConfig(path)
+  await app.load()
+  assert.equal(app.get().defaultWorkingDirectory, null)
+  const directory = join(root, '自定义工作目录')
+  await app.set({ ...app.get(), defaultWorkingDirectory: directory })
+  const restored = new AppConfig(path)
+  await restored.load()
+  assert.equal(restored.get().defaultWorkingDirectory, directory)
+  assert.equal((await new EliConfigStore(path).read()).app.defaultWorkingDirectory, directory)
+
+  const before = await readFile(path, 'utf8')
+  for (const defaultWorkingDirectory of ['', '  ', 'relative/path', 42, false, {}, 'bad\npath']) {
+    assert.throws(
+      () => app.set({ ...app.get(), defaultWorkingDirectory }),
+      /无效的默认工作目录|默认工作目录必须是绝对路径/
+    )
+    assert.equal(await readFile(path, 'utf8'), before)
+    assert.equal(app.get().defaultWorkingDirectory, directory)
+  }
+
+  await app.set({ ...app.get(), defaultWorkingDirectory: null })
+  await restored.load()
+  assert.equal(restored.get().defaultWorkingDirectory, null)
+  await writeFile(
+    path,
+    JSON.stringify({ version: 1, app: { defaultWorkingDirectory: 'relative' } })
+  )
+  await assert.rejects(restored.load(), /默认工作目录必须是绝对路径/)
+})
+
 test('已有布局补全任务面板宽度，保存后可恢复并拒绝非法宽度', async (t) => {
   const { path } = await fixture(t)
   await writeFile(path, JSON.stringify({ version: 1, app: { sidebarWidth: 320 } }))

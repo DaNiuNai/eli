@@ -28,16 +28,19 @@ export interface AppPreferences {
   toolApprovalMode: ToolApprovalMode
   autoApprovalModel: AutoApprovalModel | null
   terminal: TerminalPreference | null
+  defaultWorkingDirectory: string | null
 }
 
 export interface AppPreferencesApi {
   get(): Promise<AppPreferences>
   set(preferences: AppPreferences): Promise<void>
+  chooseDirectory(language?: UiLanguage): Promise<string | undefined>
 }
 
 export const appPreferencesChannels = {
   get: 'app-preferences:get',
-  set: 'app-preferences:set'
+  set: 'app-preferences:set',
+  chooseDirectory: 'app-preferences:choose-directory'
 } as const
 
 export function isTheme(value: unknown): value is Theme {
@@ -59,7 +62,8 @@ export function defaultAppPreferences(): AppPreferences {
     archivedWorkspaces: [],
     toolApprovalMode: 'request',
     autoApprovalModel: null,
-    terminal: null
+    terminal: null,
+    defaultWorkingDirectory: null
   }
 }
 
@@ -86,6 +90,15 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     value.tasksPanelWidth === undefined ? defaults.tasksPanelWidth : value.tasksPanelWidth
   const toolApprovalMode =
     value.toolApprovalMode === undefined ? defaults.toolApprovalMode : value.toolApprovalMode
+  const defaultWorkingDirectory = value.defaultWorkingDirectory ?? defaults.defaultWorkingDirectory
+  if (
+    defaultWorkingDirectory !== null &&
+    (typeof defaultWorkingDirectory !== 'string' ||
+      !defaultWorkingDirectory.trim() ||
+      /[\r\n\0]/.test(defaultWorkingDirectory))
+  ) {
+    throw new Error('无效的默认工作目录')
+  }
   if (!isTheme(theme)) throw new Error('无效的主题设置')
   if (!isUiLanguage(language)) throw new Error('无效的语言设置')
   if (typeof sidebarOpen !== 'boolean') throw new Error('无效的侧栏展开设置')
@@ -137,6 +150,7 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     archivedWorkspaces,
     toolApprovalMode,
     autoApprovalModel: parseAutoApprovalModel(value.autoApprovalModel),
-    terminal: parseTerminalPreference(value.terminal)
+    terminal: parseTerminalPreference(value.terminal),
+    defaultWorkingDirectory: defaultWorkingDirectory?.trim() ?? null
   }
 }

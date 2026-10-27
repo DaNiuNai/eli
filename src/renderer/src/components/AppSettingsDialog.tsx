@@ -39,6 +39,7 @@ import { ProviderAuthDialog } from './ProviderAuthDialog'
 import { ProviderSettingsPanel } from './ProviderSettingsPanel'
 import type { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { TerminalSettings } from './TerminalSettings'
+import { DefaultWorkspaceSettings } from './DefaultWorkspaceSettings'
 import { AboutSettings } from './AboutSettings'
 import { AutoApprovalSettings } from './AutoApprovalSettings'
 import { SkillsSettingsPanel } from './SkillsSettingsPanel'
@@ -93,6 +94,7 @@ function GeneralSettings(): React.JSX.Element {
           </Field>
         </FieldGroup>
       </section>
+      <DefaultWorkspaceSettings />
       <section className="flex flex-col gap-6">
         <TerminalSettings />
       </section>
@@ -126,6 +128,9 @@ export function AppSettingsDialog({
     '账号',
     'API 密钥',
     '终端',
+    '默认工作目录',
+    '目录',
+    '文件夹',
     '自动批准',
     '自动审核',
     '审批',
@@ -138,6 +143,9 @@ export function AppSettingsDialog({
     'account',
     'api key',
     'terminal',
+    'workspace',
+    'directory',
+    'folder',
     'shell',
     'powershell',
     'bash',

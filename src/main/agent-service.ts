@@ -1,6 +1,6 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { relative, resolve } from 'node:path'
-import { stat } from 'node:fs/promises'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { join, relative, resolve } from 'node:path'
+import { mkdir, stat } from 'node:fs/promises'
 import { agentChannels, type AgentSnapshot, type AgentThinkingLevel } from '../shared/agent'
 import { SessionProcess } from './session-process'
 import { startRuntimeProcess } from './runtime-process'
@@ -64,7 +64,8 @@ export class AgentService {
     private readonly window: BrowserWindow,
     private readonly firstLaunch = false,
     private readonly approvalMode: () => ToolApprovalMode = () => 'request',
-    private readonly terminal: () => TerminalPreference | null = () => null
+    private readonly terminal: () => TerminalPreference | null = () => null,
+    private readonly defaultWorkingDirectory: () => string | null = () => null
   ) {}
 
   private controller(): Promise<RuntimeConnection> {
@@ -535,6 +536,9 @@ export class AgentService {
     this.connecting = this.navigate(async () => {
       if (!this.current) {
         await this.controller()
+        const directory = this.defaultWorkingDirectory() ?? join(app.getPath('documents'), 'eli')
+        await mkdir(directory, { recursive: true })
+        await this.newSession(directory)
       } else if (restart) {
         const session = this.current
         await session.exclusive(async () => {

@@ -579,6 +579,15 @@ const english: Record<string, string> = {
   搜索历史会话: 'Search session history',
   '搜索对话…': 'Search conversations…',
   工作目录: 'Workspace',
+  默认工作目录: 'Default workspace',
+  '启动时使用此目录。修改自动保存，并在下次启动时生效。':
+    'Use this folder at startup. Changes are saved automatically and take effect the next time you start the app.',
+  '文档目录下的 eli 文件夹': 'The eli folder in Documents',
+  选择文件夹: 'Choose folder',
+  恢复默认值: 'Restore default',
+  无法保存默认工作目录: 'Could not save the default workspace',
+  无效的默认工作目录: 'Invalid default workspace',
+  默认工作目录必须是绝对路径: 'The default workspace must be an absolute path',
   工作目录不可用: 'Workspace unavailable',
   '工作目录文件夹已被移除或无法访问，当前会话仅可查看历史消息。':
     'The workspace folder has been removed or cannot be accessed. You can still view this conversation’s history.',
