@@ -72,10 +72,14 @@ jobs:
             os: windows-latest
             args: --win nsis --x64
             artifact: dist/*-win-x64-setup.exe
-          - platform: macOS
+          - platform: macOS (arm64)
             os: macos-latest
             args: --mac dmg --arm64
             artifact: dist/*-mac-arm64.dmg
+          - platform: macOS (x64)
+            os: macos-15-intel
+            args: --mac dmg --x64
+            artifact: dist/*-mac-x64.dmg
           - platform: Linux
             os: ubuntu-latest
             args: --linux deb --x64
