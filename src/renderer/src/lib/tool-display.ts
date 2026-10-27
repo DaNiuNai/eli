@@ -71,7 +71,17 @@ export function getToolTarget(call: ToolCall, args: Record<string, unknown>): st
     const question = asRecord(args.questions[0])
     if (typeof question.question === 'string') return question.question
   }
-  for (const key of ['path', 'file_path', 'command', 'task_id', 'pattern', 'query', 'url']) {
+  for (const key of [
+    'task_name',
+    'target',
+    'path',
+    'file_path',
+    'command',
+    'task_id',
+    'pattern',
+    'query',
+    'url'
+  ]) {
     if (typeof args[key] === 'string' && args[key]) return args[key]
   }
   return call.name

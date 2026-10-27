@@ -55,6 +55,7 @@ export function ToolApprovalPanel({
           <ShieldQuestionIcon />
           <AlertTitle>
             {t('等待工具审批')} · {request.toolName}
+            {request.agentId && ` · ${request.agentId}`}
           </AlertTitle>
           <AlertDescription className="flex min-w-0 flex-col gap-3">
             <span>{t('此工具尚未执行，请检查参数后选择是否放行。')}</span>

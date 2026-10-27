@@ -242,6 +242,7 @@ export function UserQuestionPanel({
         <Bubble variant="outline" className="w-full max-w-full">
           <BubbleContent className="w-full">
             <section aria-label={t('回答问题')} className="flex min-w-0 flex-col gap-4 py-2">
+              {request.agentId && <Badge variant="secondary">{request.agentId}</Badge>}
               {state.failed && (
                 <Alert variant="destructive">
                   <AlertTitle>{t('答案未提交')}</AlertTitle>

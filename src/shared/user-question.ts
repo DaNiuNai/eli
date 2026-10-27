@@ -13,6 +13,7 @@ export interface UserQuestion {
 
 export interface UserQuestionRequest {
   id: string
+  agentId?: string
   toolCallId: string
   questions: UserQuestion[]
 }

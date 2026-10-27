@@ -13,6 +13,7 @@ export interface AutoApprovalState {
 
 export interface ToolApprovalRequest {
   id: string
+  agentId?: string
   toolCallId: string
   toolName: string
   input: Record<string, unknown>

@@ -24,6 +24,8 @@ const api: AgentApi = {
   abort: (sessionKey) => ipcRenderer.invoke(agentChannels.abort, sessionKey),
   stopBackgroundTask: (sessionKey, id) =>
     ipcRenderer.invoke(agentChannels.stopBackgroundTask, sessionKey, id),
+  controlSubagent: (sessionKey, action) =>
+    ipcRenderer.invoke(agentChannels.controlSubagent, sessionKey, action),
   respondToToolApproval: (sessionKey, id, approved) =>
     ipcRenderer.invoke(agentChannels.respondToToolApproval, sessionKey, id, approved),
   respondToUserQuestion: (sessionKey, id, answers) =>

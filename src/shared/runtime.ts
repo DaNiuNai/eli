@@ -14,6 +14,7 @@ import type { UserQuestionAnswer } from './user-question'
 import type { ProviderChange, ProvidersSnapshot } from './providers'
 import type { UserSkill } from './skills'
 import type { ManagedMcpServer, McpAuthSnapshot, McpConnectionTest, McpServerChange } from './mcp'
+import type { SubagentAction } from './subagents'
 
 export const runtimeProtocolVersion = 1
 export const mainAgentId = 'main'
@@ -39,7 +40,7 @@ export interface RuntimeSessionState {
   persistedFile?: string
 }
 
-/** 应用自有协议。agentId 是团队成员的路由边界，本次只开放 main。 */
+/** Electron 只访问主会话；成员路由和团队调度由 Runtime 管理。 */
 export interface RuntimeMethods {
   getProviders: { args: []; result: ProvidersSnapshot }
   changeProvider: { args: [ProviderChange]; result: ProvidersSnapshot }
@@ -49,6 +50,7 @@ export interface RuntimeMethods {
   compact: { args: [string?]; result: RuntimeSessionState }
   abort: { args: []; result: RuntimeSessionState }
   stopBackgroundTask: { args: [string]; result: RuntimeSessionState }
+  controlSubagent: { args: [SubagentAction]; result: RuntimeSessionState }
   setModel: { args: [string, string]; result: RuntimeSessionState }
   setThinkingLevel: { args: [AgentThinkingLevel]; result: RuntimeSessionState }
   editMessage: { args: [AgentMessageTarget, string]; result: RuntimeSessionState }

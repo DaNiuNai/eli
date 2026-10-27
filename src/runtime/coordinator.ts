@@ -12,7 +12,12 @@ import {
   type SettingsManager
 } from '@earendil-works/pi-coding-agent'
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
-import type { AgentMessageTarget, AgentModelInfo, AgentThinkingLevel } from '../shared/agent'
+import type {
+  AgentMessage,
+  AgentMessageTarget,
+  AgentModelInfo,
+  AgentThinkingLevel
+} from '../shared/agent'
 import { emptySessionSnapshot } from '../shared/agent-state'
 import type { RuntimeInit, RuntimeSessionState } from '../shared/runtime'
 import { createSettings } from './settings'
@@ -27,6 +32,22 @@ import { desktopExtensionUi } from './extension-ui'
 import { reviewTool } from './auto-approval'
 import { BackgroundTasks } from './background-tasks'
 import { isTaskActive } from '../shared/background-tasks'
+import {
+  isSubagentActive,
+  rootAgentId,
+  type SubagentAction,
+  type SubagentMessage
+} from '../shared/subagents'
+import { SubagentTeam } from './subagents'
+import type { ToolApprovalMode } from '../shared/tool-approval'
+import type { UserQuestionAnswer } from '../shared/user-question'
+
+interface CollaborationBinding {
+  team: SubagentTeam
+  id: string
+  directory: string
+  messages?: AgentMessage[]
+}
 
 export function modelInfo({
   provider,
@@ -37,7 +58,7 @@ export function modelInfo({
   return { provider, id, contextWindow, reasoning }
 }
 
-/** 一个用户会话的调度边界。只持有 main；后续成员、任务与模式在此扩展，不进入 Electron。 */
+/** 单个 Agent 的 SDK 生命周期；主成员同时持有当前用户会话的协作团队。 */
 export class RuntimeCoordinator {
   readonly snapshot
   readonly interactions: RuntimeInteractions
@@ -58,12 +79,17 @@ export class RuntimeCoordinator {
   private abortRequested = false
   private approvalCheckpoint = ''
   private backgroundTasks!: BackgroundTasks
+  private team!: SubagentTeam
+  private approvalMode: ToolApprovalMode
+  private deferredCollaboration: { text: string; wake: boolean; details?: SubagentMessage }[] = []
 
   constructor(
     private readonly options: Extract<RuntimeInit, { kind: 'session' }>,
-    private readonly changed: (libraryChanged?: boolean) => void
+    private readonly changed: (libraryChanged?: boolean) => void,
+    private readonly collaboration?: CollaborationBinding
   ) {
     this.snapshot = emptySessionSnapshot(options.cwd, options.sessionKey, options.sessionFile)
+    this.approvalMode = options.approvalMode
     this.interactions = new RuntimeInteractions(
       options.approvalMode,
       () => {
@@ -98,12 +124,20 @@ export class RuntimeCoordinator {
   async initialize(): Promise<void> {
     const { root, cwd, sessionFile, sessionKey, selection } = this.options
     this.settings = await createSettings(root)
-    await configureNetwork(this.settings)
+    // 同一 Runtime 的所有成员共享连接池，创建成员不能关闭其他成员正在使用的连接。
+    if (!this.collaboration) await configureNetwork(this.settings)
     this.models = await createModels(root)
-    const directory = workspaceSessionDirectory(root, cwd)
+    const directory = this.collaboration?.directory ?? workspaceSessionDirectory(root, cwd)
     const manager = sessionFile
       ? SessionManager.open(sessionFile, directory)
       : SessionManager.create(cwd, directory, { id: sessionKey })
+    if (!sessionFile && this.collaboration?.messages) {
+      for (const message of this.collaboration.messages) {
+        if (message.role === 'branchSummary' || message.role === 'compactionSummary') {
+          manager.appendCustomMessageEntry('eli.inherited-context', message.summary, false)
+        } else manager.appendMessage(message)
+      }
+    }
     if (sessionFile) {
       const info = await stat(sessionFile)
       this.created = new Date(manager.getHeader()?.timestamp ?? info.birthtimeMs).getTime()
@@ -111,7 +145,40 @@ export class RuntimeCoordinator {
       this.submitted = true
     }
     this.backgroundTasks = new BackgroundTasks(root, manager.getSessionId(), () => this.publish())
+    if (this.collaboration) this.team = this.collaboration.team
+    else {
+      const memberDirectory = join(directory, 'subagents', manager.getSessionId())
+      this.team = new SubagentTeam(
+        memberDirectory,
+        this,
+        (member) =>
+          new RuntimeCoordinator(
+            {
+              ...this.options,
+              sessionKey: member.sessionId,
+              sessionFile: member.sessionFile,
+              approvalMode: this.approvalMode,
+              selection: member.selection
+            },
+            () => this.publish(true),
+            {
+              team: this.team,
+              id: member.id,
+              directory: memberDirectory,
+              messages: member.messages
+            }
+          ),
+        () => this.publish(true),
+        (members) => manager.appendCustomEntry('eli.subagents', members)
+      )
+    }
     await this.openAgent(manager, selection)
+    if (!this.collaboration) {
+      const checkpoint = manager
+        .getBranch()
+        .findLast((entry) => entry.type === 'custom' && entry.customType === 'eli.subagents')
+      await this.team.restore(checkpoint?.type === 'custom' ? checkpoint.data : undefined)
+    }
     this.sync()
     this.snapshot.connection = 'ready'
     this.publish()
@@ -135,7 +202,8 @@ export class RuntimeCoordinator {
         this.interactions,
         this.options.terminal,
         () => this.agent.agent,
-        this.backgroundTasks
+        this.backgroundTasks,
+        { team: this.team, id: this.collaboration?.id ?? rootAgentId }
       )
     )
     await this.loader.reload()
@@ -217,6 +285,25 @@ export class RuntimeCoordinator {
     this.snapshot.autoApproval = this.interactions.autoApproval
     this.snapshot.userQuestions = this.interactions.userQuestions
     this.snapshot.backgroundTasks = this.backgroundTasks?.list() ?? []
+    if (!this.collaboration && this.team) {
+      this.snapshot.subagents = this.team.list()
+      for (const member of this.snapshot.subagents) {
+        if (!member.snapshot) continue
+        this.snapshot.toolApprovals.push(
+          ...member.snapshot.toolApprovals.map((request) => ({ ...request, agentId: member.id }))
+        )
+        this.snapshot.userQuestions.push(
+          ...member.snapshot.userQuestions.map((request) => ({ ...request, agentId: member.id }))
+        )
+        this.snapshot.backgroundTasks.push(...member.snapshot.backgroundTasks)
+        this.snapshot.autoApproval = {
+          reviewing: this.snapshot.autoApproval.reviewing + member.snapshot.autoApproval.reviewing,
+          paused: this.snapshot.autoApproval.paused || member.snapshot.autoApproval.paused,
+          lastDenied:
+            member.snapshot.autoApproval.lastDenied ?? this.snapshot.autoApproval.lastDenied
+        }
+      }
+    }
     const manager = this.agent?.sessionManager
     const file = manager?.getSessionFile()
     const persisted = file && existsSync(file) ? file : undefined
@@ -250,7 +337,8 @@ export class RuntimeCoordinator {
             pending: this.snapshot.pending,
             approvalCount: this.snapshot.toolApprovals.length,
             questionCount: this.snapshot.userQuestions.length,
-            backgroundTaskCount: this.snapshot.backgroundTasks.filter(isTaskActive).length
+            backgroundTaskCount: this.snapshot.backgroundTasks.filter(isTaskActive).length,
+            subagentCount: this.snapshot.subagents.filter(isSubagentActive).length
           }
         : null
     }
@@ -302,6 +390,8 @@ export class RuntimeCoordinator {
       this.snapshot.pending = false
       this.sync()
       this.publish(true)
+      for (const message of this.deferredCollaboration.splice(0))
+        this.collaborationMessage(message.text, message.wake, message.details)
     }
   }
 
@@ -313,7 +403,80 @@ export class RuntimeCoordinator {
     this.startRun(() => this.agent.prompt(text), text)
   }
 
+  inheritedMessages(): AgentMessage[] {
+    const messages = [...this.agent.messages]
+    // 创建成员时当前工具批次还未结束，截去未配齐结果的整个批次，避免无效的调用序列。
+    const lastCall = messages.findLastIndex(
+      (message) =>
+        message.role === 'assistant' && message.content.some((part) => part.type === 'toolCall')
+    )
+    if (lastCall >= 0) {
+      const assistant = messages[lastCall]
+      if (assistant.role === 'assistant') {
+        const results = new Set(
+          messages
+            .slice(lastCall + 1)
+            .flatMap((message) => (message.role === 'toolResult' ? [message.toolCallId] : []))
+        )
+        if (assistant.content.some((part) => part.type === 'toolCall' && !results.has(part.id)))
+          messages.splice(lastCall)
+      }
+    }
+    return structuredClone(messages)
+  }
+
+  collaborationMessage(text: string, wake: boolean, details?: SubagentMessage): void {
+    if (this.disposed) return
+    if (this.locked && !this.operation) {
+      this.deferredCollaboration.push({ text, wake, details })
+      return
+    }
+    const message = { customType: 'eli.collaboration', content: text, display: true, details }
+    if (this.operation || this.snapshot.running) {
+      // 不等待当前轮结束；SDK 在工具结果边界递送，不破坏 toolCall / toolResult 顺序。
+      void this.agent.sendCustomMessage(message, { deliverAs: 'steer' }).catch((error: unknown) => {
+        this.snapshot.error = error instanceof Error ? error.message : String(error)
+        this.publish()
+      })
+    } else if (wake) {
+      this.startRun(() => this.agent.sendCustomMessage(message, { triggerTurn: true }))
+    } else {
+      void this.agent.sendCustomMessage(message).catch((error: unknown) => {
+        this.snapshot.error = error instanceof Error ? error.message : String(error)
+        this.publish()
+      })
+    }
+  }
+
+  configure(mode: ToolApprovalMode): void {
+    this.approvalMode = mode
+    this.interactions.setMode(mode)
+    if (!this.collaboration) this.team.configure(mode)
+  }
+
+  respondApproval(id: string, approved: boolean): void {
+    const owner = [this, ...this.team.allRuntimes().map(({ runtime }) => runtime)].find((runtime) =>
+      runtime.interactions.toolApprovals.some((request) => request.id === id)
+    )
+    if (!owner) throw new Error('该工具审批已失效')
+    owner.interactions.respondApproval(id, approved)
+  }
+
+  respondQuestion(id: string, answers: UserQuestionAnswer[]): void {
+    const owner = [this, ...this.team.allRuntimes().map(({ runtime }) => runtime)].find((runtime) =>
+      runtime.interactions.userQuestions.some((request) => request.id === id)
+    )
+    if (!owner) throw new Error('该用户提问已失效')
+    owner.interactions.respondQuestion(id, answers)
+  }
+
+  async controlSubagent(action: SubagentAction): Promise<void> {
+    if (this.collaboration || this.disposed) throw new Error('会话已关闭或不是主会话')
+    await this.team.control(action)
+  }
+
   private startRun(action: () => Promise<void>, title?: string): void {
+    if (!this.collaboration) this.team.begin()
     this.abortRequested = false
     this.interactions.begin()
     this.snapshot.running = true
@@ -350,6 +513,7 @@ export class RuntimeCoordinator {
         this.modified = Date.now()
         this.operation = undefined
         this.publish(true)
+        if (this.collaboration) this.team.settled(this.collaboration.id)
       })
   }
 
@@ -374,16 +538,28 @@ export class RuntimeCoordinator {
 
   async abort(): Promise<void> {
     this.abortRequested = true
+    this.deferredCollaboration = []
     this.snapshot.activity = '正在停止'
     this.interactions.cancel()
     this.publish()
-    await this.agent?.abort()
+    await Promise.all([
+      this.agent?.abort(),
+      !this.collaboration ? this.team?.abortAll() : undefined
+    ])
     await this.operation
   }
 
   stopBackgroundTask(id: string): void {
     if (typeof id !== 'string') throw new Error('无效的后台任务 ID')
-    this.backgroundTasks.stop(id)
+    const owner = !this.collaboration
+      ? this.team
+          .allRuntimes()
+          .find(({ runtime }) =>
+            runtime.state().snapshot.backgroundTasks.some((task) => task.id === id)
+          )
+      : undefined
+    if (owner) owner.runtime.stopBackgroundTask(id)
+    else this.backgroundTasks.stop(id)
     this.publish()
   }
 
@@ -589,6 +765,7 @@ export class RuntimeCoordinator {
     if (this.disposed) return
     this.disposed = true
     await this.abort()
+    if (!this.collaboration) await this.team?.close()
     await this.backgroundTasks?.close()
     this.unsubscribe?.()
     await this.closeAgent('quit')

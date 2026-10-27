@@ -31,6 +31,12 @@ import { getToolDiff, getToolState, getToolTarget, type ToolDiff } from '@render
 import { ChatMarkdown } from './ChatMarkdown'
 
 const toolActions: Record<string, string> = {
+  spawn_agent: '创建子 Agent',
+  send_message: '发送协作消息',
+  followup_task: '追加子 Agent 任务',
+  interrupt_agent: '中断子 Agent',
+  list_agents: '查看 Agent 团队',
+  wait_agent: '等待 Agent 消息',
   ask_user_question: '询问用户',
   bash: '运行命令',
   powershell: '运行命令',

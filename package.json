@@ -3,7 +3,7 @@
   "version": "1.0.9",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.mjs",
-  "author": "example.com",
+  "author": "DaNiuNai",
   "homepage": "https://electron-vite.org",
   "config": {
     "electron_mirror": "https://npmmirror.com/mirrors/electron/",

@@ -7,6 +7,7 @@ import type { ToolApprovalMode } from '../shared/tool-approval'
 import type { TerminalPreference } from '../shared/terminal'
 import type { UserQuestionAnswer } from '../shared/user-question'
 import { isTaskActive } from '../shared/background-tasks'
+import { isSubagentActive, type SubagentAction } from '../shared/subagents'
 
 type SessionRuntime = Pick<RuntimeConnection, 'call' | 'stop'>
 
@@ -57,7 +58,10 @@ export class SessionProcess {
     return this.locked || this.snapshot.running || this.snapshot.pending
   }
   private get hasRunningTasks(): boolean {
-    return this.snapshot.backgroundTasks.some(isTaskActive)
+    return (
+      this.snapshot.backgroundTasks.some(isTaskActive) ||
+      this.snapshot.subagents.some(isSubagentActive)
+    )
   }
 
   private apply(state: RuntimeSessionState, libraryChanged = false): void {
@@ -166,6 +170,14 @@ export class SessionProcess {
   async abort(): Promise<void> {
     if (this.client) this.apply(await this.client.call('abort'))
   }
+  async controlSubagent(action: unknown): Promise<void> {
+    if (this.disposed || !action || typeof action !== 'object')
+      throw new Error('无效的子 Agent 操作')
+    this.apply(
+      await (await this.ensureClient()).call('controlSubagent', action as SubagentAction),
+      true
+    )
+  }
   async stopBackgroundTask(id: unknown): Promise<void> {
     if (this.disposed) throw new Error('会话已关闭')
     if (typeof id !== 'string') throw new Error('无效的后台任务 ID')
@@ -258,6 +270,11 @@ export class SessionProcess {
     this.snapshot.toolApprovals = []
     this.snapshot.autoApproval = { reviewing: 0, paused: false, lastDenied: null }
     this.snapshot.userQuestions = []
+    this.snapshot.subagents = this.snapshot.subagents.map((agent) =>
+      isSubagentActive(agent)
+        ? { ...agent, status: 'interrupted', finishedAt: Date.now(), error: 'Runtime 已退出' }
+        : agent
+    )
     this.snapshot.backgroundTasks = this.snapshot.backgroundTasks.map((task) =>
       isTaskActive(task) ? { ...task, status: 'interrupted', finishedAt: Date.now() } : task
     )
@@ -268,7 +285,8 @@ export class SessionProcess {
         pending: false,
         approvalCount: 0,
         questionCount: 0,
-        backgroundTaskCount: 0
+        backgroundTaskCount: 0,
+        subagentCount: 0
       })
     void this.stopClient()
     this.changed()

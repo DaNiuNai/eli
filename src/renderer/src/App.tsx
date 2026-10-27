@@ -18,6 +18,7 @@ import { ChatMessage } from '@renderer/components/ChatMessage'
 import { ChatComposer } from '@renderer/components/ChatComposer'
 import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
 import { BackgroundTasksPanel } from '@renderer/components/BackgroundTasksPanel'
+import { SubagentsPanel } from '@renderer/components/SubagentsPanel'
 import { UserQuestionPanel } from '@renderer/components/UserQuestionPanel'
 import { AgentSidebar } from '@renderer/components/AgentSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
@@ -58,6 +59,7 @@ function App(): React.JSX.Element {
   const { library, loading, error: libraryError } = useAgentLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tasksOpen, setTasksOpen] = useState(true)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const [sendingSessions, setSendingSessions] = useState<Record<string, number>>({})
   const [commandSessions, setCommandSessions] = useState<Set<string>>(new Set())
@@ -303,6 +305,8 @@ function App(): React.JSX.Element {
         title={visibleMessages.length > 0 ? currentTitle : null}
         snapshot={snapshot}
         busy={busy}
+        tasksOpen={tasksOpen}
+        onTasksOpenChange={setTasksOpen}
         onNewSession={() => void newSession()}
         onChooseDirectory={() => void chooseDirectory()}
         onReconnect={() => void perform(() => window.api.connect(true))}
@@ -336,16 +340,6 @@ function App(): React.JSX.Element {
       >
         <main className="desktop-main flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="background-tasks-layout">
-            <aside className="background-tasks-position" aria-label={t('后台任务')}>
-              <BackgroundTasksPanel
-                key={draftKey}
-                tasks={snapshot?.backgroundTasks ?? []}
-                disabled={!ready}
-                onStop={(id) =>
-                  perform(() => window.api.stopBackgroundTask(draftKey, id), draftKey)
-                }
-              />
-            </aside>
             <div className="background-tasks-conversation flex min-h-0 min-w-0 flex-col">
               {(problem || preferencesError) && (
                 <div className="mx-auto w-full max-w-4xl shrink-0 px-6 pt-3 sm:px-8">
@@ -498,6 +492,34 @@ function App(): React.JSX.Element {
                 onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
               />
             </div>
+            {tasksOpen && (
+              <aside
+                id="background-tasks-sidebar"
+                className="background-tasks-sidebar shrink-0 border-l bg-sidebar"
+                aria-label={t('任务与子 Agent')}
+              >
+                <ScrollArea className="h-full">
+                  <div className="flex min-w-0 flex-col gap-3 p-3">
+                    <SubagentsPanel
+                      key={`agents:${draftKey}`}
+                      agents={snapshot?.subagents ?? []}
+                      disabled={!ready || stopping || workspaceUnavailable}
+                      onControl={(action) =>
+                        perform(() => window.api.controlSubagent(draftKey, action), draftKey)
+                      }
+                    />
+                    <BackgroundTasksPanel
+                      key={draftKey}
+                      tasks={snapshot?.backgroundTasks ?? []}
+                      disabled={!ready}
+                      onStop={(id) =>
+                        perform(() => window.api.stopBackgroundTask(draftKey, id), draftKey)
+                      }
+                    />
+                  </div>
+                </ScrollArea>
+              </aside>
+            )}
           </div>
         </main>
       </WorkspaceLayout>

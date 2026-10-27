@@ -1,4 +1,6 @@
 import { SidebarTrigger, useSidebar } from '@renderer/components/ui/sidebar'
+import { PanelRightIcon } from 'lucide-react'
+import { Button } from '@renderer/components/ui/button'
 import { AppMenu } from '@renderer/components/AppMenu'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { updateAppPreferences } from '@renderer/lib/app-preferences'
@@ -10,6 +12,8 @@ export function AppTitlebar({
   title,
   snapshot,
   busy,
+  tasksOpen,
+  onTasksOpenChange,
   onNewSession,
   onChooseDirectory,
   onReconnect,
@@ -18,6 +22,8 @@ export function AppTitlebar({
   title: string | null
   snapshot: AgentSnapshot | null
   busy: boolean
+  tasksOpen: boolean
+  onTasksOpenChange: (open: boolean) => void
   onNewSession: () => void
   onChooseDirectory: () => void
   onReconnect: () => void
@@ -48,6 +54,7 @@ export function AppTitlebar({
                 sidebarWidth: sidebarSizing.defaultWidth
               })
               if (isMobile) setOpenMobile(true)
+              onTasksOpenChange(true)
             }}
           />
           <SidebarTrigger
@@ -65,6 +72,19 @@ export function AppTitlebar({
             <span className="truncate">{title}</span>
           </div>
         )}
+        <div className="window-titlebar-actions ml-auto flex shrink-0 items-center gap-1">
+          <Button
+            variant={tasksOpen ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            aria-label={t('展开或收起任务面板')}
+            aria-expanded={tasksOpen}
+            aria-controls="background-tasks-sidebar"
+            title={t('展开或收起任务面板')}
+            onClick={() => onTasksOpenChange(!tasksOpen)}
+          >
+            <PanelRightIcon />
+          </Button>
+        </div>
       </div>
     </header>
   )

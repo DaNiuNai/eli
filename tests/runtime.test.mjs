@@ -103,8 +103,10 @@ async function modelServer(t, data, review) {
         ? user.content
         : user?.content?.map((part) => part.text ?? '').join('\n')
     const taskCall = taskText?.startsWith('TASK_TOOL:') ? JSON.parse(taskText.slice(10)) : null
-    const tool =
-      taskCall && last.role !== 'tool'
+    const completionNotice = taskText?.startsWith('Message Type: FINAL_ANSWER')
+    const tool = completionNotice
+      ? null
+      : taskCall && last.role !== 'tool'
         ? taskCall.name
         : content?.includes('WRITE_TOOL') && (last.role !== 'tool' || repeated)
           ? 'write'
@@ -144,7 +146,7 @@ async function modelServer(t, data, review) {
       res.end('data: [DONE]\n\n')
       return
     }
-    if (content?.includes('WAIT_FOREVER')) return
+    if (content?.includes('WAIT_FOREVER') && !taskCall) return
     if (tool) {
       const args = taskCall
         ? taskCall.arguments
@@ -166,13 +168,19 @@ async function modelServer(t, data, review) {
                 ]
               }
       const batch = content?.includes('BATCH_TOOLS') && tool === 'write'
-      const toolCalls = Array.from({ length: batch ? 3 : 1 }, (_, index) => ({
+      const toolCalls = Array.from({ length: taskCall?.batch ?? (batch ? 3 : 1) }, (_, index) => ({
         index,
         id: `call-local-${body.messages.filter((message) => message.role === 'tool').length + index}`,
         type: 'function',
         function: {
           name: tool,
-          arguments: JSON.stringify(batch ? { ...args, path: `approved-${index}.txt` } : args)
+          arguments: JSON.stringify(
+            taskCall?.batch
+              ? { ...args, task_name: `${args.task_name}_${index}` }
+              : batch
+                ? { ...args, path: `approved-${index}.txt` }
+                : args
+          )
         }
       }))
       if (batch && content.includes('ASK_BEFORE_BATCH')) {
@@ -278,6 +286,211 @@ async function initialize(
     terminal: { kind: 'powershell', path: getPowerShellConfig().shell }
   })
 }
+
+test('子 Agent 经真实 Runtime 并行运行，复用模型与工具，审批路由并持久化任务树', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  const task = (name, args) => `TASK_TOOL:${JSON.stringify({ name, arguments: args })}`
+  await r.connection.call(
+    'prompt',
+    task('spawn_agent', { task_name: 'writer', message: 'WRITE_TOOL', fork_turns: 'none' })
+  )
+  const approval = await until(() => {
+    const snapshot = r.states.at(-1)?.snapshot
+    const failed = snapshot?.messages.findLast(
+      (message) => message.role === 'assistant' && message.stopReason === 'error'
+    )
+    if (failed || snapshot?.error)
+      throw new Error(
+        JSON.stringify({
+          error: snapshot?.error,
+          failed,
+          tools: snapshot?.tools,
+          members: snapshot?.subagents.map(({ id, status, error }) => ({ id, status, error }))
+        })
+      )
+    return snapshot?.toolApprovals.find(({ agentId }) => agentId === '/root/writer')
+  })
+  assert.equal(approval.toolName, 'write')
+  assert.equal(r.states.at(-1).snapshot.subagents[0].status, 'waiting')
+  await r.connection.call('approve', approval.id, true)
+  const done = await until(() => {
+    const state = r.states.at(-1)
+    return state?.snapshot.subagents[0]?.status === 'completed' && !state.snapshot.running && state
+  }).catch((error) => {
+    const snapshot = r.states.at(-1)?.snapshot
+    throw new Error(
+      JSON.stringify({
+        reason: error.message,
+        root: { running: snapshot?.running, error: snapshot?.error, tools: snapshot?.tools },
+        members: snapshot?.subagents.map(({ id, status, error, snapshot }) => ({
+          id,
+          status,
+          error,
+          running: snapshot?.running,
+          failure: snapshot?.error,
+          messages: snapshot?.messages
+        }))
+      })
+    )
+  })
+  assert.equal(await readFile(join(f.cwd, 'approved.txt'), 'utf8'), 'approved')
+  assert.ok(
+    done.snapshot.messages.some(
+      (message) =>
+        message.role === 'custom' &&
+        message.customType === 'eli.collaboration' &&
+        message.content.includes('FINAL_ANSWER')
+    )
+  )
+  assert.ok(requests.some((request) => request.messages[0].content.includes('名称为 /root/writer')))
+  const count = requests.length
+  await r.connection.call('controlSubagent', {
+    type: 'message',
+    target: '/root/writer',
+    message: 'save this note'
+  })
+  assert.equal(requests.length, count)
+  assert.equal(r.states.at(-1).snapshot.subagents[0].status, 'completed')
+  const file = done.persistedFile
+  await r.connection.stop()
+  const reopened = runtime(t)
+  const restored = await initialize(reopened.connection, f, 'reopened-subagents', file)
+  assert.equal(restored.snapshot.subagents[0].id, '/root/writer')
+  assert.equal(restored.snapshot.subagents[0].status, 'completed')
+  assert.ok(
+    restored.snapshot.subagents[0].snapshot.messages.some(
+      (message) => message.role === 'custom' && message.content.includes('save this note')
+    )
+  )
+  await reopened.connection.call('controlSubagent', {
+    type: 'followup',
+    target: '/root/writer',
+    message: 'please WRITE_TOOL again'
+  })
+  const next = await until(() =>
+    reopened.states.at(-1)?.snapshot.toolApprovals.find(({ agentId }) => agentId === '/root/writer')
+  )
+  await reopened.connection.call('approve', next.id, true)
+  await until(() => reopened.states.at(-1)?.snapshot.subagents[0]?.status === 'completed')
+})
+
+test('子 Agent 可递归创建成员，主任务停止会取消所有成员和等待', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  const task = (args) => `TASK_TOOL:${JSON.stringify({ name: 'spawn_agent', arguments: args })}`
+  await r.connection.call(
+    'prompt',
+    task({ task_name: 'parent', message: task({ task_name: 'child', message: 'WAIT_FOREVER' }) })
+  )
+  await until(() =>
+    r.states.at(-1)?.snapshot.subagents.some(({ id }) => id === '/root/parent/child')
+  )
+  const stopped = await r.connection.call('abort')
+  assert.equal(stopped.snapshot.running, false)
+  assert.ok(
+    stopped.snapshot.subagents.every(
+      ({ status }) => status === 'interrupted' || status === 'completed'
+    )
+  )
+  const requestsBefore = r.states.length
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.ok(r.states.slice(requestsBefore).every(({ snapshot }) => !snapshot.running))
+})
+
+test('子 Agent 真正并行工作，共享连接池和并发上限，重启后可继续中断的成员', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  await r.connection.call(
+    'prompt',
+    `TASK_TOOL:${JSON.stringify({ name: 'spawn_agent', arguments: { task_name: 'parallel', message: 'WAIT_FOREVER', fork_turns: 'none' }, batch: 3 })}`
+  )
+  const running = await until(() => {
+    const state = r.states.at(-1)
+    return (
+      state?.snapshot.subagents.length === 3 &&
+      state.snapshot.subagents.every(
+        ({ status, snapshot }) => status === 'running' && snapshot.running
+      ) &&
+      !state.snapshot.running &&
+      state
+    )
+  })
+  assert.equal(
+    requests.filter(({ messages }) =>
+      messages.some(
+        ({ role, content }) => role === 'user' && JSON.stringify(content).includes('WAIT_FOREVER')
+      )
+    ).length >= 3,
+    true
+  )
+  await r.connection.call(
+    'prompt',
+    `TASK_TOOL:${JSON.stringify({ name: 'spawn_agent', arguments: { task_name: 'overflow', message: 'overflow' } })}`
+  )
+  await until(() =>
+    r.states
+      .at(-1)
+      ?.snapshot.messages.some(
+        (message) =>
+          message.role === 'toolResult' &&
+          message.isError &&
+          JSON.stringify(message.content).includes('并发槽位')
+      )
+  )
+  const stopped = await r.connection.call('abort')
+  assert.ok(stopped.snapshot.subagents.every(({ status }) => status === 'interrupted'))
+  await r.connection.stop()
+  const reopened = runtime(t)
+  const restored = await initialize(
+    reopened.connection,
+    f,
+    'restore-parallel',
+    running.persistedFile
+  )
+  assert.ok(restored.snapshot.subagents.every(({ status }) => status === 'interrupted'))
+  await reopened.connection.call('controlSubagent', {
+    type: 'followup',
+    target: '/root/parallel_0',
+    message: 'continue normally'
+  })
+  await until(() => reopened.states.at(-1)?.snapshot.subagents[0]?.status === 'completed')
+})
+
+test('子 Agent 的用户提问和审批独立路由，切换审批挡位同步到所有成员', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  const spawn = (task_name, message) =>
+    `TASK_TOOL:${JSON.stringify({ name: 'spawn_agent', arguments: { task_name, message, fork_turns: 'none' } })}`
+  await r.connection.call('prompt', spawn('questioner', 'ASK_TOOL'))
+  const question = await until(() => {
+    const state = r.states.at(-1)?.snapshot
+    return (
+      !state?.running && state?.userQuestions.find(({ agentId }) => agentId === '/root/questioner')
+    )
+  })
+  await r.connection.call('prompt', spawn('writer', 'WRITE_TOOL'))
+  const approval = await until(() =>
+    r.states.at(-1)?.snapshot.toolApprovals.find(({ agentId }) => agentId === '/root/writer')
+  )
+  await assert.rejects(r.connection.call('approve', question.id, true), /已失效/)
+  await r.connection.call('answer', question.id, [{ selectedOptions: [0] }])
+  await until(() => !r.states.at(-1)?.snapshot.userQuestions.length)
+  assert.ok(r.states.at(-1).snapshot.toolApprovals.some(({ id }) => id === approval.id))
+  await r.connection.call('configure', 'all')
+  await until(() =>
+    r.states.at(-1)?.snapshot.subagents.every(({ status }) => status === 'completed')
+  )
+  assert.equal(await readFile(join(f.cwd, 'approved.txt'), 'utf8'), 'approved')
+})
 
 test('MCP OAuth 经控制协议完成授权、发布状态并供聊天复用凭据', async (t) => {
   const f = await fixture(t)

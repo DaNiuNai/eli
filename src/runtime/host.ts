@@ -128,6 +128,9 @@ export class RuntimeHost {
         case 'stopBackgroundTask':
           session.stopBackgroundTask(...request.args)
           break
+        case 'controlSubagent':
+          await session.controlSubagent(...request.args)
+          break
         case 'setModel':
           await session.setModel(...request.args)
           break
@@ -143,13 +146,13 @@ export class RuntimeHost {
           return session.getSkills()
         case 'configure':
           if (!isToolApprovalMode(request.args[0])) throw new Error('无效的工具审批挡位')
-          session.interactions.setMode(request.args[0])
+          session.configure(request.args[0])
           return
         case 'approve':
-          session.interactions.respondApproval(...request.args)
+          session.respondApproval(...request.args)
           return
         case 'answer':
-          session.interactions.respondQuestion(...request.args)
+          session.respondQuestion(...request.args)
           return
         default:
           throw new Error('此 Runtime 不支持该操作')

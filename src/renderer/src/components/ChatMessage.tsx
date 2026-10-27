@@ -2,6 +2,7 @@ import type { AgentToolEvent } from '../../../shared/agent'
 import { Bubble, BubbleContent } from '@renderer/components/ui/bubble'
 import { Message, MessageContent } from '@renderer/components/ui/message'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
+import { Badge } from '@renderer/components/ui/badge'
 import { Trace, TraceLine, TraceTitle } from '@renderer/components/ui/trace'
 import type { ChatEntry, ToolResult } from '@renderer/lib/chat-entries'
 import { ChatMarkdown } from './ChatMarkdown'
@@ -58,6 +59,19 @@ export function ChatMessage({
         ) : (
           entry.groups.map((group) => {
             switch (group.kind) {
+              case 'collaboration':
+                return (
+                  <Bubble key={group.id} variant="outline">
+                    <BubbleContent>
+                      <div className="flex flex-col gap-2">
+                        <Badge variant="secondary">
+                          {t('来自 {agent} 的协作消息', { agent: group.sender })}
+                        </Badge>
+                        <ChatMarkdown text={group.text} />
+                      </div>
+                    </BubbleContent>
+                  </Bubble>
+                )
               case 'text':
                 if (user) return <UserMessageContent key={group.id} text={group.text} />
                 return (

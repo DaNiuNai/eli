@@ -5,6 +5,8 @@ import { configureTerminal } from './terminal-tool'
 import type { TerminalPreference } from '../shared/terminal'
 import type { RuntimeInteractions } from './interactions'
 import type { BackgroundTasks } from './background-tasks'
+import type { SubagentTeam } from './subagents'
+import { registerSubagentTools, subagentToolNames } from './subagent-tools'
 
 const questionParameters = Type.Object({
   questions: Type.Array(
@@ -36,9 +38,11 @@ export function hostExtension(
   interactions: RuntimeInteractions,
   terminal: TerminalPreference,
   getAgent: () => AgentSession['agent'],
-  tasks: BackgroundTasks
+  tasks: BackgroundTasks,
+  collaboration?: { team: SubagentTeam; id: string }
 ): ExtensionFactory {
   return (pi) => {
+    if (collaboration) registerSubagentTools(pi, collaboration.team, collaboration.id)
     let approvalBatchId: string | undefined
     const clearBatch = (): void => {
       approvalBatchId = undefined
@@ -75,6 +79,8 @@ export function hostExtension(
     pi.on('tool_call', async (event, ctx) => {
       // 提问本身等待用户作答，不需要再弹一次工具审批。
       if (event.toolName === 'ask_user_question') return undefined
+      // 协作只调度本会话的成员；成员实际执行的工具仍逐次经过自己的审批。
+      if (collaboration && subagentToolNames.has(event.toolName)) return undefined
       const tools = pi.getAllTools()
       if (!event.parentToolCallId && interactions.canPrefetchApprovals) {
         const entry = ctx.sessionManager
@@ -101,6 +107,7 @@ export function hostExtension(
             )
           ) {
             const requests = calls.slice(current).flatMap((call) => {
+              if (collaboration && subagentToolNames.has(call.name)) return []
               const tool = agent.state.tools.find((tool) => tool.name === call.name)
               if (!tool) return []
               try {

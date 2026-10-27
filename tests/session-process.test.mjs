@@ -89,6 +89,34 @@ test('Skill 设置失效后，下一次技能列表和会话操作会重建 Runt
   assert.ok(runtimes[2].calls.some(({ method }) => method === 'prompt'))
 })
 
+test('子 Agent 仍在运行时保留 Runtime，操作按用户会话路由，进程退出标记任务中断', async (t) => {
+  const { session, runtimes } = harness(t)
+  await session.load()
+  const runtime = runtimes[0]
+  runtime.state.snapshot.subagents = [
+    {
+      id: '/root/worker',
+      parentId: '/root',
+      taskName: 'worker',
+      task: 'working',
+      status: 'running',
+      createdAt: 1,
+      result: '',
+      snapshot: null
+    }
+  ]
+  runtime.event({ kind: 'session', state: structuredClone(runtime.state), libraryChanged: false })
+  session.invalidateSettings()
+  await session.getSkills()
+  assert.equal(runtimes.length, 1)
+  const action = { type: 'interrupt', target: '/root/worker' }
+  await session.controlSubagent(action)
+  assert.deepEqual(runtime.calls.find(({ method }) => method === 'controlSubagent').args, [action])
+  runtime.failed(new Error('crashed'))
+  assert.equal(session.snapshot.subagents[0].status, 'interrupted')
+  assert.equal(session.snapshot.connection, 'error')
+})
+
 test('启动期间的审批挡位更新等待初始化，并应用最新选择', async (t) => {
   const { session, runtimes, mode } = harness(t, { initializing: true })
   const loading = session.load()

@@ -17,6 +17,7 @@ import { EliConfigStore } from '../config/store'
 import { resourcePath } from './resource-path'
 import { skillPathKey, userSkillPaths } from './skills'
 import { managedMcpServers } from './mcp'
+import { subagentToolNames } from './subagent-tools'
 
 function readOptional(path: string): string | undefined {
   try {
@@ -237,8 +238,9 @@ export class EliResourceLoader implements ResourceLoader {
     )
     if (loaded.errors.length)
       throw new Error(loaded.errors.map(({ path, error }) => `${path}: ${error}`).join('\n'))
-    if (loaded.extensions.some((extension) => extension.tools.has('ask_user_question'))) {
-      throw new Error('ask_user_question 是 eli 保留的工具名')
+    const reserved = ['ask_user_question', ...subagentToolNames]
+    if (loaded.extensions.some((extension) => reserved.some((name) => extension.tools.has(name)))) {
+      throw new Error('扩展不能覆盖 eli 保留的提问或协作工具')
     }
     this.extensions = { extensions: [...extensions, ...loaded.extensions], errors: [], runtime }
     this.disabledSkills = new Set((disabledSkills ?? []).map(skillPathKey))

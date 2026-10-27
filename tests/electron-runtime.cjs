@@ -137,7 +137,40 @@ app.whenReady().then(async () => {
           })
           send({}, 'tool_calls')
         }
+      } else if (
+        JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
+          'Message Type: FINAL_ANSWER'
+        )
+      ) {
+        send({ content: '子任务汇总完成' })
+        send({}, 'stop')
       } else if (body.messages.at(-1).role !== 'tool') {
+        if (
+          JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
+            'SUBAGENT_TEST'
+          )
+        ) {
+          send({
+            tool_calls: [
+              {
+                index: 0,
+                id: 'electron-subagent',
+                type: 'function',
+                function: {
+                  name: 'spawn_agent',
+                  arguments: JSON.stringify({
+                    task_name: 'worker',
+                    message: '创建三个测试文件',
+                    fork_turns: 'none'
+                  })
+                }
+              }
+            ]
+          })
+          send({}, 'tool_calls')
+          res.end('data: [DONE]\n\n')
+          return
+        }
         if (
           JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
             'BACKGROUND_TEST'
@@ -409,6 +442,38 @@ app.whenReady().then(async () => {
     while (states.at(-1)?.snapshot.backgroundTasks[0]?.status !== 'cancelled')
       await new Promise((resolve) => setTimeout(resolve, 20))
     assert.match(readFileSync(background.logPath, 'utf8'), /electron-background-ready/)
+    await request('configure', 'request')
+    await request('prompt', 'SUBAGENT_TEST')
+    const approvedSubagentCalls = new Set()
+    while (
+      states.at(-1)?.snapshot.subagents[0]?.status !== 'completed' ||
+      states.at(-1)?.snapshot.running
+    ) {
+      for (const approval of states.at(-1)?.snapshot.toolApprovals ?? []) {
+        assert.equal(approval.agentId, '/root/worker')
+        if (!approvedSubagentCalls.has(approval.id)) {
+          approvedSubagentCalls.add(approval.id)
+          await request('approve', approval.id, true)
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    assert.equal(approvedSubagentCalls.size, 3)
+    assert.equal(states.at(-1).snapshot.subagents[0].id, '/root/worker')
+    assert.equal(states.at(-1).snapshot.subagents[0].snapshot.model.id, 'local')
+    assert.ok(
+      states
+        .at(-1)
+        .snapshot.messages.some(
+          (message) => message.role === 'custom' && message.content.includes('FINAL_ANSWER')
+        )
+    )
+    await request('controlSubagent', {
+      type: 'message',
+      target: '/root/worker',
+      message: '仅保存协作消息'
+    })
+    assert.equal(states.at(-1).snapshot.subagents[0].status, 'completed')
     await request('shutdown')
     await exited
     assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), savedConfig)
@@ -416,7 +481,7 @@ app.whenReady().then(async () => {
       assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(
-      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval: PASS (${entry})`
+      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval + subagents: PASS (${entry})`
     )
     server.closeAllConnections()
     server.close()

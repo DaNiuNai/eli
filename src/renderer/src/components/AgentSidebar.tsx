@@ -9,6 +9,7 @@ import {
   EllipsisIcon,
   ListTodoIcon,
   MessageCircleQuestionIcon,
+  NetworkIcon,
   PlusIcon,
   SearchIcon,
   ShieldQuestionIcon
@@ -353,6 +354,11 @@ export function AgentSidebar({
                                               (entry.running || entry.pending)
                                           ) ? (
                                           <Spinner aria-label={t('正在处理')} />
+                                        ) : snapshot?.liveSessions.some(
+                                            (entry) =>
+                                              entry.path === session.path && entry.subagentCount > 0
+                                          ) ? (
+                                          <NetworkIcon aria-label={t('子 Agent 运行中')} />
                                         ) : snapshot?.liveSessions.some(
                                             (entry) =>
                                               entry.path === session.path &&

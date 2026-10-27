@@ -7,6 +7,7 @@ import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from '.
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 import type { CommonSkillsInstallResult, UserSkill } from './skills'
 import type { BackgroundTask } from './background-tasks'
+import type { SubagentAction, SubagentSnapshot } from './subagents'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
 export type AgentMessage = AgentSession['messages'][number]
@@ -63,6 +64,7 @@ export interface AgentSessionSnapshot {
   response: AgentResponseState
   tools: Record<string, AgentToolEvent>
   backgroundTasks: BackgroundTask[]
+  subagents: SubagentSnapshot[]
   toolApprovals: ToolApprovalRequest[]
   autoApproval: AutoApprovalState
   userQuestions: UserQuestionRequest[]
@@ -80,6 +82,7 @@ export interface AgentLiveSession extends SavedSession {
   approvalCount: number
   questionCount: number
   backgroundTaskCount: number
+  subagentCount: number
 }
 
 export interface AgentSnapshot extends AgentSessionSnapshot {
@@ -99,6 +102,7 @@ export interface AgentApi {
   forkMessage(target: AgentMessageTarget): Promise<void>
   abort(sessionKey: string): Promise<void>
   stopBackgroundTask(sessionKey: string, id: string): Promise<void>
+  controlSubagent(sessionKey: string, action: SubagentAction): Promise<void>
   respondToToolApproval(sessionKey: string, id: string, approved: boolean): Promise<void>
   respondToUserQuestion(
     sessionKey: string,
@@ -136,6 +140,7 @@ export const agentChannels = {
   forkMessage: 'agent:fork-message',
   abort: 'agent:abort',
   stopBackgroundTask: 'agent:stop-background-task',
+  controlSubagent: 'agent:control-subagent',
   respondToToolApproval: 'agent:respond-to-tool-approval',
   respondToUserQuestion: 'agent:respond-to-user-question',
   newSession: 'agent:new-session',

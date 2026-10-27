@@ -1,4 +1,5 @@
 import type { AgentMessage, AgentSnapshot } from '../../../shared/agent'
+import type { SubagentMessage } from '../../../shared/subagents'
 
 type AssistantMessage = Extract<AgentMessage, { role: 'assistant' }>
 export type ToolCall = Extract<AssistantMessage['content'][number], { type: 'toolCall' }>
@@ -12,6 +13,7 @@ type ContentGroup =
   | { id: string; kind: 'trace'; parts: TracePart[] }
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'aborted' }
+  | { id: string; kind: 'collaboration'; sender: string; text: string }
 
 export interface ChatEntry {
   id: string
@@ -31,6 +33,30 @@ export function buildChatEntries(
   let current: ChatEntry | undefined
 
   messages.forEach((message, messageIndex) => {
+    if (
+      message.role === 'custom' &&
+      message.customType === 'eli.collaboration' &&
+      message.display
+    ) {
+      const details = message.details as Partial<SubagentMessage> | undefined
+      if (details && typeof details.sender === 'string' && typeof details.text === 'string') {
+        entries.push({
+          id: String(messageIndex),
+          lastMessageIndex: messageIndex,
+          role: 'assistant',
+          groups: [
+            {
+              id: `${messageIndex}:collaboration`,
+              kind: 'collaboration',
+              sender: details.sender,
+              text: details.text
+            }
+          ]
+        })
+      }
+      current = undefined
+      return
+    }
     if (message.role === 'toolResult') return
     if (message.role !== 'assistant' && message.role !== 'user') {
       current = undefined
