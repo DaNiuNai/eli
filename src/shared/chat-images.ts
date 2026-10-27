@@ -3,31 +3,6 @@ export const maxChatImageBytes = 32 * 1024 * 1024
 
 export type ChatImageSource = { kind: 'local' | 'url'; value: string }
 
-export interface ChatDraftImage {
-  id: string
-  path: string
-}
-
-/** 图片顺序只取决于数组位置，编号不受异步读取或文件名影响。 */
-export function formatChatImageMessage(text: string, paths: string[]): string {
-  const references = paths.map((path, index) => `[图片${index + 1}]("${path}")`).join('\n')
-  return [references, text.trim()].filter(Boolean).join('\n\n')
-}
-
-/** 只还原应用在消息开头写入的连续图片编号，普通用户文本保持原样。 */
-export function parseChatImageMessage(message: string): { images: ChatDraftImage[]; text: string } {
-  const images: ChatDraftImage[] = []
-  let text = message
-  while (true) {
-    const match = /^\[图片(\d+)\]\("([^"\r\n]+)"\)(?:\r?\n|$)/.exec(text)
-    if (!match || Number(match[1]) !== images.length + 1 || !imageExtension.test(match[2])) break
-    if (getChatImageSource(match[2])?.kind !== 'local') break
-    images.push({ id: String(images.length), path: match[2] })
-    text = text.slice(match[0].length)
-  }
-  return { images, text: images.length ? text.replace(/^\r?\n/, '') : message }
-}
-
 export function getChatImageSource(source: string): ChatImageSource | null {
   let value = source.trim()
   if (!value) return null

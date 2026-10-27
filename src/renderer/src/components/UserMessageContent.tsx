@@ -1,13 +1,13 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Bubble, BubbleContent } from '@renderer/components/ui/bubble'
 import { Button } from '@renderer/components/ui/button'
-import { ChatImageAttachments } from './ChatImageAttachments'
+import { ChatAttachments } from './ChatAttachments'
 import { useLanguage } from '@renderer/hooks/use-language'
-import { parseChatImageMessage } from '../../../shared/chat-images'
+import { parseChatAttachmentMessage } from '../../../shared/chat-attachments'
 
 export function UserMessageContent({ text }: { text: string }): React.JSX.Element {
   const { t } = useLanguage()
-  const content = parseChatImageMessage(text)
+  const content = parseChatAttachmentMessage(text)
   const [expanded, setExpanded] = useState(false)
   const [overflows, setOverflows] = useState(false)
   const body = useRef<HTMLDivElement>(null)
@@ -24,7 +24,7 @@ export function UserMessageContent({ text }: { text: string }): React.JSX.Elemen
 
   return (
     <div className="user-message-content">
-      {content.images.length > 0 && <ChatImageAttachments images={content.images} />}
+      {content.attachments.length > 0 && <ChatAttachments attachments={content.attachments} />}
       {content.text && (
         <Bubble variant="secondary" align="end">
           <BubbleContent>

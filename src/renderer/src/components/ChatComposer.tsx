@@ -5,7 +5,7 @@ import {
   FolderOpenIcon,
   FolderXIcon,
   LaptopIcon,
-  ImagePlusIcon,
+  PaperclipIcon,
   PlusIcon,
   SquareIcon
 } from 'lucide-react'
@@ -27,29 +27,29 @@ import { ThinkingControl } from '@renderer/components/ThinkingControl'
 import { ToolApprovalControl } from '@renderer/components/ToolApprovalControl'
 import { ContextUsageIndicator } from '@renderer/components/ContextUsageIndicator'
 import { SlashCommandInput } from '@renderer/components/SlashCommandInput'
-import { ChatImageAttachments } from '@renderer/components/ChatImageAttachments'
+import { ChatAttachments } from '@renderer/components/ChatAttachments'
 import { Spinner } from '@renderer/components/ui/spinner'
 import { canExecuteSlashCommand, matchSlashCommand } from '@renderer/lib/slash-commands'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { AgentSnapshot, AgentThinkingLevel } from '../../../shared/agent'
 import type { ToolApprovalMode } from '../../../shared/tool-approval'
-import type { ChatDraftImage } from '../../../shared/chat-images'
+import type { ChatDraftAttachment } from '../../../shared/chat-attachments'
 
 interface ChatComposerProps {
   snapshot: AgentSnapshot | null
   hasMessages: boolean
   draft: string
-  images: ChatDraftImage[]
-  addingImages: boolean
+  attachments: ChatDraftAttachment[]
+  addingAttachments: boolean
   busy: boolean
   commandPending: boolean
   stopping: boolean
   textarea: RefObject<HTMLTextAreaElement | null>
   onDraft: (text: string) => void
-  onChooseImages: () => void
-  onDropImages: (files: File[]) => void
+  onChooseFiles: () => void
+  onDropFiles: (files: File[]) => void
   onPasteImages: (files: File[]) => void
-  onRemoveImage: (id: string) => void
+  onRemoveAttachment: (id: string) => void
   onSend: () => void
   onStop: () => void
   onChooseDirectory: () => void
@@ -63,17 +63,17 @@ export function ChatComposer({
   snapshot,
   hasMessages,
   draft,
-  images,
-  addingImages,
+  attachments,
+  addingAttachments,
   busy,
   commandPending,
   stopping,
   textarea,
   onDraft,
-  onChooseImages,
-  onDropImages,
+  onChooseFiles,
+  onDropFiles,
   onPasteImages,
-  onRemoveImage,
+  onRemoveAttachment,
   onSend,
   onStop,
   onChooseDirectory,
@@ -175,12 +175,12 @@ export function ChatComposer({
         draft={draft}
         textarea={textarea}
         disabled={!snapshot?.session}
-        onDropImages={onDropImages}
+        onDropFiles={onDropFiles}
         onPasteImages={onPasteImages}
         header={
-          images.length > 0 && (
-            <InputGroupAddon align="block-start" className="composer-image-addon">
-              <ChatImageAttachments images={images} onRemove={onRemoveImage} />
+          attachments.length > 0 && (
+            <InputGroupAddon align="block-start" className="composer-attachment-addon">
+              <ChatAttachments attachments={attachments} onRemove={onRemoveAttachment} />
             </InputGroupAddon>
           )
         }
@@ -193,15 +193,15 @@ export function ChatComposer({
               render={<InputGroupButton variant="ghost" size="icon-sm" />}
               aria-label={t('添加附件')}
               title={t('添加附件')}
-              disabled={!snapshot?.session || addingImages}
+              disabled={!snapshot?.session || addingAttachments}
             >
-              {addingImages ? <Spinner /> : <PlusIcon />}
+              {addingAttachments ? <Spinner /> : <PlusIcon />}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top">
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={onChooseImages}>
-                  <ImagePlusIcon />
-                  {t('添加图片')}
+                <DropdownMenuItem onClick={onChooseFiles}>
+                  <PaperclipIcon />
+                  {t('添加附件')}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -229,8 +229,8 @@ export function ChatComposer({
               aria-label={t('发送消息')}
               title={t('发送消息')}
               disabled={
-                addingImages ||
-                (!draft.trim() && !images.length) ||
+                addingAttachments ||
+                (!draft.trim() && !attachments.length) ||
                 (command ? !commandAvailable : !ready || busy || !hasModel)
               }
             >

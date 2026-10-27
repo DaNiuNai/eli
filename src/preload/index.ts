@@ -15,8 +15,8 @@ import {
 // Custom APIs for renderer
 const api: AgentApi = {
   connect: (restart) => ipcRenderer.invoke(agentChannels.connect, restart),
-  prompt: (sessionKey, message, imagePaths) =>
-    ipcRenderer.invoke(agentChannels.prompt, sessionKey, message, imagePaths),
+  prompt: (sessionKey, message, attachmentPaths) =>
+    ipcRenderer.invoke(agentChannels.prompt, sessionKey, message, attachmentPaths),
   compact: (sessionKey, instructions) =>
     ipcRenderer.invoke(agentChannels.compact, sessionKey, instructions),
   editMessage: (target, message) => ipcRenderer.invoke(agentChannels.editMessage, target, message),
@@ -45,9 +45,10 @@ const api: AgentApi = {
   getSettings: () => ipcRenderer.invoke(agentChannels.getSettings),
   saveSettings: (changes) => ipcRenderer.invoke(agentChannels.saveSettings, changes),
   readImage: (source) => ipcRenderer.invoke(agentChannels.readImage, source),
-  chooseImages: (language) => ipcRenderer.invoke(agentChannels.chooseImages, language),
+  chooseFiles: (language) => ipcRenderer.invoke(agentChannels.chooseFiles, language),
   saveImageData: (bytes) => ipcRenderer.invoke(agentChannels.saveImageData, bytes),
-  getImagePath: (file) => webUtils.getPathForFile(file),
+  saveFileData: (name, bytes) => ipcRenderer.invoke(agentChannels.saveFileData, name, bytes),
+  getFilePath: (file) => webUtils.getPathForFile(file),
   setThinkingLevel: (sessionKey, level) =>
     ipcRenderer.invoke(agentChannels.setThinkingLevel, sessionKey, level),
   setModel: (sessionKey, provider, modelId) =>

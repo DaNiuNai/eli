@@ -1,14 +1,15 @@
 import { useRef, useState } from 'react'
-import { imageExtension, maxChatImageBytes, type ChatDraftImage } from '../../../shared/chat-images'
+import { imageExtension } from '../../../shared/chat-images'
+import { maxChatFileBytes, type ChatDraftAttachment } from '../../../shared/chat-attachments'
 import { useLanguage } from './use-language'
 
 type Perform = (action: () => Promise<unknown>, sessionKey?: string) => Promise<boolean>
 
-export function useChatImages(
+export function useChatAttachments(
   sessionKey: string,
   perform: Perform
 ): {
-  images: ChatDraftImage[]
+  attachments: ChatDraftAttachment[]
   adding: boolean
   choose: () => Promise<void>
   addFiles: (files: File[], forceCopy?: boolean) => void
@@ -16,11 +17,11 @@ export function useChatImages(
   discard: (key: string) => void
 } {
   const { language } = useLanguage()
-  const [drafts, setDrafts] = useState<Record<string, ChatDraftImage[]>>({})
+  const [drafts, setDrafts] = useState<Record<string, ChatDraftAttachment[]>>({})
   const [pending, setPending] = useState<Record<string, number>>({})
   const queues = useRef(new Map<string, Promise<void>>())
 
-  // 同一会话的选择、拖拽、粘贴按事件顺序处理，慢图片不会被后来图片插队。
+  // 同一会话的选择、拖拽、粘贴按事件顺序处理，慢附件不会被后来附件插队。
   function enqueue(action: () => Promise<void>): Promise<void> {
     setPending((current) => ({ ...current, [sessionKey]: (current[sessionKey] ?? 0) + 1 }))
     const previous = queues.current.get(sessionKey) ?? Promise.resolve()
@@ -34,17 +35,16 @@ export function useChatImages(
   }
 
   function append(paths: string[]): void {
-    if (paths.some((path) => !path || !imageExtension.test(path)))
-      throw new Error('请选择本机图片文件')
-    const images = paths.map((path) => ({ id: crypto.randomUUID(), path }))
+    if (paths.some((path) => !path)) throw new Error('请选择本机文件')
+    const attachments = paths.map((path) => ({ id: crypto.randomUUID(), path }))
     setDrafts((current) => ({
       ...current,
-      [sessionKey]: [...(current[sessionKey] ?? []), ...images]
+      [sessionKey]: [...(current[sessionKey] ?? []), ...attachments]
     }))
   }
 
   function choose(): Promise<void> {
-    return enqueue(async () => append(await window.api.chooseImages(language)))
+    return enqueue(async () => append(await window.api.chooseFiles(language)))
   }
 
   function addFiles(files: File[], forceCopy = false): void {
@@ -54,14 +54,18 @@ export function useChatImages(
         let path = ''
         if (!forceCopy) {
           try {
-            path = window.api.getImagePath(file)
+            path = window.api.getFilePath(file)
           } catch {
-            // 某些拖拽来源只提供图片内容，没有可用的本地文件路径。
+            // 某些拖拽来源只提供文件内容，没有可用的本地文件路径。
           }
         }
         if (!path) {
-          if (!file.size || file.size > maxChatImageBytes) throw new Error('图片为空或超过 32 MB')
-          path = await window.api.saveImageData(new Uint8Array(await file.arrayBuffer()))
+          if (file.size > maxChatFileBytes) throw new Error('文件超过 32 MB')
+          const bytes = new Uint8Array(await file.arrayBuffer())
+          path =
+            forceCopy || imageExtension.test(file.name)
+              ? await window.api.saveImageData(bytes)
+              : await window.api.saveFileData(file.name, bytes)
         }
         paths.push(path)
       }
@@ -73,7 +77,7 @@ export function useChatImages(
     const removed = new Set(ids)
     setDrafts((current) => ({
       ...current,
-      [sessionKey]: (current[sessionKey] ?? []).filter((image) => !removed.has(image.id))
+      [sessionKey]: (current[sessionKey] ?? []).filter((attachment) => !removed.has(attachment.id))
     }))
   }
 
@@ -86,7 +90,7 @@ export function useChatImages(
   }
 
   return {
-    images: drafts[sessionKey] ?? [],
+    attachments: drafts[sessionKey] ?? [],
     adding: (pending[sessionKey] ?? 0) > 0,
     choose,
     addFiles,

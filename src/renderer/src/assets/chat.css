@@ -82,7 +82,7 @@
   grid-row: 2;
 }
 
-.chat-composer-input > .composer-image-addon {
+.chat-composer-input > .composer-attachment-addon {
   display: block;
   grid-column: 1 / -1;
   grid-row: 1;
@@ -99,6 +99,14 @@
   min-width: 0;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: flex-start;
+  overflow: visible;
+  padding: 0;
+  scroll-snap-type: none;
+}
+
+.chat-attachments > .chat-file-attachment {
+  width: 15rem;
 }
 
 .chat-attachments > .chat-attachment {

@@ -96,7 +96,7 @@ export interface AgentSnapshot extends AgentSessionSnapshot {
 
 export interface AgentApi {
   connect(restart?: boolean): Promise<AgentSnapshot>
-  prompt(sessionKey: string, message: string, imagePaths?: string[]): Promise<void>
+  prompt(sessionKey: string, message: string, attachmentPaths?: string[]): Promise<void>
   compact(sessionKey: string, instructions?: string): Promise<void>
   editMessage(target: AgentMessageTarget, message: string): Promise<void>
   forkMessage(target: AgentMessageTarget): Promise<void>
@@ -123,9 +123,10 @@ export interface AgentApi {
   getSettings(): Promise<AgentSettingsSnapshot>
   saveSettings(changes: AgentSettingsChange[]): Promise<AgentSettingsSnapshot>
   readImage(source: string): Promise<string>
-  chooseImages(language?: UiLanguage): Promise<string[]>
+  chooseFiles(language?: UiLanguage): Promise<string[]>
   saveImageData(bytes: Uint8Array): Promise<string>
-  getImagePath(file: File): string
+  saveFileData(name: string, bytes: Uint8Array): Promise<string>
+  getFilePath(file: File): string
   setThinkingLevel(sessionKey: string, level: AgentThinkingLevel): Promise<void>
   setModel(sessionKey: string, provider: string, modelId: string): Promise<void>
   chooseDirectory(language?: UiLanguage): Promise<string | undefined>
@@ -157,8 +158,9 @@ export const agentChannels = {
   getSettings: 'agent:get-settings',
   saveSettings: 'agent:save-settings',
   readImage: 'agent:read-image',
-  chooseImages: 'agent:choose-images',
+  chooseFiles: 'agent:choose-files',
   saveImageData: 'agent:save-image-data',
+  saveFileData: 'agent:save-file-data',
   setThinkingLevel: 'agent:set-thinking-level',
   setModel: 'agent:set-model',
   chooseDirectory: 'agent:choose-directory',

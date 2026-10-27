@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowDownIcon } from 'lucide-react'
+import { ArrowDownIcon, ListTodoIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle
+} from '@renderer/components/ui/empty'
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -24,7 +31,7 @@ import { AgentSidebar } from '@renderer/components/AgentSidebar'
 import { UsageDashboard } from '@renderer/components/UsageDashboard'
 import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { useAgent } from '@renderer/hooks/use-agent'
-import { useChatImages } from '@renderer/hooks/use-chat-images'
+import { useChatAttachments } from '@renderer/hooks/use-chat-attachments'
 import { useAgentAuth } from '@renderer/hooks/use-agent-auth'
 import { useAgentLibrary } from '@renderer/hooks/use-agent-library'
 import { useUserQuestions } from '@renderer/hooks/use-user-questions'
@@ -59,7 +66,7 @@ function App(): React.JSX.Element {
   const { library, loading, error: libraryError } = useAgentLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [tasksOpen, setTasksOpen] = useState(true)
+  const [tasksOpen, setTasksOpen] = useState(false)
   const openSettings = useCallback(() => setSettingsOpen(true), [])
   const [sendingSessions, setSendingSessions] = useState<Record<string, number>>({})
   const [commandSessions, setCommandSessions] = useState<Set<string>>(new Set())
@@ -71,7 +78,7 @@ function App(): React.JSX.Element {
   const commandRef = useRef(new Set<string>())
   const messageActionRef = useRef(new Set<string>())
   const draftKey = snapshot?.sessionKey ?? ''
-  const chatImages = useChatImages(draftKey, perform)
+  const chatAttachments = useChatAttachments(draftKey, perform)
   const selectedSessionRef = useRef(draftKey)
   useEffect(() => {
     selectedSessionRef.current = draftKey
@@ -136,7 +143,7 @@ function App(): React.JSX.Element {
   }
 
   async function send(): Promise<void> {
-    if (chatImages.adding) return
+    if (chatAttachments.adding) return
     const command = matchSlashCommand(draft)
     if (command) {
       if (
@@ -173,7 +180,7 @@ function App(): React.JSX.Element {
       return
     }
     if (
-      (!draft.trim() && !chatImages.images.length) ||
+      (!draft.trim() && !chatAttachments.attachments.length) ||
       !ready ||
       workspaceUnavailable ||
       busy ||
@@ -184,18 +191,18 @@ function App(): React.JSX.Element {
     sendingRef.current.add(draftKey)
     setSendingSessions((current) => ({ ...current, [draftKey]: snapshot?.response.id ?? 0 }))
     const text = draft
-    const images = chatImages.images
+    const attachments = chatAttachments.attachments
     updateDraft('')
     const success = await perform(
       () =>
         window.api.prompt(
           draftKey,
           text,
-          images.map((image) => image.path)
+          attachments.map((attachment) => attachment.path)
         ),
       draftKey
     )
-    if (success) chatImages.remove(images.map((image) => image.id))
+    if (success) chatAttachments.remove(attachments.map((attachment) => attachment.id))
     if (!success) setDrafts((current) => ({ ...current, [draftKey]: current[draftKey] || text }))
     sendingRef.current.delete(draftKey)
     setSendingSessions((current) => {
@@ -279,7 +286,7 @@ function App(): React.JSX.Element {
       return next
     })
     const key = snapshot?.liveSessions.find((entry) => entry.path === session.path)?.key
-    if (key) chatImages.discard(key)
+    if (key) chatAttachments.discard(key)
   }
 
   async function chooseDirectory(): Promise<void> {
@@ -468,17 +475,17 @@ function App(): React.JSX.Element {
                 snapshot={snapshot}
                 hasMessages={visibleMessages.length > 0}
                 draft={draft}
-                images={chatImages.images}
-                addingImages={chatImages.adding}
+                attachments={chatAttachments.attachments}
+                addingAttachments={chatAttachments.adding}
                 busy={busy}
                 commandPending={commandPending}
                 stopping={stopping}
                 textarea={textarea}
                 onDraft={updateDraft}
-                onChooseImages={() => void chatImages.choose()}
-                onDropImages={chatImages.addFiles}
-                onPasteImages={(files) => chatImages.addFiles(files, true)}
-                onRemoveImage={(id) => chatImages.remove([id])}
+                onChooseFiles={() => void chatAttachments.choose()}
+                onDropFiles={chatAttachments.addFiles}
+                onPasteImages={(files) => chatAttachments.addFiles(files, true)}
+                onRemoveAttachment={(id) => chatAttachments.remove([id])}
                 onSend={() => void send()}
                 onStop={() => void stop()}
                 onChooseDirectory={() => void chooseDirectory()}
@@ -500,6 +507,20 @@ function App(): React.JSX.Element {
               >
                 <ScrollArea className="h-full">
                   <div className="flex min-w-0 flex-col gap-3 p-3">
+                    {!snapshot?.subagents.length && !snapshot?.backgroundTasks.length && (
+                      <Empty className="px-3 py-10">
+                        <EmptyHeader>
+                          <EmptyMedia variant="icon">
+                            <ListTodoIcon />
+                          </EmptyMedia>
+                          <EmptyTitle>{t('暂无任务')}</EmptyTitle>
+                          <EmptyDescription className="flex flex-col gap-3">
+                            <p>{t('当前对话的后台任务和子 Agent 会显示在这里。')}</p>
+                            <p>{t('你可以让 eli 在后台运行耗时任务，或创建子 Agent 分工处理。')}</p>
+                          </EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
+                    )}
                     <SubagentsPanel
                       key={`agents:${draftKey}`}
                       agents={snapshot?.subagents ?? []}

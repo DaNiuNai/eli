@@ -7,8 +7,9 @@ import { startRuntimeProcess } from './runtime-process'
 import { runtimePaths } from '../runtime/paths'
 import type { RuntimeConnection } from '../runtime/connection'
 import type { RuntimeMethod, RuntimeMethods } from '../shared/runtime'
-import { readLocalImage, resolvePromptImages, saveImageData } from './image-files'
-import { formatChatImageMessage } from '../shared/chat-images'
+import { readLocalImage, saveImageData } from './image-files'
+import { resolvePromptFiles, saveFileData } from './chat-files'
+import { formatChatAttachmentMessage } from '../shared/chat-attachments'
 import { agentAuthChannels } from '../shared/agent-auth'
 import type { AgentAuthSnapshot } from '../shared/agent-auth'
 import type { ToolApprovalMode } from '../shared/tool-approval'
@@ -215,17 +216,17 @@ export class AgentService {
       this.request('validateAuthLink', url).then((link) => shell.openExternal(link))
     )
     handle(agentChannels.connect, (restart) => this.connect(restart === true))
-    handle(agentChannels.prompt, async (key, message, imagePaths = []) => {
+    handle(agentChannels.prompt, async (key, message, attachmentPaths = []) => {
       const session = this.session(key)
       await this.requireWorkspace(session.snapshot.cwd)
       if (session.busy) throw new Error('请等待当前操作完成')
       if (typeof message !== 'string' || message.length > 100_000)
         throw new Error('请输入 1 至 100000 个字符的消息')
-      if (!Array.isArray(imagePaths)) throw new Error('无效的图片列表')
-      if (!message.trim() && !imagePaths.length) throw new Error('请输入消息或添加图片')
+      if (!Array.isArray(attachmentPaths)) throw new Error('无效的附件列表')
+      if (!message.trim() && !attachmentPaths.length) throw new Error('请输入消息或添加附件')
       await session.prompt(message, async () => {
-        const paths = await resolvePromptImages(imagePaths, session.snapshot.cwd)
-        return promptText(formatChatImageMessage(message, paths))
+        const paths = await resolvePromptFiles(attachmentPaths, session.snapshot.cwd)
+        return promptText(formatChatAttachmentMessage(message, paths))
       })
     })
     handle(agentChannels.compact, async (key, instructions) => {
@@ -318,18 +319,13 @@ export class AgentService {
     })
     handle(agentChannels.readImage, (source) => readLocalImage(source, this.active().snapshot.cwd))
     handle(agentChannels.saveImageData, (bytes) => saveImageData(bytes))
-    handle(agentChannels.chooseImages, async (language) => {
+    handle(agentChannels.saveFileData, (name, bytes) => saveFileData(name, bytes))
+    handle(agentChannels.chooseFiles, async (language) => {
       if (language !== undefined && language !== 'zh-CN' && language !== 'en')
         throw new Error('无效的界面语言')
       const result = await dialog.showOpenDialog(this.window, {
-        title: language === 'en' ? 'Add images' : '添加图片',
-        properties: ['openFile', 'multiSelections'],
-        filters: [
-          {
-            name: language === 'en' ? 'Images' : '图片',
-            extensions: ['png', 'jpg', 'jpeg', 'jfif', 'webp', 'gif', 'avif', 'bmp', 'ico', 'svg']
-          }
-        ]
+        title: language === 'en' ? 'Add attachments' : '添加附件',
+        properties: ['openFile', 'multiSelections']
       })
       return result.canceled ? [] : result.filePaths
     })

@@ -28,7 +28,7 @@ interface SlashCommandInputProps {
   textarea: RefObject<HTMLTextAreaElement | null>
   disabled: boolean
   header?: ReactNode
-  onDropImages?: (files: File[]) => void
+  onDropFiles?: (files: File[]) => void
   onPasteImages?: (files: File[]) => void
   onDraft: (text: string) => void
   onSend: () => void
@@ -41,7 +41,7 @@ export function SlashCommandInput({
   textarea,
   disabled,
   header,
-  onDropImages,
+  onDropFiles,
   onPasteImages,
   onDraft,
   onSend,
@@ -213,7 +213,7 @@ export function SlashCommandInput({
             event.stopPropagation()
             dragDepth.current = 0
             setDragging(false)
-            if (!disabled) onDropImages?.(Array.from(event.dataTransfer.files))
+            if (!disabled) onDropFiles?.(Array.from(event.dataTransfer.files))
           }}
           onPaste={(event) => {
             const files = Array.from(event.clipboardData.items)

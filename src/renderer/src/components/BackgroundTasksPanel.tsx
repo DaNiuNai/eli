@@ -16,7 +16,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger
 } from '@renderer/components/ui/collapsible'
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@renderer/components/ui/empty'
 import {
   CodeBlock,
   CodeBlockActions,
@@ -120,7 +119,7 @@ export function BackgroundTasksPanel({
   tasks: BackgroundTask[]
   disabled: boolean
   onStop: (id: string) => Promise<unknown>
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const { t, locale } = useLanguage()
   const [selected, setSelected] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -202,6 +201,8 @@ export function BackgroundTasksPanel({
     )
   }
 
+  if (!tasks.length) return null
+
   return (
     <>
       <TaskPanelSection
@@ -211,52 +212,41 @@ export function BackgroundTasksPanel({
         icon={TerminalIcon}
       >
         <div role="region" aria-label={t('后台任务列表')}>
-          {!tasks.length ? (
-            <Empty className="px-3 py-5">
-              <EmptyHeader>
-                <EmptyTitle>{t('暂无后台任务')}</EmptyTitle>
-                <EmptyDescription>
-                  {t('耗时命令会自动转到后台，也可以让模型直接在后台启动。')}
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex min-w-0 flex-col gap-1">
-              {visible.map(taskRow)}
-              {active.length > 4 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="justify-start"
-                  onClick={() => setShowAll((previous) => !previous)}
-                >
-                  {t(showAll ? '收起任务' : '显示更多')}
-                </Button>
-              )}
-              {finished.length > 0 && (
-                <Collapsible>
-                  <CollapsibleTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="group/finished w-full justify-start gap-2"
-                      />
-                    }
-                  >
-                    <ChevronDownIcon
-                      data-icon="inline-start"
-                      className="-rotate-90 transition-transform group-aria-expanded/finished:rotate-0"
+          <div className="flex min-w-0 flex-col gap-1">
+            {visible.map(taskRow)}
+            {active.length > 4 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-start"
+                onClick={() => setShowAll((previous) => !previous)}
+              >
+                {t(showAll ? '收起任务' : '显示更多')}
+              </Button>
+            )}
+            {finished.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="group/finished w-full justify-start gap-2"
                     />
-                    {t('{count} 个已结束', { count: finished.length })}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="flex min-w-0 flex-col gap-1">{finished.map(taskRow)}</div>
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-            </div>
-          )}
+                  }
+                >
+                  <ChevronDownIcon
+                    data-icon="inline-start"
+                    className="-rotate-90 transition-transform group-aria-expanded/finished:rotate-0"
+                  />
+                  {t('{count} 个已结束', { count: finished.length })}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="flex min-w-0 flex-col gap-1">{finished.map(taskRow)}</div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+          </div>
         </div>
       </TaskPanelSection>
       <Dialog
