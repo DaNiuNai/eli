@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { relative, resolve } from 'node:path'
 import { stat } from 'node:fs/promises'
 import { agentChannels, type AgentSnapshot, type AgentThinkingLevel } from '../shared/agent'
@@ -18,6 +18,7 @@ import { resolveTerminal } from './terminal'
 import { providersChannels } from '../shared/providers'
 import { mcpAuthChannels, type McpAuthSnapshot } from '../shared/mcp'
 import { SkillInstallationService } from './skill-installation'
+import { emptySessionSnapshot } from '../shared/agent-state'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -338,10 +339,9 @@ export class AgentService {
           this.current = existing
         } else {
           const saved = await this.request('findSession', path)
-          this.current = await this.createSession(
-            saved.cwd || this.active().snapshot.cwd,
-            saved.path
-          )
+          const cwd = saved.cwd || this.current?.snapshot.cwd
+          if (!cwd) throw new Error('请先选择工作目录')
+          this.current = await this.createSession(cwd, saved.path)
         }
         this.publish()
       })
@@ -349,9 +349,10 @@ export class AgentService {
     handle(agentChannels.newSession, (cwd) =>
       this.navigate(async () => {
         if (cwd !== undefined && typeof cwd !== 'string') throw new Error('无效的工作目录')
-        const directory = typeof cwd === 'string' ? cwd : this.active().snapshot.cwd
+        const directory = typeof cwd === 'string' ? cwd : this.current?.snapshot.cwd
+        if (!directory) throw new Error('请先选择工作目录')
         if (
-          directory !== this.active().snapshot.cwd &&
+          directory !== this.current?.snapshot.cwd &&
           ![...this.sessions.values()].some((session) => session.snapshot.cwd === directory) &&
           !(await this.request('hasWorkspace', directory))
         )
@@ -409,7 +410,7 @@ export class AgentService {
       }
       const result = await dialog.showOpenDialog(this.window, {
         title: language === 'en' ? 'Choose workspace' : '选择工作目录',
-        defaultPath: this.active().snapshot.cwd,
+        defaultPath: this.current?.snapshot.cwd,
         properties: ['openDirectory']
       })
       if (result.canceled || !result.filePaths[0]) return
@@ -454,7 +455,8 @@ export class AgentService {
   }
 
   private active(): SessionProcess {
-    if (!this.current || this.disposed) throw new Error('本机服务尚未连接，请重新连接')
+    if (this.disposed) throw new Error('本机服务尚未连接，请重新连接')
+    if (!this.current) throw new Error('请先选择工作目录')
     return this.current
   }
 
@@ -532,7 +534,7 @@ export class AgentService {
     if (this.connecting) return this.connecting
     this.connecting = this.navigate(async () => {
       if (!this.current) {
-        await this.newSession(app.isPackaged ? app.getPath('documents') : process.cwd())
+        await this.controller()
       } else if (restart) {
         const session = this.current
         await session.exclusive(async () => {
@@ -553,10 +555,10 @@ export class AgentService {
 
   private snapshot(): AgentSnapshot {
     return {
-      ...this.active().snapshot,
+      ...(this.current?.snapshot ?? emptySessionSnapshot()),
       revision: this.revision,
       libraryVersion: this.libraryVersion,
-      sessionKey: this.active().key,
+      sessionKey: this.current?.key ?? '',
       unavailableWorkspaces: [...this.unavailableWorkspaces],
       toolApprovalMode: this.approvalMode(),
       liveSessions: [...this.sessions.values()].flatMap((session) => {
@@ -583,7 +585,7 @@ export class AgentService {
     // 后台流只发布其状态，界面正文始终来自当前选中的会话。
     this.broadcastTimer = setTimeout(() => {
       this.broadcastTimer = undefined
-      if (this.current && !this.window.isDestroyed() && !this.disposed) {
+      if (!this.window.isDestroyed() && !this.disposed) {
         this.window.webContents.send(agentChannels.snapshot, this.snapshot())
       }
     }, 32)

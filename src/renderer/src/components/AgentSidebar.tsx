@@ -128,7 +128,7 @@ export function AgentSidebar({
     getAppPreferences
   )
   const { isMobile, setOpenMobile } = useSidebar()
-  const ready = !!snapshot?.sessionKey
+  const ready = !!snapshot && snapshot.connection !== 'connecting'
   const unavailableWorkspaces = new Set(snapshot?.unavailableWorkspaces)
   const archived = new Set(archivedWorkspaces.map(workspacePathKey))
   const groups = new Map<string, SavedSession[]>()

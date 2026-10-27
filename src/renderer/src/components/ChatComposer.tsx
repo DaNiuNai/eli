@@ -136,7 +136,7 @@ export function ChatComposer({
             {t(snapshot.activity)}
           </span>
         )}
-      {ready && !hasModel && (
+      {ready && snapshot?.session && !hasModel && (
         <Alert className="flex flex-col gap-3 has-data-[slot=alert-action]:pr-2.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-col gap-0.5">
             <AlertTitle>{t('尚无可用模型')}</AlertTitle>
@@ -164,10 +164,17 @@ export function ChatComposer({
             onClick={onChooseDirectory}
           >
             <FolderOpenIcon data-icon="inline-start" />
-            <span className="truncate">{directoryName(snapshot?.cwd ?? '', t('工作目录'))}</span>
+            <span className="truncate">
+              {directoryName(snapshot?.cwd ?? '', t('选择工作目录'))}
+            </span>
             <ChevronDownIcon data-icon="inline-end" />
           </Button>
         </div>
+      )}
+      {ready && !snapshot?.session && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {t('选择工作目录后即可开始对话。')}
+        </p>
       )}
       <SlashCommandInput
         key={snapshot?.sessionKey}

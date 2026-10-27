@@ -268,6 +268,10 @@ function App(): React.JSX.Element {
   }
 
   async function newSession(cwd?: string): Promise<void> {
+    if (!cwd && !snapshot?.cwd) {
+      await chooseDirectory()
+      return
+    }
     if (await perform(() => window.api.newSession(cwd))) {
       textarea.current?.focus()
     }

@@ -69,7 +69,9 @@ export function AppMenu({
           <DropdownMenuGroup>
             <DropdownMenuItem
               disabled={
-                !snapshot?.sessionKey || snapshot.unavailableWorkspaces.includes(snapshot.cwd)
+                !snapshot ||
+                snapshot.connection === 'connecting' ||
+                snapshot.unavailableWorkspaces.includes(snapshot.cwd)
               }
               onClick={onNewSession}
             >

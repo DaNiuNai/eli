@@ -669,6 +669,8 @@ const english: Record<string, string> = {
   '请先在本机登录或配置模型，再点击侧栏底部的重新连接。':
     'Sign in or configure a model locally, then choose Reconnect from the sidebar menu.',
   选择工作目录: 'Choose workspace',
+  请先选择工作目录: 'Choose a workspace first',
+  '选择工作目录后即可开始对话。': 'Choose a workspace to start a conversation.',
   正在回复: 'Generating response',
   正在发送消息: 'Sending message',
   正在处理: 'Processing',

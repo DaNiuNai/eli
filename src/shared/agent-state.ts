@@ -1,14 +1,14 @@
 import type { AgentSessionSnapshot } from './agent'
 
 export function emptySessionSnapshot(
-  cwd: string,
-  id: string,
+  cwd = '',
+  id?: string,
   sessionFile?: string
 ): AgentSessionSnapshot {
   return {
-    connection: 'connecting',
+    connection: id ? 'connecting' : 'ready',
     cwd,
-    session: { sessionId: id, sessionFile, thinkingLevel: 'medium' },
+    session: id ? { sessionId: id, sessionFile, thinkingLevel: 'medium' } : null,
     thinkingLevels: [],
     contextUsage: null,
     model: null,
