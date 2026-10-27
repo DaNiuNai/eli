@@ -35,7 +35,7 @@ export function MessageActions({
   }
 
   return (
-    <MessageFooter className="message-actions gap-1" aria-label={t('消息操作')}>
+    <MessageFooter className="message-actions -mt-2 gap-1" aria-label={t('消息操作')}>
       <Button
         type="button"
         variant="ghost"

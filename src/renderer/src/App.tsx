@@ -126,6 +126,7 @@ function App(): React.JSX.Element {
       ),
       lastMessageIndex: -1,
       role: 'assistant',
+      isFinalResponse: false,
       groups: []
     })
   }
@@ -419,7 +420,7 @@ function App(): React.JSX.Element {
               <MessageScrollerProvider key={snapshot?.sessionKey} autoScroll>
                 <MessageScroller>
                   <MessageScrollerViewport aria-label={t('对话消息')}>
-                    <MessageScrollerContent className="mx-auto max-w-4xl gap-8 px-6 py-8 sm:px-8">
+                    <MessageScrollerContent className="mx-auto max-w-4xl gap-3 px-6 py-8 sm:px-8">
                       {visibleMessages.map((entry) => {
                         const entryId = snapshot?.messageEntryIds?.[entry.lastMessageIndex]
                         const target =

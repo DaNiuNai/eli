@@ -47,7 +47,7 @@ export function ChatMessage({
 
   return (
     <Message className="chat-message" align={user ? 'end' : 'start'}>
-      <MessageContent>
+      <MessageContent className="gap-2">
         {editing && user ? (
           <MessageEditor
             value={editing.text}
@@ -117,7 +117,7 @@ export function ChatMessage({
             </TraceLine>
           </Trace>
         )}
-        {!editing && (user || !!text.trim()) && (
+        {!editing && (user || (entry.isFinalResponse && !running && !!text.trim())) && (
           <MessageActions
             text={text}
             user={user}

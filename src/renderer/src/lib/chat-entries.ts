@@ -19,6 +19,7 @@ export interface ChatEntry {
   id: string
   lastMessageIndex: number
   role: 'user' | 'assistant'
+  isFinalResponse: boolean
   groups: ContentGroup[]
 }
 
@@ -44,6 +45,7 @@ export function buildChatEntries(
           id: String(messageIndex),
           lastMessageIndex: messageIndex,
           role: 'assistant',
+          isFinalResponse: false,
           groups: [
             {
               id: `${messageIndex}:collaboration`,
@@ -68,6 +70,7 @@ export function buildChatEntries(
         id: String(messageIndex),
         lastMessageIndex: messageIndex,
         role: message.role,
+        isFinalResponse: false,
         groups: []
       }
       entries.push(current)
@@ -117,6 +120,18 @@ export function buildChatEntries(
       entry.groups.push({ id: `${messageIndex}:aborted`, kind: 'aborted' })
       current = undefined
     }
+  })
+
+  entries.forEach((entry, index) => {
+    const message = messages[entry.lastMessageIndex]
+    // 协作通知会拆开同一轮回复；只有用户消息之前或对话末尾的最终正文可操作。
+    entry.isFinalResponse =
+      entry.role === 'assistant' &&
+      entries[index + 1]?.role !== 'assistant' &&
+      message?.role === 'assistant' &&
+      (message.stopReason === 'stop' || message.stopReason === 'length') &&
+      !message.content.some((part) => part.type === 'toolCall') &&
+      entry.groups.at(-1)?.kind === 'text'
   })
 
   return entries
