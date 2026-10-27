@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { BookOpenIcon, RefreshCwIcon } from 'lucide-react'
+import { BookOpenIcon, DownloadIcon, ExternalLinkIcon, RefreshCwIcon } from 'lucide-react'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -17,16 +17,25 @@ import {
   FieldLabel
 } from '@renderer/components/ui/field'
 import { Skeleton } from '@renderer/components/ui/skeleton'
+import { Spinner } from '@renderer/components/ui/spinner'
 import { Switch } from '@renderer/components/ui/switch'
 import { useAutoSave } from '@renderer/hooks/use-auto-save'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { UserSkill } from '../../../shared/skills'
 
-export function SkillsSettingsPanel(): React.JSX.Element {
+export function SkillsSettingsPanel({
+  onSessionStarted
+}: {
+  onSessionStarted: () => void
+}): React.JSX.Element {
   const { t } = useLanguage()
   const id = useId()
   const [skills, setSkills] = useState<UserSkill[] | null>(null)
   const [error, setError] = useState('')
+  const [installError, setInstallError] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [nodeRequired, setNodeRequired] = useState(false)
+  const installingRef = useRef(false)
   const [reload, setReload] = useState(0)
   const active = useRef(true)
   const save = useAutoSave<boolean>(async (filePath, enabled) => {
@@ -59,6 +68,26 @@ export function SkillsSettingsPanel(): React.JSX.Element {
     }
   }, [reload])
 
+  async function installCommonSkills(): Promise<void> {
+    if (installingRef.current) return
+    installingRef.current = true
+    setInstalling(true)
+    setInstallError('')
+    setNodeRequired(false)
+    try {
+      await save.flush()
+      const result = await window.api.installCommonSkills()
+      if (!active.current) return
+      if (result === 'node-required') setNodeRequired(true)
+      else onSessionStarted()
+    } catch (cause) {
+      if (active.current) setInstallError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      installingRef.current = false
+      if (active.current) setInstalling(false)
+    }
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
@@ -83,6 +112,44 @@ export function SkillsSettingsPanel(): React.JSX.Element {
       <p className="text-sm text-muted-foreground">
         {t('修改自动保存，并在下一次会话操作时生效。')}
       </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          nativeButton={false}
+          render={<a href="https://skills.sh/" target="_blank" rel="noreferrer" />}
+        >
+          <ExternalLinkIcon data-icon="inline-start" />
+          {t('浏览 skills.sh')}
+        </Button>
+        <Button size="sm" disabled={installing} onClick={() => void installCommonSkills()}>
+          {installing ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <DownloadIcon data-icon="inline-start" />
+          )}
+          {t(installing ? '正在准备安装…' : '一键安装常用 Skill')}
+        </Button>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {t(
+          '新建 Agent 会话，安装 find-skills、skill-creator、pdf、pptx、docx 和 xlsx，所有项目共用。'
+        )}
+      </p>
+      {nodeRequired && (
+        <Alert>
+          <AlertDescription>
+            {t(
+              '安装需要 Node.js 22.20 或更新版本，以及 npm 和 npx。请在已打开的 Node.js 官网下载安装，完成后重启 eli，再点击一键安装。'
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+      {installError && (
+        <Alert variant="destructive">
+          <AlertDescription>{t(installError)}</AlertDescription>
+        </Alert>
+      )}
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{t(error)}</AlertDescription>

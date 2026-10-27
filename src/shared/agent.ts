@@ -5,7 +5,7 @@ import type { AgentSettingsChange, AgentSettingsSnapshot } from './agent-setting
 import type { ManagedMcpServer, McpConnectionTest, McpServerChange } from './mcp'
 import type { AutoApprovalState, ToolApprovalMode, ToolApprovalRequest } from './tool-approval'
 import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
-import type { UserSkill } from './skills'
+import type { CommonSkillsInstallResult, UserSkill } from './skills'
 import type { BackgroundTask } from './background-tasks'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
@@ -111,6 +111,7 @@ export interface AgentApi {
   getLibrary(): Promise<AgentLibrary>
   getSkills(sessionKey: string): Promise<AgentSkillCommand[]>
   getUserSkills(): Promise<UserSkill[]>
+  installCommonSkills(): Promise<CommonSkillsInstallResult>
   getMcpServers(): Promise<ManagedMcpServer[]>
   changeMcpServer(change: McpServerChange): Promise<ManagedMcpServer[]>
   testMcpServer(name: string): Promise<McpConnectionTest>
@@ -143,6 +144,7 @@ export const agentChannels = {
   getLibrary: 'agent:get-library',
   getSkills: 'agent:get-skills',
   getUserSkills: 'agent:get-user-skills',
+  installCommonSkills: 'agent:install-common-skills',
   getMcpServers: 'agent:get-mcp-servers',
   changeMcpServer: 'agent:change-mcp-server',
   testMcpServer: 'agent:test-mcp-server',

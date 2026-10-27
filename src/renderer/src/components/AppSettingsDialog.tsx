@@ -258,7 +258,7 @@ export function AppSettingsDialog({
                 </div>
               ) : open && activeCategory === 'skills' && !query.trim() ? (
                 <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
-                  <SkillsSettingsPanel />
+                  <SkillsSettingsPanel onSessionStarted={() => onOpenChange(false)} />
                 </div>
               ) : open && activeCategory === 'mcp' && !query.trim() ? (
                 <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
@@ -281,7 +281,9 @@ export function AppSettingsDialog({
                       <div className="flex flex-col gap-8">
                         {includeGeneral && <GeneralSettings />}
                         {includeAbout && <AboutSettings />}
-                        {includeSkills && <SkillsSettingsPanel />}
+                        {includeSkills && (
+                          <SkillsSettingsPanel onSessionStarted={() => onOpenChange(false)} />
+                        )}
                         {includeMcp && <McpSettingsPanel />}
                       </div>
                     ) : null

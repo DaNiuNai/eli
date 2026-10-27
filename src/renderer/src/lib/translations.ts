@@ -591,6 +591,15 @@ const english: Record<string, string> = {
   技能: 'Skills',
   'Skill 管理': 'Skill management',
   '用户级 Skill': 'User skills',
+  '浏览 skills.sh': 'Browse skills.sh',
+  '一键安装常用 Skill': 'Install common skills',
+  '正在准备安装…': 'Preparing installation…',
+  '新建 Agent 会话，安装 find-skills、skill-creator、pdf、pptx、docx 和 xlsx，所有项目共用。':
+    'Start a new agent conversation to install find-skills, skill-creator, pdf, pptx, docx, and xlsx for all projects.',
+  '安装需要 Node.js 22.20 或更新版本，以及 npm 和 npx。请在已打开的 Node.js 官网下载安装，完成后重启 eli，再点击一键安装。':
+    'Installation requires Node.js 22.20 or later, npm, and npx. Download and install them from the Node.js website that just opened, then restart eli and try again.',
+  '无法打开 Node.js 官网，请访问 https://nodejs.org/ 下载安装，完成后重启应用。':
+    'Could not open the Node.js website. Visit https://nodejs.org/ to download and install it, then restart the app.',
   '查看和管理用户级 Skill。': 'View and manage user skills.',
   '关闭后将不再向模型提供该用户级 Skill，也不会出现在技能命令中。项目级同名 Skill 保持可用。':
     'Disabled user skills are hidden from the model and skill commands. Project skills with the same name remain available.',

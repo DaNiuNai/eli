@@ -4,3 +4,5 @@ export interface UserSkill {
   filePath: string
   enabled: boolean
 }
+
+export type CommonSkillsInstallResult = 'started' | 'node-required'

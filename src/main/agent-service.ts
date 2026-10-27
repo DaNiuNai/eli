@@ -16,6 +16,7 @@ import type { TerminalPreference } from '../shared/terminal'
 import { resolveTerminal } from './terminal'
 import { providersChannels } from '../shared/providers'
 import { mcpAuthChannels, type McpAuthSnapshot } from '../shared/mcp'
+import { SkillInstallationService } from './skill-installation'
 
 function promptText(value: unknown): string {
   if (typeof value !== 'string' || !value.trim() || value.length > 100_000) {
@@ -47,6 +48,15 @@ export class AgentService {
   private unavailableWorkspaces = new Set<string>()
   private workspaceTimer?: ReturnType<typeof setInterval>
   private checkingWorkspaces?: Promise<void>
+  private readonly skillInstallation = new SkillInstallationService({
+    openExternal: (url) => shell.openExternal(url),
+    startSession: (prompt) =>
+      this.navigate(async () => {
+        if (!this.active().snapshot.model) throw new Error('请先配置模型，再重新连接')
+        await this.newSession(this.active().snapshot.cwd)
+        await this.active().prompt(prompt)
+      })
+  })
 
   constructor(
     private readonly window: BrowserWindow,
@@ -269,6 +279,7 @@ export class AgentService {
     })
     handle(agentChannels.getSettings, () => this.request('getSettings'))
     handle(agentChannels.getUserSkills, () => this.request('getUserSkills'))
+    handle(agentChannels.installCommonSkills, () => this.skillInstallation.install())
     handle(agentChannels.getMcpServers, () => this.request('getMcpServers'))
     handle(agentChannels.testMcpServer, async (name) => {
       const cwd = this.current?.snapshot.cwd

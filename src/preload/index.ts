@@ -34,6 +34,7 @@ const api: AgentApi = {
   getLibrary: () => ipcRenderer.invoke(agentChannels.getLibrary),
   getSkills: (sessionKey) => ipcRenderer.invoke(agentChannels.getSkills, sessionKey),
   getUserSkills: () => ipcRenderer.invoke(agentChannels.getUserSkills),
+  installCommonSkills: () => ipcRenderer.invoke(agentChannels.installCommonSkills),
   getMcpServers: () => ipcRenderer.invoke(agentChannels.getMcpServers),
   changeMcpServer: (change) => ipcRenderer.invoke(agentChannels.changeMcpServer, change),
   testMcpServer: (name) => ipcRenderer.invoke(agentChannels.testMcpServer, name),
