@@ -10,6 +10,7 @@ export type UiLanguage = 'zh-CN' | 'en'
 export type Theme = 'light' | 'dark' | 'system'
 
 export const sidebarSizing = { defaultWidth: 272, minWidth: 200, maxWidth: 480 } as const
+export const tasksPanelSizing = { defaultWidth: 288, minWidth: 200, maxWidth: 480 } as const
 
 export interface SidebarOrder {
   workspaces: string[]
@@ -21,6 +22,7 @@ export interface AppPreferences {
   language: UiLanguage
   sidebarOpen: boolean
   sidebarWidth: number
+  tasksPanelWidth: number
   sidebarOrder: SidebarOrder
   archivedWorkspaces: string[]
   toolApprovalMode: ToolApprovalMode
@@ -52,6 +54,7 @@ export function defaultAppPreferences(): AppPreferences {
     language: 'zh-CN',
     sidebarOpen: true,
     sidebarWidth: sidebarSizing.defaultWidth,
+    tasksPanelWidth: tasksPanelSizing.defaultWidth,
     sidebarOrder: { workspaces: [], sessions: {} },
     archivedWorkspaces: [],
     toolApprovalMode: 'request',
@@ -79,6 +82,8 @@ export function parseAppPreferences(value: unknown): AppPreferences {
   const language = value.language === undefined ? defaults.language : value.language
   const sidebarOpen = value.sidebarOpen === undefined ? defaults.sidebarOpen : value.sidebarOpen
   const sidebarWidth = value.sidebarWidth === undefined ? defaults.sidebarWidth : value.sidebarWidth
+  const tasksPanelWidth =
+    value.tasksPanelWidth === undefined ? defaults.tasksPanelWidth : value.tasksPanelWidth
   const toolApprovalMode =
     value.toolApprovalMode === undefined ? defaults.toolApprovalMode : value.toolApprovalMode
   if (!isTheme(theme)) throw new Error('无效的主题设置')
@@ -92,6 +97,14 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     sidebarWidth > sidebarSizing.maxWidth
   ) {
     throw new Error('无效的侧栏宽度设置')
+  }
+  if (
+    typeof tasksPanelWidth !== 'number' ||
+    !Number.isFinite(tasksPanelWidth) ||
+    tasksPanelWidth < tasksPanelSizing.minWidth ||
+    tasksPanelWidth > tasksPanelSizing.maxWidth
+  ) {
+    throw new Error('无效的任务面板宽度设置')
   }
 
   let sidebarOrder = defaults.sidebarOrder
@@ -119,6 +132,7 @@ export function parseAppPreferences(value: unknown): AppPreferences {
     language,
     sidebarOpen,
     sidebarWidth,
+    tasksPanelWidth,
     sidebarOrder,
     archivedWorkspaces,
     toolApprovalMode,

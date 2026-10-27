@@ -6,7 +6,7 @@ import { useLanguage } from '@renderer/hooks/use-language'
 import { updateAppPreferences } from '@renderer/lib/app-preferences'
 import { cn } from '@renderer/lib/utils'
 import type { AgentSnapshot } from '../../../shared/agent'
-import { sidebarSizing } from '../../../shared/app-preferences'
+import { sidebarSizing, tasksPanelSizing } from '../../../shared/app-preferences'
 
 export function AppTitlebar({
   title,
@@ -51,7 +51,8 @@ export function AppTitlebar({
             onResetLayout={() => {
               updateAppPreferences({
                 sidebarOpen: true,
-                sidebarWidth: sidebarSizing.defaultWidth
+                sidebarWidth: sidebarSizing.defaultWidth,
+                tasksPanelWidth: tasksPanelSizing.defaultWidth
               })
               if (isMobile) setOpenMobile(true)
               onTasksOpenChange(true)

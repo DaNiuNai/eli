@@ -10,6 +10,7 @@ import { AgentSettingsService } from '../src/runtime/settings-service.ts'
 import { createSettings } from '../src/runtime/settings.ts'
 import { ProvidersService } from '../src/runtime/providers.ts'
 import { closeNetwork } from '../src/runtime/network.ts'
+import { tasksPanelSizing } from '../src/shared/app-preferences.ts'
 
 async function fixture(t) {
   const temporary = resolve('.tmp')
@@ -192,4 +193,27 @@ test('旧版顶层应用偏好不自动迁移到新配置', async (t) => {
   assert.equal(saved.version, 1)
   assert.equal(saved.app.theme, 'light')
   assert.equal(Object.hasOwn(saved, 'theme'), false)
+})
+
+test('已有布局补全任务面板宽度，保存后可恢复并拒绝非法宽度', async (t) => {
+  const { path } = await fixture(t)
+  await writeFile(path, JSON.stringify({ version: 1, app: { sidebarWidth: 320 } }))
+  const app = new AppConfig(path)
+  await app.load()
+  assert.equal(app.get().sidebarWidth, 320)
+  assert.equal(app.get().tasksPanelWidth, tasksPanelSizing.defaultWidth)
+
+  for (const tasksPanelWidth of [tasksPanelSizing.minWidth, 360, tasksPanelSizing.maxWidth]) {
+    await app.set({ ...app.get(), tasksPanelWidth })
+    const restored = new AppConfig(path)
+    await restored.load()
+    assert.equal(restored.get().tasksPanelWidth, tasksPanelWidth)
+    assert.equal(restored.get().sidebarWidth, 320)
+  }
+
+  const before = await readFile(path, 'utf8')
+  for (const tasksPanelWidth of [199, 481, NaN, Infinity, null, '320']) {
+    assert.throws(() => app.set({ ...app.get(), tasksPanelWidth }), /无效的任务面板宽度设置/)
+    assert.equal(await readFile(path, 'utf8'), before)
+  }
 })
