@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { imageExtension } from '../../../shared/chat-images'
 import { maxChatFileBytes, type ChatDraftAttachment } from '../../../shared/chat-attachments'
 import { useLanguage } from './use-language'
@@ -81,13 +81,13 @@ export function useChatAttachments(
     }))
   }
 
-  function discard(key: string): void {
+  const discard = useCallback((key: string): void => {
     setDrafts((current) => {
       const next = { ...current }
       delete next[key]
       return next
     })
-  }
+  }, [])
 
   return {
     attachments: drafts[sessionKey] ?? [],

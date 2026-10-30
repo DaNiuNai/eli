@@ -89,6 +89,20 @@ test('Skill 设置失效后，下一次技能列表和会话操作会重建 Runt
   assert.ok(runtimes[2].calls.some(({ method }) => method === 'prompt'))
 })
 
+test('启动前终端解析失败也发布连接错误，允许用户重连重试', async (t) => {
+  const { session, runtimes } = harness(t)
+  t.mock.method(session.services, 'resolveTerminal', async () => {
+    throw new Error('终端不存在')
+  })
+  await assert.rejects(session.load(), /终端不存在/)
+  assert.equal(runtimes.length, 0)
+  assert.equal(session.snapshot.connection, 'error')
+  assert.equal(session.snapshot.error, '终端不存在')
+  t.mock.restoreAll()
+  await session.load()
+  assert.equal(session.snapshot.connection, 'ready')
+})
+
 test('子 Agent 仍在运行时保留 Runtime，操作按用户会话路由，进程退出标记任务中断', async (t) => {
   const { session, runtimes } = harness(t)
   await session.load()

@@ -77,7 +77,13 @@ export class SessionProcess {
   }
 
   async load(): Promise<void> {
-    await this.ensureClient()
+    try {
+      await this.ensureClient()
+    } catch (error) {
+      // 终端解析也可能在启动进程前失败，异步打开的会话仍须发布错误状态。
+      if (!this.disposed && this.snapshot.connection !== 'error') this.fail(error)
+      throw error
+    }
   }
   private ensureClient(): Promise<SessionRuntime> {
     if (this.starting) return this.starting

@@ -160,7 +160,7 @@ export class RuntimeCoordinator {
               approvalMode: this.approvalMode,
               selection: member.selection
             },
-            () => this.publish(true),
+            (libraryChanged) => this.publish(libraryChanged),
             {
               team: this.team,
               id: member.id,

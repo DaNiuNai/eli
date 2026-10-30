@@ -23,6 +23,7 @@ async function harness(t) {
   const terminal = join(directory, 'powershell.exe')
   await writeFile(terminal, 'terminal fixture')
   fixture.runtimes.length = 0
+  fixture.initialize = undefined
   fixture.documents = join(directory, '系统文档')
   fixture.models = ['initial', 'other'].map((id) => ({
     provider: 'fixture',
@@ -158,6 +159,93 @@ test('启动后可直接打开历史会话，并在该目录中新建对话', as
   assert.equal(opened.session.sessionFile, fixture.library.sessions[0].path)
   await invoke(agentChannels.newSession, directory)
   assert.notEqual((await service.connect()).sessionKey, opened.sessionKey)
+})
+
+test(
+  '慢会话初始化不占用导航队列，加载完成不会抢回用户已切走的页面',
+  { timeout: 5000 },
+  async (t) => {
+    const { service, directory, invoke } = await harness(t)
+    await service.connect()
+    const path = join(directory, 'slow.jsonl')
+    fixture.library.sessions = [{ path, cwd: directory }]
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    t.after(() => release())
+    fixture.initialize = (options) => (options.sessionFile === path ? gate : undefined)
+    await invoke(agentChannels.openSession, path)
+    const loading = service.snapshot()
+    assert.equal(loading.connection, 'connecting')
+    assert.equal(loading.session.sessionFile, path)
+    await invoke(agentChannels.newSession)
+    const next = await service.connect()
+    assert.notEqual(next.sessionKey, loading.sessionKey)
+    assert.equal(next.connection, 'ready')
+    release()
+    await delay(50)
+    assert.equal(service.snapshot().sessionKey, next.sessionKey)
+    await invoke(agentChannels.openSession, path)
+    assert.equal((await service.connect()).sessionKey, loading.sessionKey)
+  }
+)
+
+test('后台 token 不重复发送当前会话正文，侧栏状态变化仍及时发布', async (t) => {
+  const { service, window, invoke } = await harness(t)
+  const initial = await service.connect()
+  const background = fixture.runtimes.find((runtime) => runtime.options.kind === 'session')
+  background.state.summary = {
+    key: initial.sessionKey,
+    path: 'fixture-session',
+    id: initial.sessionKey,
+    cwd: initial.cwd,
+    title: '后台任务',
+    created: 1,
+    modified: 1,
+    messageCount: 1,
+    running: true,
+    pending: false,
+    approvalCount: 0,
+    questionCount: 0,
+    backgroundTaskCount: 0,
+    subagentCount: 0
+  }
+  background.state.snapshot.running = true
+  background.state.snapshot.messages = [
+    { role: 'assistant', content: [{ type: 'text', text: '开始' }] }
+  ]
+  const emit = () =>
+    background.emit('message', {
+      version: 1,
+      kind: 'session',
+      agentId: 'main',
+      state: structuredClone(background.state),
+      libraryChanged: false
+    })
+  emit()
+  await invoke(agentChannels.newSession)
+  const selected = await service.connect()
+  await delay(50)
+  const count = window.webContents.sent.filter(
+    ({ channel }) => channel === agentChannels.snapshot
+  ).length
+  for (let index = 0; index < 10; index++) {
+    background.state.snapshot.messages[0].content[0].text += '回复'
+    emit()
+  }
+  await delay(50)
+  assert.equal(
+    window.webContents.sent.filter(({ channel }) => channel === agentChannels.snapshot).length,
+    count
+  )
+  background.state.summary.questionCount = 1
+  emit()
+  await delay(50)
+  const published = window.webContents.sent.at(-1).snapshot
+  assert.equal(published.sessionKey, selected.sessionKey)
+  assert.deepEqual(published.messages, [])
+  assert.equal(published.liveSessions[0].questionCount, 1)
 })
 
 test('默认会话可读取历史列表，并直接在历史工作目录中新建对话', async (t) => {

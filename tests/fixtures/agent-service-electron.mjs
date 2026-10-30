@@ -5,6 +5,7 @@ export const fixture = {
   runtimes: [],
   documents: '',
   models: [],
+  initialize: undefined,
   library: { sessions: [], usage: [], updatedAt: 0, warning: null }
 }
 
@@ -61,13 +62,14 @@ export const utilityProcess = {
     child.kill = () => child.emit('exit', 0)
     child.postMessage = (request) => {
       child.calls.push(request)
-      queueMicrotask(() => {
+      queueMicrotask(async () => {
         try {
           let result
           const [options] = request.args
           switch (request.method) {
             case 'initialize':
               child.options = options
+              await fixture.initialize?.(options, child)
               if (options.kind === 'session') {
                 child.state = {
                   snapshot: {

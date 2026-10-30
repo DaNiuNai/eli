@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { AgentSnapshot } from '../../../shared/agent'
 import { rememberSidebarSessions } from '@renderer/lib/sidebar-order'
+import { shareSnapshot } from '@renderer/lib/share-snapshot'
 
 export function useAgent(): {
   snapshot: AgentSnapshot | null
@@ -30,12 +31,14 @@ export function useAgent(): {
   useEffect(() => {
     if (!window.api) return
     let active = true
-    let revision = -1
+    let latest: AgentSnapshot | null = null
     const receive = (next: AgentSnapshot): void => {
-      if (!active || next.revision < revision) return
-      revision = next.revision
-      rememberSidebarSessions([...next.liveSessions].sort((a, b) => b.created - a.created))
-      setSnapshot((previous) => (!previous || next.revision >= previous.revision ? next : previous))
+      if (!active || (latest && next.revision <= latest.revision)) return
+      const shared = latest ? shareSnapshot(latest, next) : next
+      if (latest?.liveSessions !== shared.liveSessions)
+        rememberSidebarSessions([...shared.liveSessions].sort((a, b) => b.created - a.created))
+      latest = shared
+      setSnapshot(shared)
     }
     // 先订阅再初始化，revision 防止较慢的 connect 响应覆盖新的流式消息。
     const unsubscribe = window.api.onSnapshot(receive)

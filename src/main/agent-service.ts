@@ -38,6 +38,7 @@ export class AgentService {
   private openedMcpAuth?: string
   private readonly root = runtimePaths().root
   private sessions = new Map<string, SessionProcess>()
+  private closingSessions = new Set<Promise<void>>()
   private current?: SessionProcess
   private connecting?: Promise<AgentSnapshot>
   private navigation: Promise<void> = Promise.resolve()
@@ -342,7 +343,7 @@ export class AgentService {
           const saved = await this.request('findSession', path)
           const cwd = saved.cwd || this.current?.snapshot.cwd
           if (!cwd) throw new Error('请先选择工作目录')
-          this.current = await this.createSession(cwd, saved.path)
+          await this.createSession(cwd, saved.path, true)
         }
         this.publish()
       })
@@ -486,18 +487,41 @@ export class AgentService {
     )
   }
 
-  private async createSession(cwd: string, path?: string): Promise<SessionProcess> {
+  private async createSession(
+    cwd: string,
+    path?: string,
+    activate = false
+  ): Promise<SessionProcess> {
     if (this.disposed) throw new Error('本机服务已关闭')
+    let lastSummary = ''
     const session = new SessionProcess(
       cwd,
       this.root,
-      (libraryChanged) => this.publish(libraryChanged),
+      (libraryChanged) => {
+        const summary = JSON.stringify(session.summary)
+        // 后台 token 不影响当前正文或侧栏状态时，无须传输当前会话的全部消息。
+        if (this.current === session || libraryChanged || summary !== lastSummary)
+          this.publish(libraryChanged)
+        lastSummary = summary
+      },
       this.approvalMode,
       this.terminal,
       { start: startRuntimeProcess, resolveTerminal },
       path
     )
     this.sessions.set(session.key, session)
+    if (activate) {
+      // 先切换视图，初始化留在会话内部；较慢的 Runtime 不占用全局导航队列。
+      this.current = session
+      this.publish()
+      void session
+        .load()
+        .then(() => this.checkWorkspace(session.snapshot.cwd))
+        .catch(() => {
+          // SessionProcess 已记录连接错误，保留会话供用户重连。
+        })
+      return session
+    }
     try {
       await session.load()
       await this.checkWorkspace(session.snapshot.cwd)
@@ -513,11 +537,13 @@ export class AgentService {
   private async newSession(cwd: string): Promise<void> {
     await this.requireWorkspace(cwd)
     const previous = this.current
-    this.current = await this.createSession(cwd)
+    await this.createSession(cwd, undefined, true)
     // 没提交过消息的空白页不需要一直留在会话表中。
-    if (previous && !previous.summary && !previous.busy) {
+    if (previous && !previous.summary && !previous.persistedFile && !previous.busy) {
       this.sessions.delete(previous.key)
-      await previous.dispose()
+      const closing = previous.dispose()
+      this.closingSessions.add(closing)
+      void closing.finally(() => this.closingSessions.delete(closing))
     }
     this.publish()
   }
@@ -535,16 +561,23 @@ export class AgentService {
     if (this.connecting) return this.connecting
     this.connecting = this.navigate(async () => {
       if (!this.current) {
-        await this.controller()
+        const control = this.controller()
         const directory = this.defaultWorkingDirectory() ?? join(app.getPath('documents'), 'eli')
-        await mkdir(directory, { recursive: true })
-        await this.newSession(directory)
+        await Promise.all([
+          control,
+          mkdir(directory, { recursive: true }).then(async () => {
+            await this.newSession(directory)
+            await this.current?.load()
+          })
+        ])
       } else if (restart) {
         const session = this.current
         await session.exclusive(async () => {
           await session.stopClient()
           await session.load()
         })
+      } else if (this.current.snapshot.connection === 'connecting') {
+        await this.current.load()
       }
     })
       .then(async () => {
@@ -610,6 +643,7 @@ export class AgentService {
       // 包括正在启动的进程；每个会话的 dispose 可重复调用并等待同一次清理。
       await Promise.allSettled([
         this.control?.stop(),
+        ...this.closingSessions,
         ...sessions.map((session) => session.dispose())
       ])
       await this.navigation

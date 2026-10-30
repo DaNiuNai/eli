@@ -18,6 +18,7 @@ import {
 } from '@renderer/components/ui/message-scroller'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
+import { Skeleton } from '@renderer/components/ui/skeleton'
 import { AppTitlebar } from '@renderer/components/AppTitlebar'
 import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
 import { WelcomeDialog } from '@renderer/components/WelcomeDialog'
@@ -51,8 +52,11 @@ import {
   updateAppPreferences
 } from '@renderer/lib/app-preferences'
 import type { SavedSession } from '../../shared/agent-library'
-import type { AgentMessageTarget } from '../../shared/agent'
+import type { AgentLiveSession, AgentMessageTarget } from '../../shared/agent'
 import './assets/chat.css'
+
+const emptyLiveSessions: AgentLiveSession[] = []
+const emptyPaths: string[] = []
 
 function App(): React.JSX.Element {
   const { t, language } = useLanguage()
@@ -79,6 +83,9 @@ function App(): React.JSX.Element {
   const messageActionRef = useRef(new Set<string>())
   const draftKey = snapshot?.sessionKey ?? ''
   const chatAttachments = useChatAttachments(draftKey, perform)
+  const { discard: discardAttachments } = chatAttachments
+  const liveSessions = snapshot?.liveSessions ?? emptyLiveSessions
+  const currentDirectory = snapshot?.cwd
   const selectedSessionRef = useRef(draftKey)
   useEffect(() => {
     selectedSessionRef.current = draftKey
@@ -268,38 +275,46 @@ function App(): React.JSX.Element {
     }
   }
 
-  async function newSession(cwd?: string): Promise<void> {
-    if (!cwd && !snapshot?.cwd) {
-      await chooseDirectory()
-      return
-    }
-    if (await perform(() => window.api.newSession(cwd))) {
-      textarea.current?.focus()
-    }
-  }
-
-  async function openSession(session: SavedSession): Promise<void> {
-    await perform(() => window.api.openSession(session.path))
-  }
-
-  async function deleteSession(session: SavedSession): Promise<void> {
-    await window.api.deleteSession(session.path)
-    setDrafts((current) => {
-      const next = { ...current }
-      const key = snapshot?.liveSessions.find((entry) => entry.path === session.path)?.key
-      if (key) delete next[key]
-      return next
-    })
-    const key = snapshot?.liveSessions.find((entry) => entry.path === session.path)?.key
-    if (key) chatAttachments.discard(key)
-  }
-
-  async function chooseDirectory(): Promise<void> {
+  const chooseDirectory = useCallback(async (): Promise<void> => {
     await perform(async () => {
       const cwd = await window.api.chooseDirectory(language)
       if (cwd) restoreWorkspace(cwd)
     })
-  }
+  }, [language, perform])
+
+  const newSession = useCallback(
+    async (cwd?: string): Promise<void> => {
+      if (!cwd && !currentDirectory) {
+        await chooseDirectory()
+        return
+      }
+      if (await perform(() => window.api.newSession(cwd))) {
+        textarea.current?.focus()
+      }
+    },
+    [currentDirectory, chooseDirectory, perform]
+  )
+
+  const openSession = useCallback(
+    async (session: SavedSession): Promise<void> => {
+      await perform(() => window.api.openSession(session.path))
+    },
+    [perform]
+  )
+
+  const deleteSession = useCallback(
+    async (session: SavedSession): Promise<void> => {
+      await window.api.deleteSession(session.path)
+      const key = liveSessions.find((entry) => entry.path === session.path)?.key
+      setDrafts((current) => {
+        const next = { ...current }
+        if (key) delete next[key]
+        return next
+      })
+      if (key) discardAttachments(key)
+    },
+    [liveSessions, discardAttachments]
+  )
 
   const currentTitle =
     snapshot?.session?.sessionName ||
@@ -385,11 +400,15 @@ function App(): React.JSX.Element {
         }
         sidebar={
           <AgentSidebar
-            snapshot={snapshot}
+            cwd={currentDirectory ?? ''}
+            sessionFile={snapshot?.session?.sessionFile}
+            sessionKey={draftKey}
+            liveSessions={liveSessions}
+            unavailableWorkspaces={snapshot?.unavailableWorkspaces ?? emptyPaths}
             library={library}
             loading={loading}
-            onNewSession={(cwd) => void newSession(cwd)}
-            onOpenSession={(session) => void openSession(session)}
+            onNewSession={newSession}
+            onOpenSession={openSession}
             onDeleteSession={deleteSession}
           />
         }
@@ -416,7 +435,16 @@ function App(): React.JSX.Element {
             </div>
           )}
           <div className="min-h-0 flex-1">
-            {visibleMessages.length > 0 ? (
+            {snapshot?.connection === 'connecting' && snapshot.session?.sessionFile ? (
+              <div
+                className="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-8 sm:px-8"
+                role="status"
+                aria-label={t('连接中')}
+              >
+                <Skeleton className="h-5 w-1/3" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            ) : visibleMessages.length > 0 ? (
               <MessageScrollerProvider key={snapshot?.sessionKey} autoScroll>
                 <MessageScroller>
                   <MessageScrollerViewport aria-label={t('对话消息')}>

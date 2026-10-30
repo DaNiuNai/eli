@@ -1,8 +1,8 @@
 import { createReadStream } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 import {
   localDateKey,
   type AgentLibrary,
@@ -11,7 +11,13 @@ import {
 } from '../shared/agent-library'
 
 type UsageEvent = Omit<UsageRecord, 'sessionPath'> & { key: string }
-type CachedUsage = { size: number; modified: number; events: UsageEvent[]; incomplete: boolean }
+type CachedSession = {
+  size: number
+  modified: number
+  session: SavedSession | null
+  events: UsageEvent[]
+  incomplete: boolean
+}
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -23,21 +29,24 @@ function amount(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
 }
 
-// 只读取官方索引返回的会话文件，流式解析，不向界面传输历史消息正文。
+// 元数据与用量一次流式读取；未变化的会话只检查文件属性，不再解析正文。
 export class AgentLibraryService {
-  private cache = new Map<string, CachedUsage>()
+  private cache = new Map<string, CachedSession>()
   private sessions = new Map<string, SavedSession>()
   private loading?: Promise<AgentLibrary>
   private loadingVersion = -1
   constructor(private readonly sessionDirectory: string) {}
 
   load(version = 0): Promise<AgentLibrary> {
-    if (this.loading && version > this.loadingVersion) {
-      return this.loading.then(() => this.load(version))
-    }
+    this.loadingVersion = Math.max(this.loadingVersion, version)
     if (!this.loading) {
-      this.loadingVersion = version
-      this.loading = this.read().finally(() => {
+      this.loading = (async () => {
+        for (;;) {
+          const current = this.loadingVersion
+          const library = await this.read()
+          if (current === this.loadingVersion) return library
+        }
+      })().finally(() => {
         this.loading = undefined
       })
     }
@@ -57,17 +66,19 @@ export class AgentLibraryService {
     return [...this.sessions.values()].some((session) => session.cwd === cwd)
   }
 
-  private async readUsage(session: SessionInfo): Promise<CachedUsage> {
-    const info = await stat(session.path)
-    const cached = this.cache.get(session.path)
-    if (cached && cached.size === info.size && cached.modified === info.mtimeMs) return cached
+  private async readFile(path: string, info: Stats): Promise<CachedSession> {
     const events: UsageEvent[] = []
     let incomplete = false
     let provider = ''
     let model = ''
     let lineNumber = 0
+    let header: Record<string, unknown> | undefined
+    let title = ''
+    let name = ''
+    let messageCount = 0
+    let lastActivity = 0
     const lines = createInterface({
-      input: createReadStream(session.path, { encoding: 'utf8' }),
+      input: createReadStream(path, { encoding: 'utf8' }),
       crlfDelay: Infinity
     })
     for await (const line of lines) {
@@ -81,12 +92,38 @@ export class AgentLibraryService {
         continue
       }
       if (!entry) continue
+      if (!header) {
+        if (entry.type !== 'session' || typeof entry.id !== 'string') break
+        header = entry
+        continue
+      }
+      if (entry.type === 'session_info') {
+        name = typeof entry.name === 'string' ? entry.name.trim() : ''
+      }
       if (entry.type === 'model_change') {
         provider = typeof entry.provider === 'string' ? entry.provider : ''
         model = typeof entry.modelId === 'string' ? entry.modelId : ''
         continue
       }
       const message = entry.type === 'message' ? object(entry.message) : undefined
+      if (entry.type === 'message') {
+        messageCount++
+        const timestamp =
+          typeof message?.timestamp === 'number' ? message.timestamp : entry.timestamp
+        const time = new Date(timestamp as string | number).getTime()
+        if (Number.isFinite(time)) lastActivity = Math.max(lastActivity, time)
+        if (!title && message?.role === 'user') {
+          title =
+            typeof message.content === 'string'
+              ? message.content
+              : Array.isArray(message.content)
+                ? message.content
+                    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+                    .map((part) => part.text)
+                    .join(' ')
+                : ''
+        }
+      }
       const usage = object(message?.usage ?? entry.usage)
       const isConversation = message?.role === 'user' || message?.role === 'assistant'
       if (!isConversation && !usage) continue
@@ -111,7 +148,7 @@ export class AgentLibraryService {
         key:
           typeof entry.id === 'string'
             ? JSON.stringify([entry.id, date.getTime(), entry.type, message?.role])
-            : `${session.path}:${lineNumber}`,
+            : `${path}:${lineNumber}`,
         date: localDateKey(date),
         hour: date.getHours(),
         provider: usage ? eventProvider : '',
@@ -125,53 +162,64 @@ export class AgentLibraryService {
         cost: amount(object(usage?.cost)?.total)
       })
     }
-    const result = { size: info.size, modified: info.mtimeMs, events, incomplete }
-    this.cache.set(session.path, result)
+    const created = new Date(header?.timestamp as string).getTime()
+    const session: SavedSession | null = header
+      ? {
+          path,
+          id: header.id as string,
+          cwd: typeof header.cwd === 'string' ? header.cwd : '',
+          title: (name || title || '未命名对话').replace(/\s+/g, ' ').slice(0, 160),
+          created: Number.isFinite(created) ? created : info.birthtimeMs,
+          modified: lastActivity || (Number.isFinite(created) ? created : info.mtimeMs),
+          messageCount
+        }
+      : null
+    const result = { size: info.size, modified: info.mtimeMs, session, events, incomplete }
+    this.cache.set(path, result)
     return result
   }
 
   private async read(): Promise<AgentLibrary> {
-    const { SessionManager } = await import('@earendil-works/pi-coding-agent')
     const directories = await readdir(this.sessionDirectory, { withFileTypes: true }).catch(
       (error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return []
         throw error
       }
     )
-    // SDK 指定目录时只扫描该层；eli 会话按工作目录保存在下一层，同时兼容顶层文件。
-    const lists = [await SessionManager.listAll(this.sessionDirectory)]
+    // 只发现顶层及工作目录层的 jsonl，子 Agent 的目录不属于历史会话列表。
+    const files = directories
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+      .map((entry) => join(this.sessionDirectory, entry.name))
     for (const directory of directories) {
-      if (directory.isDirectory()) {
-        lists.push(await SessionManager.listAll(join(this.sessionDirectory, directory.name)))
-      }
+      if (!directory.isDirectory()) continue
+      const path = join(this.sessionDirectory, directory.name)
+      const entries = await readdir(path, { withFileTypes: true }).catch(() => [])
+      files.push(
+        ...entries
+          .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+          .map((entry) => join(path, entry.name))
+      )
     }
-    const infos = [...new Map(lists.flat().map((session) => [session.path, session])).values()]
-    const saved = infos.map((session): SavedSession => ({
-      path: session.path,
-      id: session.id,
-      cwd: session.cwd,
-      title: (session.name || session.firstMessage || '未命名对话')
-        .replace(/\s+/g, ' ')
-        .slice(0, 160),
-      created: session.created.getTime(),
-      modified: session.modified.getTime(),
-      messageCount: session.messageCount
-    }))
-    this.sessions = new Map(saved.map((session) => [session.path, session]))
-    for (const path of this.cache.keys()) {
-      if (!this.sessions.has(path)) this.cache.delete(path)
-    }
-
+    const present = new Set(files)
+    for (const path of this.cache.keys()) if (!present.has(path)) this.cache.delete(path)
+    const saved: SavedSession[] = []
     const usageByFile = new Map<string, UsageEvent[]>()
     let skipped = 0
     let cursor = 0
     await Promise.all(
-      Array.from({ length: Math.min(4, infos.length) }, async () => {
-        while (cursor < infos.length) {
-          const session = infos[cursor++]
+      Array.from({ length: Math.min(4, files.length) }, async () => {
+        while (cursor < files.length) {
+          const path = files[cursor++]
           try {
-            const result = await this.readUsage(session)
-            usageByFile.set(session.path, result.events)
+            const info = await stat(path)
+            const cached = this.cache.get(path)
+            const result =
+              cached && cached.size === info.size && cached.modified === info.mtimeMs
+                ? cached
+                : await this.readFile(path, info)
+            if (!result.session) continue
+            saved.push(result.session)
+            usageByFile.set(path, result.events)
             if (result.incomplete) skipped++
           } catch {
             skipped++
@@ -179,11 +227,14 @@ export class AgentLibraryService {
         }
       })
     )
+    this.sessions = new Map(saved.map((session) => [session.path, session]))
 
     const seen = new Set<string>()
     const aggregates = new Map<string, UsageRecord>()
     // 先归属到最早的会话，避免分支继承的 token 重复计入总量。
-    for (const session of [...saved].sort((a, b) => a.created - b.created)) {
+    for (const session of [...saved].sort(
+      (a, b) => a.created - b.created || a.path.localeCompare(b.path)
+    )) {
       for (const event of usageByFile.get(session.path) ?? []) {
         if (seen.has(event.key)) continue
         seen.add(event.key)
@@ -222,7 +273,7 @@ export class AgentLibraryService {
       }
     }
     return {
-      sessions: saved.sort((a, b) => b.modified - a.modified),
+      sessions: saved.sort((a, b) => b.modified - a.modified || a.path.localeCompare(b.path)),
       usage: [...aggregates.values()],
       updatedAt: Date.now(),
       warning: skipped ? `${skipped} 个会话存在无法读取或尚未写完的记录，统计可能暂不完整。` : null

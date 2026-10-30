@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import {
   Card,
@@ -30,7 +30,7 @@ import {
 
 const emptyUsage: AgentLibrary['usage'] = []
 
-export function UsageDashboard({
+export const UsageDashboard = memo(function UsageDashboard({
   library,
   loading,
   error
@@ -276,4 +276,4 @@ export function UsageDashboard({
       )}
     </section>
   )
-}
+})

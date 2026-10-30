@@ -1,6 +1,7 @@
 import {
   Children,
   isValidElement,
+  memo,
   type ComponentProps,
   type ReactElement,
   type ReactNode
@@ -53,12 +54,36 @@ function MarkdownImageElement({ src, alt, title }: ComponentProps<'img'>): React
   return <MarkdownImage key={source} source={source} alt={alt} title={title} />
 }
 
-export function ChatMarkdown({ text }: { text: string }): React.JSX.Element {
+function MarkdownPre({ children }: ComponentProps<'pre'>): React.JSX.Element {
   const { t } = useLanguage()
+  const code = children as ReactElement<{ children?: string; className?: string }>
+  const value = String(code.props.children ?? '').replace(/\n$/, '')
+  const language = code.props.className?.replace('language-', '') || t('代码')
+  return (
+    <CodeBlock>
+      <CodeBlockHeader>
+        <CodeBlockTitle>{language}</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton value={value} aria-label={t('复制代码')} title={t('复制代码')} />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent className="max-h-96">{value}</CodeBlockContent>
+    </CodeBlock>
+  )
+}
+
+const markdownComponents = { a: MarkdownLink, img: MarkdownImageElement, pre: MarkdownPre }
+const remarkPlugins = [remarkGfm, remarkImagePaths]
+
+export const ChatMarkdown = memo(function ChatMarkdown({
+  text
+}: {
+  text: string
+}): React.JSX.Element {
   return (
     <div className="chat-markdown">
       <Markdown
-        remarkPlugins={[remarkGfm, remarkImagePaths]}
+        remarkPlugins={remarkPlugins}
         skipHtml
         urlTransform={(value, key) => {
           if (key === 'src' || isChatImageReference(value)) {
@@ -66,33 +91,10 @@ export function ChatMarkdown({ text }: { text: string }): React.JSX.Element {
           }
           return defaultUrlTransform(value)
         }}
-        components={{
-          a: MarkdownLink,
-          img: MarkdownImageElement,
-          pre: ({ children }) => {
-            const code = children as ReactElement<{ children?: string; className?: string }>
-            const value = String(code.props.children ?? '').replace(/\n$/, '')
-            const language = code.props.className?.replace('language-', '') || t('代码')
-            return (
-              <CodeBlock>
-                <CodeBlockHeader>
-                  <CodeBlockTitle>{language}</CodeBlockTitle>
-                  <CodeBlockActions>
-                    <CodeBlockCopyButton
-                      value={value}
-                      aria-label={t('复制代码')}
-                      title={t('复制代码')}
-                    />
-                  </CodeBlockActions>
-                </CodeBlockHeader>
-                <CodeBlockContent className="max-h-96">{value}</CodeBlockContent>
-              </CodeBlock>
-            )
-          }
-        }}
+        components={markdownComponents}
       >
         {text}
       </Markdown>
     </div>
   )
-}
+})
