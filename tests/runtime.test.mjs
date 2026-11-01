@@ -1169,7 +1169,7 @@ test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
   assert.match(systemPrompt, /expert coding assistant operating inside pi/)
   assert.match(
     systemPrompt,
-    /<tools>[\s\S]*- powershell: 执行命令；耗时操作自动转为后台任务[\s\S]*<\/tools>/
+    /<tools>[\s\S]*- powershell: 执行命令；默认最多等待 30 秒后转后台[\s\S]*<\/tools>/
   )
   assert.match(systemPrompt, /- get_task: 通过任务 ID 查询后台任务状态与输出/)
   assert.match(
@@ -1858,6 +1858,34 @@ test('后台命令经过审批后释放聊天，支持查询、用户停止进�
   assert.match(restored.snapshot.backgroundTasks[0].output, /stderr ready/)
   assert.match(await readFile(task.logPath, 'utf8'), /后台进程已就绪/)
   await assert.rejects(reopened.connection.call('stopBackgroundTask', '../outside'), /不存在/)
+})
+
+test('显式前台命令忽略 yield_time_ms 等待最终结果，运行超时仍生效', async (t) => {
+  const f = await fixture(t)
+  await modelServer(t, f.data)
+  const r = runtime(t)
+  await initialize(r.connection, f, undefined, undefined, 'all')
+  const foreground = await callTaskTool(r, 'powershell', {
+    command: "Write-Output 'foreground'; Start-Sleep -Milliseconds 100; Write-Output 'done'",
+    background: false,
+    yield_time_ms: 0
+  })
+  const result = foreground.snapshot.messages.findLast((message) => message.role === 'toolResult')
+  assert.ok(result, JSON.stringify(foreground.snapshot.messages.at(-1)))
+  assert.equal(result.isError, false)
+  assert.equal(result.details.status, 'completed')
+  assert.equal(result.details.exitCode, 0)
+  assert.match(result.details.output, /foreground[\s\S]*done/)
+  const timeout = await callTaskTool(r, 'powershell', {
+    command: 'Start-Sleep -Seconds 60',
+    background: false,
+    yield_time_ms: 0,
+    timeout: 0.1
+  })
+  const timedOut = timeout.snapshot.messages.findLast((message) => message.role === 'toolResult')
+  assert.ok(timedOut, JSON.stringify(timeout.snapshot.messages.at(-1)))
+  assert.equal(timedOut.isError, true)
+  assert.equal(timedOut.details.status, 'timed_out')
 })
 
 test('普通命令自动转后台并完成，模型可停止任务，超时与退出清理保留状态', async (t) => {

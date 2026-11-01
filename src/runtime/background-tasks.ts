@@ -245,7 +245,8 @@ export class BackgroundTasks {
     this.publish()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      if (wait > 0)
+      if (input.background === false) await done
+      else if (wait > 0)
         await Promise.race([
           done,
           new Promise<void>((resolve) => {

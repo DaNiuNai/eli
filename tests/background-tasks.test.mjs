@@ -111,19 +111,48 @@ test('普通命令默认 30 秒转后台，快速命令直接返回结果，非�
   process.finish()
 })
 
-test('前台等待时取消会停止进程；任务停止幂等并保留输出', async (t) => {
+test('显式前台执行超过 30 秒仍等待完成，忽略 yieldTimeMs', async (t) => {
   const f = await fixture(t)
   const tasks = f.manager()
-  const process = processStub()
-  const turn = new AbortController()
-  const waiting = tasks.execute(process.operations, input, turn.signal)
-  await until(() => process.calls === 1)
-  process.write('before cancellation')
-  turn.abort()
-  const task = await waiting
-  assert.equal(task.status, 'cancelled')
-  assert.equal(task.output, 'before cancellation')
-  assert.equal(tasks.stop(task.id).status, 'cancelled')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  for (const yieldTimeMs of [undefined, 0, 10]) {
+    const process = processStub()
+    let returned = false
+    const waiting = tasks
+      .execute(process.operations, { ...input, background: false, yieldTimeMs })
+      .then((task) => {
+        returned = true
+        return task
+      })
+    await nextTurn()
+    t.mock.timers.tick(60000)
+    await nextTurn()
+    assert.equal(returned, false)
+    assert.equal(process.signal.aborted, false)
+    process.write('foreground done')
+    process.finish()
+    const task = await waiting
+    assert.equal(task.status, 'completed')
+    assert.equal(task.exitCode, 0)
+    assert.equal(task.output, 'foreground done')
+  }
+})
+
+test('默认与显式前台等待时取消会停止进程；任务停止幂等并保留输出', async (t) => {
+  const f = await fixture(t)
+  const tasks = f.manager()
+  for (const background of [undefined, false]) {
+    const process = processStub()
+    const turn = new AbortController()
+    const waiting = tasks.execute(process.operations, { ...input, background }, turn.signal)
+    await until(() => process.calls === 1)
+    process.write('before cancellation')
+    turn.abort()
+    const task = await waiting
+    assert.equal(task.status, 'cancelled')
+    assert.equal(task.output, 'before cancellation')
+    assert.equal(tasks.stop(task.id).status, 'cancelled')
+  }
   const other = processStub()
   const background = await tasks.execute(other.operations, { ...input, background: true })
   assert.equal(tasks.stop(background.id).status, 'stopping')

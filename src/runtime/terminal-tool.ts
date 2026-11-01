@@ -68,8 +68,8 @@ export function configureTerminal(
     name,
     label: name,
     defaultActive: false,
-    description: `在当前工作目录执行 ${powershell ? 'PowerShell' : terminal.kind} 命令。默认最多等待 30 秒，未结束即返回后台任务 ID，命令继续运行。耗时操作或服务应使用 background: true 立即返回。用 get_task 查询状态和输出，list_tasks 查找任务，stop_task 停止任务。timeout 是整个命令的秒数上限，未提供则不限制运行时长。输出仅保留末尾 32768 字符，日志最多保存 10 MiB。`,
-    promptSnippet: '执行命令；耗时操作自动转为后台任务，可凭任务 ID 获取结果。',
+    description: `在当前工作目录执行 ${powershell ? 'PowerShell' : terminal.kind} 命令。不传 background 时默认最多等待 30 秒，未结束即返回后台任务 ID，命令继续运行。background: false 持续在前台等待命令结束，不自动转后台；background: true 立即返回任务 ID，在后台执行。耗时操作或服务应使用 background: true。用 get_task 查询状态和输出，list_tasks 查找任务，stop_task 停止任务。timeout 是整个命令的秒数上限，未提供则不限制运行时长。输出仅保留末尾 32768 字符，日志最多保存 10 MiB。`,
+    promptSnippet: '执行命令；默认最多等待 30 秒后转后台，可显式选择持续前台或立即后台执行。',
     promptGuidelines: [
       '长期运行的命令使用 background: true。任务返回 running 只代表已启动，不能声称完成；先做其他工作，确需结果时再用 get_task 查询，避免连续轮询。'
     ],
@@ -82,12 +82,17 @@ export function configureTerminal(
           description: '整个命令的运行超时（秒），省略表示不限时'
         })
       ),
-      background: Type.Optional(Type.Boolean({ description: '立即返回任务 ID，在后台执行' })),
+      background: Type.Optional(
+        Type.Boolean({
+          description: 'true 立即后台执行；false 持续前台等待；省略时默认 30 秒后自动转后台'
+        })
+      ),
       yield_time_ms: Type.Optional(
         Type.Integer({
           minimum: 0,
           maximum: 30000,
-          description: '返回前最多等待的毫秒数，默认 30000；background 为 true 时忽略'
+          description:
+            '未传 background 时返回前最多等待的毫秒数，默认 30000；显式设置 background 时忽略'
         })
       )
     }),
