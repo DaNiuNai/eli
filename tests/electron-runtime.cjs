@@ -1,4 +1,4 @@
-const { app, utilityProcess } = require('electron')
+const { app, utilityProcess, nativeImage } = require('electron')
 const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } = require('node:fs')
 const { join, resolve } = require('node:path')
 const assert = require('node:assert/strict')
@@ -137,6 +137,14 @@ app.whenReady().then(async () => {
           })
           send({}, 'tool_calls')
         }
+      } else if (
+        body.messages.some(
+          ({ role, content }) =>
+            role === 'user' && JSON.stringify(content).includes('ELI_IMAGE_TEST')
+        )
+      ) {
+        send({ content: '图片已查看' })
+        send({}, 'stop')
       } else if (
         JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
           'Message Type: FINAL_ANSWER'
@@ -412,6 +420,8 @@ app.whenReady().then(async () => {
       .messages.find(({ role }) => role === 'system' || role === 'developer').content
     assert.doesNotMatch(systemPrompt, /user-disabled|Disabled Electron fixture/)
     assert.match(systemPrompt, /Project agents Electron fixture/)
+    assert.match(systemPrompt, /大量图片.*小于 1 MB 的 JPG/)
+    assert.ok(systemPrompt.indexOf('大量图片') > systemPrompt.indexOf('eli 协作团队'))
     assert.equal(systemPrompt.split(customInstruction).length - 1, 1)
     assert.ok(
       systemPrompt.indexOf('ELI_ELECTRON_GLOBAL_INSTRUCTION') <
@@ -503,9 +513,79 @@ app.whenReady().then(async () => {
     assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), savedConfig)
     for (const name of ['settings.json', 'models.json', 'providers.json', 'auth.json'])
       assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)
+    const { createPng, requestImages } = await import('./fixtures/images.mjs')
+    const sourceImage = createPng()
+    const imagePath = join(cwd, 'electron-large.png')
+    writeFileSync(imagePath, sourceImage)
+    writeFileSync(
+      join(cwd, '.eli/extensions/image-input.mjs'),
+      `import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+export default function (pi) {
+  pi.on('input', async (event, ctx) => event.text === 'ELI_IMAGE_TEST' ? {
+    action: 'transform', text: event.text, images: [{
+      type: 'image', mimeType: 'image/png',
+      data: (await readFile(join(ctx.cwd, 'electron-large.png'))).toString('base64')
+    }]
+  } : undefined)
+}
+`
+    )
+    const imageConfig = structuredClone(savedConfig)
+    imageConfig.agent.compaction = { enabled: false, keepRecentTokens: 1, reserveTokens: 128 }
+    imageConfig.providers['electron-test'].models.find(({ id }) => id === 'local').vision = true
+    writeFileSync(join(data, 'config.json'), JSON.stringify(imageConfig))
+    const imageSession = await startRuntime()
+    states.length = 0
+    await request('initialize', {
+      kind: 'session',
+      root: data,
+      cwd,
+      sessionKey: '66666666-6666-4666-8666-666666666666',
+      approvalMode: 'all',
+      terminal: {
+        kind: 'powershell',
+        path: (await import('@earendil-works/pi-coding-agent')).getPowerShellConfig().shell
+      }
+    })
+    await request('prompt', 'ELI_IMAGE_TEST')
+    while (states.at(-1)?.snapshot.running || !states.at(-1)?.snapshot.messages.length)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(states.at(-1).snapshot.error, null)
+    const images = requestImages(requests.at(-1))
+    assert.equal(images.length, 1)
+    const resized = nativeImage
+      .createFromBuffer(Buffer.from(images[0].split(',')[1], 'base64'))
+      .getSize()
+    assert.ok(resized.width > 0 && resized.width <= 2000)
+    assert.ok(resized.height > 0 && resized.height <= 2000)
+    const beforeCompaction = requests.length
+    states.length = 0
+    await request('compact')
+    while (
+      !states.at(-1) ||
+      states.at(-1).snapshot.running ||
+      (states.at(-1).snapshot.activity !== '上下文压缩完成' && !states.at(-1).snapshot.error)
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(states.at(-1).snapshot.error, null)
+    assert.equal(states.at(-1).snapshot.activity, '上下文压缩完成')
+    assert.ok(requests.length > beforeCompaction)
+    for (const body of requests.slice(beforeCompaction)) {
+      assert.ok(
+        body.messages.every(
+          ({ content }) =>
+            typeof content === 'string' || content.every(({ type }) => type === 'text')
+        )
+      )
+      assert.doesNotMatch(JSON.stringify(body), /image_url|data:image/)
+    }
+    assert.deepEqual(readFileSync(imagePath), sourceImage)
+    await request('shutdown')
+    await imageSession.exited
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(
-      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval + subagents: PASS (${entry})`
+      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval + subagents + image resize / compaction: PASS (${entry})`
     )
     server.closeAllConnections()
     server.close()

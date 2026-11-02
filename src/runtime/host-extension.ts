@@ -43,6 +43,9 @@ export function hostExtension(
 ): ExtensionFactory {
   return (pi) => {
     if (collaboration) registerSubagentTools(pi, collaboration.team, collaboration.id)
+    pi.on('before_agent_start', (event) => ({
+      systemPrompt: `${event.systemPrompt}\n\n需要查看大量图片时，优先将多张图片拼成总览图再读取，并将每张总览图保存为小于 1 MB 的 JPG 文件；需要查看细节时再按需读取原图。`
+    }))
     let approvalBatchId: string | undefined
     const clearBatch = (): void => {
       approvalBatchId = undefined

@@ -10,6 +10,7 @@ import { RuntimeConnection } from '../src/runtime/connection.ts'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
 import { mcpHttpServer } from './fixtures/mcp-http.mjs'
 import { mcpOAuthServer } from './fixtures/mcp-oauth.mjs'
+import { createPng, imageSize, requestImages } from './fixtures/images.mjs'
 
 const project = fileURLToPath(new URL('../', import.meta.url))
 const temporaryRoot = join(project, '.tmp')
@@ -92,8 +93,18 @@ async function modelServer(t, data, review) {
     requests.push(body)
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     const last = body.messages.at(-1)
+    const lastIsToolResult =
+      last.role === 'tool' ||
+      (Array.isArray(last.content) &&
+        last.content[0]?.text === 'Attached image(s) from tool result:')
     const user = body.messages.findLast((message) => message.role === 'user')
-    const content = typeof user?.content === 'string' ? user.content : JSON.stringify(user?.content)
+    const content =
+      typeof user?.content === 'string'
+        ? user.content
+        : user?.content
+            ?.filter(({ type }) => type === 'text')
+            .map(({ text }) => text)
+            .join('\n')
     const reviewing = JSON.stringify(body.messages[0]).includes('eli 的独立工具权限审核器')
     const repeated =
       content?.includes('REPEAT_TOOL') &&
@@ -106,7 +117,7 @@ async function modelServer(t, data, review) {
     const completionNotice = taskText?.startsWith('Message Type: FINAL_ANSWER')
     const tool = completionNotice
       ? null
-      : taskCall && last.role !== 'tool'
+      : taskCall && !lastIsToolResult
         ? taskCall.name
         : content?.includes('WRITE_TOOL') && (last.role !== 'tool' || repeated)
           ? 'write'
@@ -147,6 +158,12 @@ async function modelServer(t, data, review) {
       return
     }
     if (content?.includes('WAIT_FOREVER') && !taskCall) return
+    if (JSON.stringify(body.messages[0]).includes('context summarization assistant')) {
+      send({ content: '摘要已生成，保留图片与文档的文字分析。' })
+      send({}, 'stop')
+      res.end('data: [DONE]\n\n')
+      return
+    }
     if (tool) {
       const args = taskCall
         ? taskCall.arguments
@@ -1787,10 +1804,116 @@ test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
   assert.equal(stopped.snapshot.activity, '已停止')
   r.states.length = 0
   await r.connection.call('compact', 'Summarize the completed work')
-  const compacted = await until(() => r.states.findLast((state) => !state.snapshot.running))
+  const compacted = await until(() =>
+    r.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        (state.snapshot.activity === '上下文压缩完成' || state.snapshot.error)
+    )
+  )
   assert.equal(compacted.snapshot.activity, '上下文压缩完成')
   assert.equal(compacted.snapshot.error, null)
   assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction"'))
+})
+
+test('图片附件、read 与扩展工具结果发送前缩放，压缩请求只保留文字', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const original = createPng()
+  const imagePath = join(f.cwd, 'large.png')
+  await writeFile(imagePath, original)
+  const saved = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  saved.agent.compaction = { enabled: false, keepRecentTokens: 1, reserveTokens: 128 }
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(saved))
+  await mkdir(join(f.cwd, '.eli/extensions'), { recursive: true })
+  await writeFile(
+    join(f.cwd, '.eli/extensions/images.mjs'),
+    `import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+export default function (pi) {
+  const image = async (ctx) => ({
+    type: 'image', mimeType: 'image/png',
+    data: (await readFile(join(ctx.cwd, 'large.png'))).toString('base64')
+  })
+  pi.on('input', async (event, ctx) => event.text === 'ELI_IMAGE_INPUT' ? {
+    action: 'transform', text: event.text, images: [await image(ctx)]
+  } : undefined)
+  pi.registerTool({
+    name: 'image_fixture', label: 'Image fixture', description: 'Return a large image',
+    parameters: { type: 'object', properties: {} },
+    async execute(_id, _params, _signal, _update, ctx) {
+      return { content: [await image(ctx)], details: {} }
+    }
+  })
+  pi.on('session_before_compact', (event) => {
+    event.preparation.messagesToSummarize.push({
+      role: 'user', timestamp: Date.now(), content: [
+        { type: 'text', text: 'ELI_PDF_ANALYSIS: keep this document analysis' },
+        { type: 'document', source: {
+          type: 'base64', media_type: 'application/pdf', data: 'RUxJX1BERl9CSU5BUlk='
+        } }
+      ]
+    })
+  })
+}
+`
+  )
+  const r = runtime(t)
+  await initialize(r.connection, f, undefined, undefined, 'all')
+  const prompts = [
+    'ELI_IMAGE_INPUT',
+    `TASK_TOOL:${JSON.stringify({ name: 'read', arguments: { path: 'large.png' } })}`,
+    `TASK_TOOL:${JSON.stringify({ name: 'image_fixture', arguments: {} })}`
+  ]
+  for (const [index, prompt] of prompts.entries()) {
+    r.states.length = 0
+    await r.connection.call('prompt', prompt)
+    const done = await until(() =>
+      r.states.findLast((state) => !state.snapshot.running && state.snapshot.messages.length)
+    )
+    assert.equal(done.snapshot.error, null)
+    assert.equal(
+      done.snapshot.messages.at(-1).stopReason,
+      'stop',
+      JSON.stringify(done.snapshot.messages.at(-1))
+    )
+    const images = requestImages(requests.at(-1))
+    assert.equal(images.length, index + 1)
+    for (const image of images) {
+      const size = imageSize(image)
+      assert.ok(size.width <= 2000 && size.height <= 2000, JSON.stringify(size))
+      assert.ok(Math.abs(size.width / size.height - 3) < 0.01)
+      assert.ok(image.split(',')[1].length < 4.5 * 1024 * 1024)
+    }
+  }
+  const system = requests[0].messages.find(({ role }) => role === 'system').content
+  assert.ok(system.indexOf('大量图片') > system.indexOf('eli 协作团队'))
+  assert.match(system, /小于 1 MB 的 JPG/)
+  const before = requests.length
+  r.states.length = 0
+  await r.connection.call('compact')
+  const compacted = await until(() =>
+    r.states.findLast(
+      (state) =>
+        !state.snapshot.running &&
+        (state.snapshot.activity === '上下文压缩完成' || state.snapshot.error)
+    )
+  )
+  assert.equal(compacted.snapshot.error, null)
+  assert.equal(compacted.snapshot.activity, '上下文压缩完成')
+  const summaries = requests.slice(before)
+  assert.ok(summaries.length > 0)
+  for (const body of summaries) {
+    assert.ok(
+      body.messages.every(
+        ({ content }) => typeof content === 'string' || content.every(({ type }) => type === 'text')
+      )
+    )
+    const text = JSON.stringify(body)
+    assert.doesNotMatch(text, /image_url|application\/pdf|RUxJX1BERl9CSU5BUlk=|data:image/)
+  }
+  assert.ok(summaries.some((body) => JSON.stringify(body).includes('ELI_PDF_ANALYSIS')))
+  assert.deepEqual(await readFile(imagePath), original)
 })
 
 async function callTaskTool(r, name, args) {
