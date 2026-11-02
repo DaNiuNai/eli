@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { buildUsageTrend } from '../src/renderer/src/lib/usage-trend.ts'
 import {
   cacheHitRate,
   filterUsage,
@@ -130,4 +131,84 @@ test('53 周热力图以周一开始，覆盖当前周，跨年、闰日与夏�
     }
   }
   assert.equal(localDateKey(usageHeatmapWeeks(now)[0][0]), '2025-11-03')
+})
+
+test('趋势图使用筛选后的每日汇总，补齐零用量日期，Token 包含缓存且与总量一致', () => {
+  const records = [
+    record({ date: '2026-10-26' }),
+    record({ date: '2026-10-27' }),
+    record({ date: '2026-10-29', input: 20 }),
+    record({ date: '2026-10-29', output: 10 }),
+    record({ provider: 'other' }),
+    record({ model: 'other' }),
+    record({ date: '2026-11-03' })
+  ]
+  const summary = summarizeUsage(
+    filterUsage(records, { period: '7', provider: 'fixture', model: 'local' }, now),
+    'all',
+    now
+  )
+  const points = buildUsageTrend(summary.days, '7', now)
+  assert.equal(points.length, 7)
+  assert.equal(points[0].date, '2026-10-27')
+  assert.equal(points[6].date, '2026-11-02')
+  assert.equal(points[0].tokens, 105)
+  assert.equal(points[2].tokens, 225)
+  assert.deepEqual(points[1], { date: '2026-10-28', tokens: 0, requests: 0, cost: 0 })
+  for (const metric of ['tokens', 'requests', 'cost']) {
+    assert.equal(
+      points.reduce((sum, point) => sum + point[metric], 0),
+      summary[metric]
+    )
+  }
+  assert.equal(summary.days.size, 2)
+})
+
+test('全部时间趋势从首条记录到今天连续展示，排除未来记录，空历史没有虚构数据', () => {
+  const summary = summarizeUsage([record({ date: '2026-10-31' }), record()], 'all', now)
+  summary.days.set('2026-11-03', summary.days.get('2026-11-02'))
+  const points = buildUsageTrend(summary.days, 'all', now)
+  assert.deepEqual(
+    points.map((point) => point.date),
+    ['2026-10-31', '2026-11-01', '2026-11-02']
+  )
+  assert.equal(points[1].tokens, 0)
+  assert.deepEqual(buildUsageTrend(new Map(), 'all', now), [])
+  assert.deepEqual(
+    buildUsageTrend(new Map([['2026-11-03', summary.days.get('2026-11-03')]]), 'all', now),
+    []
+  )
+})
+
+test('趋势覆盖所选完整时段，今天保留单个数据点，跨月跨年及闰日不丢失日期', () => {
+  for (const period of ['1', '7', '30', '90', '365']) {
+    const points = buildUsageTrend(new Map(), period, now)
+    assert.equal(points.length, Number(period))
+    assert.equal(points.at(-1).date, localDateKey(now))
+    assert.ok(
+      points.every((point) => point.tokens === 0 && point.requests === 0 && point.cost === 0)
+    )
+  }
+  const summary = summarizeUsage([record()], '1', now)
+  assert.deepEqual(buildUsageTrend(summary.days, '1', now), [
+    { date: '2026-11-02', tokens: 105, requests: 1, cost: 0.001 }
+  ])
+  assert.deepEqual(
+    buildUsageTrend(new Map(), '7', new Date(2024, 2, 3)).map((point) => point.date),
+    [
+      '2024-02-26',
+      '2024-02-27',
+      '2024-02-28',
+      '2024-02-29',
+      '2024-03-01',
+      '2024-03-02',
+      '2024-03-03'
+    ]
+  )
+  assert.deepEqual(
+    buildUsageTrend(new Map(), '7', new Date(2027, 0, 3))
+      .slice(-4)
+      .map((point) => point.date),
+    ['2026-12-31', '2027-01-01', '2027-01-02', '2027-01-03']
+  )
 })

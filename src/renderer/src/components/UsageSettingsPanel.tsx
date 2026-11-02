@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import {
   BarChart3Icon,
   CalendarDaysIcon,
+  ChartSplineIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  Grid2X2Icon,
   RefreshCwIcon
 } from 'lucide-react'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
@@ -45,6 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@renderer/components/u
 import { ToggleGroup, ToggleGroupItem } from '@renderer/components/ui/toggle-group'
 import { useLanguage } from '@renderer/hooks/use-language'
 import { compactNumber } from '@renderer/lib/agent-display'
+import type { UsageTrendMetric } from '@renderer/lib/usage-trend'
 import {
   cacheHitRate,
   filterUsage,
@@ -65,6 +68,10 @@ export interface UsageSettingsPanelProps {
   onReload: () => void
 }
 
+const UsageTrendChart = lazy(() =>
+  import('./UsageTrendChart').then((module) => ({ default: module.UsageTrendChart }))
+)
+
 const emptyUsage: AgentLibrary['usage'] = []
 const emptyRequests: UsageRequest[] = []
 const periods: { value: UsagePeriod; label: string }[] = [
@@ -80,7 +87,10 @@ const metrics = [
   { value: 'requests', label: '请求数' },
   { value: 'cost', label: '费用' }
 ] as const
-type HeatmapMetric = (typeof metrics)[number]['value']
+const chartViews = [
+  { value: 'heatmap', label: '热力图', icon: Grid2X2Icon },
+  { value: 'trend', label: '趋势图', icon: ChartSplineIcon }
+] as const
 const pageSize = 20
 
 function formatCost(value: number, locale: string, detailed = false): string {
@@ -99,15 +109,18 @@ function formatRate(record: Parameters<typeof cacheHitRate>[0], locale: string):
     : rate.toLocaleString(locale, { style: 'percent', maximumFractionDigits: 1 })
 }
 
-function UsageHeatmap({
+function UsageActivityChart({
   summary,
+  period,
   today
 }: {
   summary: UsageSummary
+  period: UsagePeriod
   today: string
 }): React.JSX.Element {
   const { t, locale } = useLanguage()
-  const [metric, setMetric] = useState<HeatmapMetric>('tokens')
+  const [metric, setMetric] = useState<UsageTrendMetric>('tokens')
+  const [view, setView] = useState<(typeof chartViews)[number]['value']>('heatmap')
   const weeks = useMemo(() => usageHeatmapWeeks(new Date(`${today}T12:00:00`)), [today])
   const firstDay = localDateKey(weeks[0][0])
   const maximum =
@@ -120,109 +133,155 @@ function UsageHeatmap({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <CardTitle>{t('用量热力图')}</CardTitle>
-            <CardDescription>{t('最近 53 周的每日用量，按本地时间统计。')}</CardDescription>
+            <CardTitle>{t(view === 'heatmap' ? '用量热力图' : '用量趋势图')}</CardTitle>
+            <CardDescription>
+              {t(
+                view === 'heatmap'
+                  ? '最近 53 周的每日用量，按本地时间统计。'
+                  : '所选时段的每日用量，按本地时间统计。'
+              )}
+            </CardDescription>
           </div>
-          <ToggleGroup
-            variant="outline"
-            size="sm"
-            value={[metric]}
-            onValueChange={(values) => {
-              const next = metrics.find((item) => item.value === values[0])
-              if (next) setMetric(next.value)
-            }}
-            aria-label={t('热力图统计指标')}
-          >
-            {metrics.map((item) => (
-              <ToggleGroupItem key={item.value} value={item.value}>
-                {t(item.label)}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <div className="flex flex-wrap items-center gap-2">
+            <ToggleGroup
+              variant="outline"
+              size="sm"
+              value={[view]}
+              onValueChange={(values) => {
+                const next = chartViews.find((item) => item.value === values[0])
+                if (next) setView(next.value)
+              }}
+              aria-label={t('用量图表类型')}
+            >
+              {chartViews.map(({ value, label, icon: Icon }) => (
+                <ToggleGroupItem key={value} value={value}>
+                  <Icon data-icon="inline-start" />
+                  {t(label)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+            <ToggleGroup
+              variant="outline"
+              size="sm"
+              value={[metric]}
+              onValueChange={(values) => {
+                const next = metrics.find((item) => item.value === values[0])
+                if (next) setMetric(next.value)
+              }}
+              aria-label={t('用量统计指标')}
+            >
+              {metrics.map((item) => (
+                <ToggleGroupItem key={item.value} value={item.value}>
+                  {t(item.label)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto pb-1">
-          <div className="min-w-[680px]">
-            <div
-              className="mb-2 ml-8 grid grid-cols-[repeat(53,minmax(0,1fr))] gap-[3px] text-[10px] text-muted-foreground"
-              aria-hidden="true"
-            >
-              {weeks.map((week, index) => (
-                <span key={localDateKey(week[0])} className="whitespace-nowrap">
-                  {index === 0 || week[0].getMonth() !== weeks[index - 1][0].getMonth()
-                    ? week[0].toLocaleDateString(locale, { month: 'short' })
-                    : ''}
-                </span>
-              ))}
-            </div>
-            <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
-              <div
-                className="grid grid-rows-7 items-center gap-[3px] text-[10px] leading-none text-muted-foreground"
-                aria-hidden="true"
-              >
-                {[0, 1, 2, 3, 4, 5, 6].map((day) => (
-                  <span key={day}>
-                    {day % 2 === 0
-                      ? weeks[0][day].toLocaleDateString(locale, { weekday: 'short' })
-                      : ''}
-                  </span>
-                ))}
-              </div>
-              <div
-                className="grid grid-cols-[repeat(53,minmax(0,1fr))] gap-[3px]"
-                role="img"
-                aria-label={t('最近 53 周的用量热力图，从 {start} 至 {end}', {
-                  start: firstDay,
-                  end: today
-                })}
-              >
-                {weeks.map((week) => (
-                  <div key={localDateKey(week[0])} className="grid grid-rows-7 gap-[3px]">
-                    {week.map((day) => {
-                      const date = localDateKey(day)
-                      const activity = summary.days.get(date)
-                      const value = activity?.[metric] ?? 0
-                      const level = value
-                        ? Math.min(4, Math.max(1, Math.ceil((value / maximum) * 4)))
-                        : 0
-                      return (
-                        <span
-                          key={date}
-                          className="usage-day"
-                          data-level={level}
-                          data-future={date > today || undefined}
-                          title={t('{date} · {requests} 次请求 · {tokens} Token · {cost}', {
-                            date,
-                            requests: (activity?.requests ?? 0).toLocaleString(locale),
-                            tokens: (activity?.tokens ?? 0).toLocaleString(locale),
-                            cost: formatCost(activity?.cost ?? 0, locale, true)
-                          })}
-                        />
-                      )
-                    })}
+        {view === 'trend' ? (
+          <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+            <UsageTrendChart
+              days={summary.days}
+              period={period}
+              today={today}
+              metric={metric}
+              label={t(metrics.find((item) => item.value === metric)?.label ?? 'Token')}
+              formatValue={(value) =>
+                metric === 'cost' ? formatCost(value, locale, true) : value.toLocaleString(locale)
+              }
+            />
+          </Suspense>
+        ) : (
+          <>
+            <div className="overflow-x-auto pb-1">
+              <div className="min-w-[680px]">
+                <div
+                  className="mb-2 ml-8 grid grid-cols-[repeat(53,minmax(0,1fr))] gap-[3px] text-[10px] text-muted-foreground"
+                  aria-hidden="true"
+                >
+                  {weeks.map((week, index) => (
+                    <span key={localDateKey(week[0])} className="whitespace-nowrap">
+                      {index === 0 || week[0].getMonth() !== weeks[index - 1][0].getMonth()
+                        ? week[0].toLocaleDateString(locale, { month: 'short' })
+                        : ''}
+                    </span>
+                  ))}
+                </div>
+                <div className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+                  <div
+                    className="grid grid-rows-7 items-center gap-[3px] text-[10px] leading-none text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    {[0, 1, 2, 3, 4, 5, 6].map((day) => (
+                      <span key={day}>
+                        {day % 2 === 0
+                          ? weeks[0][day].toLocaleDateString(locale, { weekday: 'short' })
+                          : ''}
+                      </span>
+                    ))}
                   </div>
-                ))}
+                  <div
+                    className="grid grid-cols-[repeat(53,minmax(0,1fr))] gap-[3px]"
+                    role="img"
+                    aria-label={t('最近 53 周的用量热力图，从 {start} 至 {end}', {
+                      start: firstDay,
+                      end: today
+                    })}
+                  >
+                    {weeks.map((week) => (
+                      <div key={localDateKey(week[0])} className="grid grid-rows-7 gap-[3px]">
+                        {week.map((day) => {
+                          const date = localDateKey(day)
+                          const activity = summary.days.get(date)
+                          const value = activity?.[metric] ?? 0
+                          const level = value
+                            ? Math.min(4, Math.max(1, Math.ceil((value / maximum) * 4)))
+                            : 0
+                          return (
+                            <span
+                              key={date}
+                              className="usage-day"
+                              data-level={level}
+                              data-future={date > today || undefined}
+                              title={t('{date} · {requests} 次请求 · {tokens} Token · {cost}', {
+                                date,
+                                requests: (activity?.requests ?? 0).toLocaleString(locale),
+                                tokens: (activity?.tokens ?? 0).toLocaleString(locale),
+                                cost: formatCost(activity?.cost ?? 0, locale, true)
+                              })}
+                            />
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span>
-            {firstDay} — {today}
-          </span>
-          <div className="flex items-center gap-1" aria-hidden="true">
-            <span className="mr-1">{t('少')}</span>
-            {[0, 1, 2, 3, 4].map((level) => (
-              <span key={level} className="usage-day size-2.5" data-level={level} />
-            ))}
-            <span className="ml-1">{t('多')}</span>
-          </div>
-        </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>
+                {firstDay} — {today}
+              </span>
+              <div className="flex items-center gap-1" aria-hidden="true">
+                <span className="mr-1">{t('少')}</span>
+                {[0, 1, 2, 3, 4].map((level) => (
+                  <span key={level} className="usage-day size-2.5" data-level={level} />
+                ))}
+                <span className="ml-1">{t('多')}</span>
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          {t('热力图与上方筛选联动，颜色深浅表示所选指标的每日用量。')}
+          {t(
+            view === 'heatmap'
+              ? '热力图与上方筛选联动，颜色深浅表示所选指标的每日用量。'
+              : '曲线与上方筛选联动，按日汇总；没有调用的日期显示为 0，Token 包含缓存用量。'
+          )}
         </p>
       </CardFooter>
     </Card>
@@ -684,7 +743,7 @@ export function UsageSettingsPanel({
       {loading ? (
         <Skeleton className="h-60 w-full" />
       ) : (
-        <UsageHeatmap summary={summary} today={today} />
+        <UsageActivityChart summary={summary} period={period} today={today} />
       )}
       <Card>
         <CardHeader>
