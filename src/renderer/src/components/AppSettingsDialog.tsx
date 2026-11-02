@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Tabs as TabsPrimitive } from '@base-ui/react/tabs'
 import {
   BrainCircuitIcon,
+  BarChart3Icon,
   BookOpenIcon,
   PlugIcon,
   BoxesIcon,
@@ -45,9 +46,11 @@ import { AutoApprovalSettings } from './AutoApprovalSettings'
 import { SkillsSettingsPanel } from './SkillsSettingsPanel'
 import { McpSettingsPanel } from './McpSettingsPanel'
 import { AutoSaveStatus } from './AutoSaveStatus'
+import { UsageSettingsPanel, type UsageSettingsPanelProps } from './UsageSettingsPanel'
 
 const categories = [
   { value: 'general', label: '通用', icon: Settings2Icon },
+  { value: 'usage', label: '用量看板', icon: BarChart3Icon },
   { value: 'providers', label: '模型供应商', icon: PlugIcon },
   { value: 'models', label: '模型与思考', icon: BrainCircuitIcon },
   { value: 'context', label: '上下文压缩', icon: SlidersHorizontalIcon },
@@ -106,11 +109,13 @@ function GeneralSettings(): React.JSX.Element {
 export function AppSettingsDialog({
   open,
   onOpenChange,
-  login
+  login,
+  usage
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   login: ReturnType<typeof useAgentAuth>
+  usage: UsageSettingsPanelProps
 }): React.JSX.Element {
   const { t } = useLanguage()
   const [category, setCategory] = useState<(typeof categories)[number]['value']>(
@@ -183,6 +188,22 @@ export function AppSettingsDialog({
     ['MCP 管理', 'MCP 服务', 'stdio', 'HTTP', t('MCP 管理')].some((word) =>
       word.toLowerCase().includes(query.trim().toLowerCase())
     )
+  const includeUsage =
+    !!query.trim() &&
+    [
+      '用量看板',
+      '用量统计',
+      '费用',
+      '请求日志',
+      '缓存',
+      '热力图',
+      'usage',
+      'dashboard',
+      'cost',
+      'token',
+      'cache',
+      t('用量看板')
+    ].some((word) => word.toLowerCase().includes(query.trim().toLowerCase()))
 
   return (
     <Dialog
@@ -209,9 +230,13 @@ export function AppSettingsDialog({
             setQuery('')
           }}
           orientation="vertical"
-          className="group/tabs settings-layout flex min-h-0 flex-1 gap-0"
+          className="settings-layout flex min-h-0 flex-1 gap-0"
         >
-          <aside className="settings-navigation flex w-52 shrink-0 flex-col gap-7 border-r bg-muted/30 p-3 pt-5">
+          {/* 纵向 Tabs 样式仅作用于导航，避免影响内容区嵌套的横向 Tabs。 */}
+          <aside
+            data-orientation="vertical"
+            className="group/tabs settings-navigation flex w-52 shrink-0 flex-col gap-7 border-r bg-muted/30 p-3 pt-5"
+          >
             <InputGroup className="shrink-0">
               <InputGroupAddon>
                 <SearchIcon />
@@ -249,17 +274,23 @@ export function AppSettingsDialog({
                       ? '让 eli 更符合你的使用习惯。'
                       : activeCategory === 'about'
                         ? '查看 eli 版本与软件更新。'
-                        : activeCategory === 'skills'
-                          ? '查看和管理用户级 Skill。'
-                          : activeCategory === 'mcp'
-                            ? '配置 MCP 服务并查看可用工具。'
-                            : '管理 eli Agent Runtime 的配置。'
+                        : activeCategory === 'usage'
+                          ? '查看本机模型用量、费用与请求记录。'
+                          : activeCategory === 'skills'
+                            ? '查看和管理用户级 Skill。'
+                            : activeCategory === 'mcp'
+                              ? '配置 MCP 服务并查看可用工具。'
+                              : '管理 eli Agent Runtime 的配置。'
                 )}
               </p>
             </header>
             <TabsContent value={activeCategory} className="flex min-h-0 flex-1 flex-col">
               {open && activeCategory === 'providers' && !query.trim() ? (
                 <ProviderSettingsPanel auth={login} />
+              ) : open && activeCategory === 'usage' && !query.trim() ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+                  <UsageSettingsPanel {...usage} />
+                </div>
               ) : open && activeCategory === 'about' && !query.trim() ? (
                 <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
                   <AboutSettings />
@@ -277,6 +308,7 @@ export function AppSettingsDialog({
                   enabled
                   category={
                     activeCategory === 'providers' ||
+                    activeCategory === 'usage' ||
                     activeCategory === 'about' ||
                     activeCategory === 'mcp' ||
                     activeCategory === 'skills'
@@ -285,7 +317,11 @@ export function AppSettingsDialog({
                   }
                   query={query}
                   general={
-                    includeGeneral || includeAbout || includeSkills || includeMcp ? (
+                    includeGeneral ||
+                    includeAbout ||
+                    includeSkills ||
+                    includeMcp ||
+                    includeUsage ? (
                       <div className="flex flex-col gap-8">
                         {includeGeneral && <GeneralSettings />}
                         {includeAbout && <AboutSettings />}
@@ -293,6 +329,7 @@ export function AppSettingsDialog({
                           <SkillsSettingsPanel onSessionStarted={() => onOpenChange(false)} />
                         )}
                         {includeMcp && <McpSettingsPanel />}
+                        {includeUsage && <UsageSettingsPanel {...usage} />}
                       </div>
                     ) : null
                   }

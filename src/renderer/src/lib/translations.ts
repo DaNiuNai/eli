@@ -775,6 +775,65 @@ const english: Record<string, string> = {
   ' · {workspaces} 个工作目录 · {sessions} 个已保存会话':
     ' · {workspaces} workspaces · {sessions} saved sessions',
   用量统计: 'Usage statistics',
+  用量看板: 'Usage dashboard',
+  '查看本机模型用量、费用与请求记录。': 'View local model usage, costs, and request history.',
+  全部时间: 'All time',
+  今天: 'Today',
+  最近一年: 'Last year',
+  '最近 7 天': 'Last 7 days',
+  '最近 30 天': 'Last 30 days',
+  '最近 90 天': 'Last 90 days',
+  全部供应商: 'All providers',
+  全部模型: 'All models',
+  筛选供应商: 'Filter providers',
+  筛选模型: 'Filter models',
+  刷新统计: 'Refresh statistics',
+  用量热力图: 'Usage heatmap',
+  '最近 53 周的每日用量，按本地时间统计。': 'Daily usage over the last 53 weeks in local time.',
+  热力图统计指标: 'Heatmap metric',
+  请求数: 'Requests',
+  费用: 'Cost',
+  '最近 53 周的用量热力图，从 {start} 至 {end}':
+    'Usage heatmap over the last 53 weeks, from {start} to {end}',
+  '{date} · {requests} 次请求 · {tokens} Token · {cost}':
+    '{date} · {requests} requests · {tokens} tokens · {cost}',
+  '热力图与上方筛选联动，颜色深浅表示所选指标的每日用量。':
+    'The heatmap follows the filters above. Color intensity indicates daily usage for the selected metric.',
+  所选范围暂无用量记录: 'No usage in the selected range',
+  '尝试调整筛选条件；使用模型后，已保存的本地会话用量会显示在这里。':
+    'Adjust the filters, or use a model to see usage from saved local sessions here.',
+  新增输入: 'Uncached input',
+  缓存读取: 'Cache reads',
+  缓存写入: 'Cache writes',
+  缓存命中率: 'Cache hit rate',
+  未知供应商: 'Unknown provider',
+  未知模型: 'Unknown model',
+  未知状态: 'Unknown status',
+  全部状态: 'All statuses',
+  筛选请求状态: 'Filter request status',
+  '供应商 / 模型': 'Provider / model',
+  已取消: 'Canceled',
+  上一页: 'Previous page',
+  下一页: 'Next page',
+  工具调用: 'Tool call',
+  输出上限: 'Output limit',
+  '逐次模型回复记录，包含工具调用与失败请求。':
+    'Individual model responses, including tool calls and failed requests.',
+  '共 {count} 条 · 第 {page} / {pages} 页': '{count} records · Page {page} of {pages}',
+  '记录费用（USD）': 'Recorded cost (USD)',
+  '会话中保存的估算费用，单位为美元；未配置价格的模型可能记录为 0，不代表实际账单。':
+    'Cost estimates saved in sessions, in US dollars. Models without configured pricing may record zero. These are not billing totals.',
+  总请求数: 'Total requests',
+  '每条助手回复计一次请求，包含工具调用、失败与取消记录，不包含用户消息。':
+    'Each assistant response counts as a request, including tool calls, failures, and cancellations. User messages are excluded.',
+  '缓存读取 /（新增输入 + 缓存读取 + 缓存写入），无输入时不计算。':
+    'Cache reads divided by uncached input plus cache reads and writes. Not calculated without input.',
+  用量明细: 'Usage details',
+  请求日志: 'Request log',
+  '统计已保存的主会话记录，分支继承的相同条目已去重。':
+    'Based on saved main sessions, with shared branch entries deduplicated.',
+  '费用来自本地会话记录，不包含供应商账单查询。':
+    'Costs come from local session records. Provider billing is not queried.',
   '根据本地会话文件统计，包含缓存用量，分支继承的相同条目去重。':
     'Based on local sessions, including cached tokens and deduplicated branch entries.',
   活跃会话: 'Active sessions',

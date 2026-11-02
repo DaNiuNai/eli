@@ -67,7 +67,12 @@ function App(): React.JSX.Element {
     perform(() => window.api.respondToUserQuestion(sessionKey, id, answers), sessionKey)
   )
   const auth = useAgentAuth()
-  const { library, loading, error: libraryError } = useAgentLibrary(snapshot?.libraryVersion)
+  const {
+    library,
+    loading,
+    error: libraryError,
+    reload: reloadLibrary
+  } = useAgentLibrary(snapshot?.libraryVersion)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tasksOpen, setTasksOpen] = useState(false)
@@ -347,6 +352,7 @@ function App(): React.JSX.Element {
           if (!open) auth.onOpenChange(false)
         }}
         login={auth}
+        usage={{ library, loading, error: libraryError, onReload: reloadLibrary }}
       />
       <WelcomeDialog
         open={auth.welcomeOpen}

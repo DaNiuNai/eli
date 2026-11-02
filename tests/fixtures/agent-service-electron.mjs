@@ -6,7 +6,7 @@ export const fixture = {
   documents: '',
   models: [],
   initialize: undefined,
-  library: { sessions: [], usage: [], updatedAt: 0, warning: null }
+  library: { sessions: [], usage: [], requests: [], updatedAt: 0, warning: null }
 }
 
 export const app = {

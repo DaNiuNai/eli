@@ -476,6 +476,30 @@ app.whenReady().then(async () => {
     assert.equal(states.at(-1).snapshot.subagents[0].status, 'completed')
     await request('shutdown')
     await exited
+    const usageControl = await startRuntime()
+    await request('initialize', { kind: 'control', root: data, cwd, firstLaunch: false })
+    const usageLibrary = await request('getLibrary')
+    assert.equal(
+      usageLibrary.requests.length,
+      states.at(-1).snapshot.messages.filter((message) => message.role === 'assistant').length
+    )
+    assert.equal(
+      usageLibrary.usage.reduce((sum, record) => sum + record.requests, 0),
+      usageLibrary.requests.length
+    )
+    assert.ok(
+      usageLibrary.requests.every(
+        (record) =>
+          record.model === 'local' &&
+          Number.isFinite(record.timestamp) &&
+          Number.isFinite(record.cacheRead) &&
+          Number.isFinite(record.cacheWrite)
+      )
+    )
+    assert.ok(usageLibrary.requests.some((record) => record.stopReason === 'stop'))
+    assert.ok(usageLibrary.requests.some((record) => record.stopReason === 'toolUse'))
+    await request('shutdown')
+    await usageControl.exited
     assert.deepEqual(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8')), savedConfig)
     for (const name of ['settings.json', 'models.json', 'providers.json', 'auth.json'])
       assert.equal(existsSync(join(data, name)), false, `${name} must not be created`)

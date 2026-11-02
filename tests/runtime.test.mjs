@@ -1357,6 +1357,12 @@ test('重启后从工作目录子目录发现历史会话并恢复完整消息',
     new Set(saved.map((session) => session.persistedFile))
   )
   assert.equal(library.warning, null)
+  assert.equal(library.requests.length, 2)
+  assert.ok(
+    library.requests.every(
+      (request) => Number.isFinite(request.timestamp) && request.stopReason === 'stop'
+    )
+  )
   assert.equal(
     library.usage.reduce((total, record) => total + record.messages, 0),
     4

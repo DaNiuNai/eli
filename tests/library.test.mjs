@@ -106,9 +106,65 @@ test('单次解析兼容会话名称、文本块、分支用量去重与未写�
     0.01
   )
   assert.ok(first.usage.every((record) => record.sessionPath === original))
+  assert.equal(first.requests.length, 1)
+  assert.equal(first.requests[0].sessionPath, original)
+  assert.equal(first.requests[0].timestamp, timestamp + 1000)
+  assert.equal(first.requests[0].stopReason, 'unknown')
   assert.match(first.warning, /1 个会话/)
   await appendFile(fork, '"session_info","name":""}\n')
   assert.equal((await library.load(1)).warning, null)
+})
+
+test('请求明细保留同一小时内的逐次用量、缓存与状态，缺少用量的失败记录沿用模型信息', async (t) => {
+  const { directory, library } = await fixture(t)
+  const path = join(directory, 'requests.jsonl')
+  const success = message('success', 'assistant', '完成', timestamp)
+  success.message.stopReason = 'stop'
+  success.message.usage.cacheRead = 80
+  success.message.usage.cacheWrite = 10
+  const failure = message('failure', 'assistant', '', timestamp + 1000)
+  failure.message.stopReason = 'error'
+  delete failure.message.usage
+  delete failure.message.provider
+  delete failure.message.model
+  const aborted = message('aborted', 'assistant', '', timestamp + 2000)
+  aborted.message.stopReason = 'aborted'
+  aborted.message.usage.input = -10
+  aborted.message.usage.output = 'invalid'
+  await writeFile(
+    path,
+    jsonl([
+      header('requests'),
+      { type: 'model_change', provider: 'fixture', modelId: 'local' },
+      message('user', 'user', '请求测试'),
+      success,
+      failure,
+      aborted
+    ])
+  )
+  const result = await library.load()
+  assert.equal(result.requests.length, 3)
+  assert.deepEqual(
+    result.requests.map((request) => request.stopReason),
+    ['aborted', 'error', 'stop']
+  )
+  assert.equal(new Set(result.requests.map((request) => request.id)).size, 3)
+  assert.ok(
+    result.requests.every((request) => request.provider === 'fixture' && request.model === 'local')
+  )
+  assert.equal(result.requests[0].input, 0)
+  assert.equal(result.requests[0].output, 0)
+  assert.equal(result.requests[1].cost, 0)
+  assert.equal(result.requests[2].cacheRead, 80)
+  assert.equal(result.requests[2].cacheWrite, 10)
+  assert.equal(
+    result.usage.reduce((sum, record) => sum + record.requests, 0),
+    3
+  )
+  assert.equal(
+    result.usage.reduce((sum, record) => sum + record.cost, 0),
+    result.requests.reduce((sum, request) => sum + request.cost, 0)
+  )
 })
 
 test('刷新期间连续版本请求共用同一次工作，最多补读最新版本', async (t) => {

@@ -7,10 +7,15 @@ import {
   localDateKey,
   type AgentLibrary,
   type SavedSession,
-  type UsageRecord
+  type UsageRecord,
+  type UsageRequest
 } from '../shared/agent-library'
 
-type UsageEvent = Omit<UsageRecord, 'sessionPath'> & { key: string }
+type UsageEvent = Omit<UsageRecord, 'sessionPath'> & {
+  key: string
+  timestamp: number
+  stopReason: string
+}
 type CachedSession = {
   size: number
   modified: number
@@ -125,6 +130,7 @@ export class AgentLibraryService {
         }
       }
       const usage = object(message?.usage ?? entry.usage)
+      const isRequest = message?.role === 'assistant'
       const isConversation = message?.role === 'user' || message?.role === 'assistant'
       if (!isConversation && !usage) continue
       const timestamp = typeof message?.timestamp === 'number' ? message.timestamp : entry.timestamp
@@ -149,12 +155,14 @@ export class AgentLibraryService {
           typeof entry.id === 'string'
             ? JSON.stringify([entry.id, date.getTime(), entry.type, message?.role])
             : `${path}:${lineNumber}`,
+        timestamp: date.getTime(),
+        stopReason: typeof message?.stopReason === 'string' ? message.stopReason : 'unknown',
         date: localDateKey(date),
         hour: date.getHours(),
-        provider: usage ? eventProvider : '',
-        model: usage ? eventModel : '',
+        provider: usage || isRequest ? eventProvider : '',
+        model: usage || isRequest ? eventModel : '',
         messages: isConversation ? 1 : 0,
-        requests: message?.role === 'assistant' ? 1 : 0,
+        requests: isRequest ? 1 : 0,
         input: amount(usage?.input),
         output: amount(usage?.output),
         cacheRead: amount(usage?.cacheRead),
@@ -231,6 +239,7 @@ export class AgentLibraryService {
 
     const seen = new Set<string>()
     const aggregates = new Map<string, UsageRecord>()
+    const requests: UsageRequest[] = []
     // 先归属到最早的会话，避免分支继承的 token 重复计入总量。
     for (const session of [...saved].sort(
       (a, b) => a.created - b.created || a.path.localeCompare(b.path)
@@ -238,6 +247,23 @@ export class AgentLibraryService {
       for (const event of usageByFile.get(session.path) ?? []) {
         if (seen.has(event.key)) continue
         seen.add(event.key)
+        if (event.requests) {
+          requests.push({
+            id: event.key,
+            sessionPath: session.path,
+            timestamp: event.timestamp,
+            stopReason: event.stopReason,
+            date: event.date,
+            hour: event.hour,
+            provider: event.provider,
+            model: event.model,
+            input: event.input,
+            output: event.output,
+            cacheRead: event.cacheRead,
+            cacheWrite: event.cacheWrite,
+            cost: event.cost
+          })
+        }
         const key = JSON.stringify([
           session.path,
           event.date,
@@ -275,6 +301,7 @@ export class AgentLibraryService {
     return {
       sessions: saved.sort((a, b) => b.modified - a.modified || a.path.localeCompare(b.path)),
       usage: [...aggregates.values()],
+      requests: requests.sort((a, b) => b.timestamp - a.timestamp || a.id.localeCompare(b.id)),
       updatedAt: Date.now(),
       warning: skipped ? `${skipped} 个会话存在无法读取或尚未写完的记录，统计可能暂不完整。` : null
     }
