@@ -11,8 +11,10 @@
 
 eli 基于 Electron、React、TypeScript 和 electron-vite，界面使用 Tailwind CSS 与 shadcn/ui。
 
+eli 采用“一切皆插件”架构。Cordis 按配置加载 Agent 循环、模型适配器、工具、桌面服务和界面组件。新增功能优先通过已有服务或界面插槽接入。
+
 - src/main：窗口、生命周期与进程通信。
-- src/runtime：独立 Agent Runtime，使用 pi SDK，应用数据统一存放在 ~/.eli。
+- src/runtime：基于 dsh 引擎的独立 Agent Runtime，应用数据统一存放在 ~/.eli。
 - src/preload：主进程与界面的接口，接口变更同步更新类型声明。
 - src/renderer/src：界面与交互，组件放在 components，样式和图片放在 assets。
 - resources 与 build：运行资源和打包配置；out 与 dist：生成产物。
