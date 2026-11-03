@@ -1,6 +1,38 @@
-import type { McpServerConfig } from '@earendil-works/pi-coding-agent'
-
-export type { McpServerConfig }
+export type McpExposure = 'direct' | 'deferred' | 'codemode' | 'hidden'
+interface McpBaseConfig {
+  exposure?: McpExposure
+  description?: string
+  toolExposure?: Record<string, McpExposure>
+  enabled?: boolean
+  timeout?: number
+}
+export interface McpOAuthConfig {
+  clientId?: string
+  clientSecret?: string
+  callbackPort?: number
+  callbackUrl?: string
+  scope?: string
+  clientName?: string
+  clientRegistration?: 'dcr' | 'cimd'
+  authServerMetadataUrl?: string
+}
+export type McpServerConfig = McpBaseConfig &
+  (
+    | {
+        type?: 'stdio'
+        command: string
+        args?: string[]
+        env?: Record<string, string>
+        cwd?: string
+      }
+    | {
+        type?: 'http'
+        url: string
+        headers?: Record<string, string>
+        oauth?: McpOAuthConfig
+        auth?: { provider: string }
+      }
+  )
 
 export interface McpServerDefinition {
   name: string

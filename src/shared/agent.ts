@@ -1,4 +1,9 @@
-import type { ContextUsage, AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent'
+import type {
+  ContextUsage,
+  AgentMessage,
+  AgentThinkingLevel,
+  AgentToolEvent
+} from './agent-messages'
 import type { AgentLibrary, SavedSession } from './agent-library'
 import type { UiLanguage } from './app-preferences'
 import type { AgentSettingsChange, AgentSettingsSnapshot } from './agent-settings'
@@ -10,12 +15,11 @@ import type { BackgroundTask } from './background-tasks'
 import type { SubagentAction, SubagentSnapshot } from './subagents'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
-export type AgentMessage = AgentSession['messages'][number]
+export type { AgentMessage, AgentThinkingLevel, AgentToolEvent } from './agent-messages'
 export interface AgentSkillCommand {
   name: string
   description: string
 }
-export type AgentThinkingLevel = AgentSession['thinkingLevel']
 export interface AgentModelInfo {
   provider: string
   id: string
@@ -28,10 +32,6 @@ export interface AgentSessionInfo {
   sessionName?: string
   thinkingLevel: AgentThinkingLevel
 }
-export type AgentToolEvent = Extract<
-  AgentSessionEvent,
-  { type: 'tool_execution_start' | 'tool_execution_update' | 'tool_execution_end' }
->
 
 /** 回复阶段由真实事件推进；内容块结束不代表整轮回复结束。 */
 export type AgentResponsePhase =

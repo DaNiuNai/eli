@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { Api, Context, Model } from '@earendil-works/pi-ai'
 import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate'
-import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
+import type { Models as ModelRuntime } from '@earendil-works/pi-ai'
 import { Type } from 'typebox'
 import { EliConfigStore } from '../config/store'
 import type { AgentMessage } from '../shared/agent'

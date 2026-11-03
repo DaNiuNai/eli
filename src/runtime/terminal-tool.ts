@@ -1,11 +1,5 @@
-import {
-  createLocalBashOperations,
-  createLocalPowerShellOperations,
-  getPowerShellConfig,
-  type AgentToolResult,
-  type BashOperations,
-  type ExtensionAPI
-} from '@earendil-works/pi-coding-agent'
+import type { FeatureTools, ToolResult as AgentToolResult } from './dsh/tools'
+import { shellOperations } from './shell-operations'
 import type { TerminalPreference } from '../shared/terminal'
 import { Type } from 'typebox'
 import { isTaskActive, type BackgroundTask } from '../shared/background-tasks'
@@ -28,41 +22,16 @@ function taskResult(task: BackgroundTask): AgentToolResult<BackgroundTask> {
   }
 }
 
-/** 复用 pi 的 Shell 后端与进程树取消，将等待时间和进程生命周期分离。 */
+/** Shell 插件保留后台任务协议，进程生命周期独立于模型轮次。 */
 export function configureTerminal(
-  pi: ExtensionAPI,
+  pi: FeatureTools,
   cwd: string,
   terminal: TerminalPreference,
   tasks: BackgroundTasks
 ): void {
   const active = pi.getActiveTools()
   const powershell = terminal.kind === 'powershell'
-  let operations: BashOperations = createLocalBashOperations({ shellPath: terminal.path })
-  if (powershell) {
-    // pi 的 PowerShell 后端会自动优先选择 pwsh；显式选择其他路径时使用其
-    // 可指定路径的 Shell 后端。PowerShell 同样支持 -c，保留内置工具的 UTF-8 输出。
-    let automaticPath: string | undefined
-    if (process.platform === 'win32') {
-      try {
-        automaticPath = getPowerShellConfig().shell.toLowerCase()
-      } catch {
-        // 自定义安装不一定在系统搜索路径中，仍使用已验证的显式路径。
-      }
-    }
-    if (automaticPath === terminal.path.toLowerCase()) {
-      operations = createLocalPowerShellOperations()
-    } else {
-      const shellOperations = operations
-      operations = {
-        exec: (command, directory, options) =>
-          shellOperations.exec(
-            `try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n${command}`,
-            directory,
-            options
-          )
-      }
-    }
-  }
+  const operations = shellOperations(terminal)
   const name = powershell ? 'powershell' : 'bash'
   pi.registerTool({
     name,

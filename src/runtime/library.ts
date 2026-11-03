@@ -3,6 +3,9 @@ import { readdir, stat } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { readDshLibrary, type DshLibraryCache } from './dsh/library'
+import { importIndex, importKey } from './dsh/import-index'
 import {
   localDateKey,
   type AgentLibrary,
@@ -37,10 +40,14 @@ function amount(value: unknown): number {
 // 元数据与用量一次流式读取；未变化的会话只检查文件属性，不再解析正文。
 export class AgentLibraryService {
   private cache = new Map<string, CachedSession>()
+  private readonly nativeCache: DshLibraryCache = new Map()
   private sessions = new Map<string, SavedSession>()
   private loading?: Promise<AgentLibrary>
   private loadingVersion = -1
-  constructor(private readonly sessionDirectory: string) {}
+  constructor(
+    private readonly sessionDirectory: string,
+    private readonly persistence?: SessionPersistence
+  ) {}
 
   load(version = 0): Promise<AgentLibrary> {
     this.loadingVersion = Math.max(this.loadingVersion, version)
@@ -235,7 +242,53 @@ export class AgentLibraryService {
         }
       })
     )
-    this.sessions = new Map(saved.map((session) => [session.path, session]))
+    const aliases = new Map<string, SavedSession>()
+    if (this.persistence) {
+      try {
+        const dsh = await readDshLibrary(this.persistence, this.nativeCache)
+        const index = await importIndex(this.sessionDirectory).read()
+        skipped += dsh.skipped
+        for (const entry of dsh.entries) {
+          const source = saved.find((session) => {
+            const key = importKey(this.sessionDirectory, session.path)
+            return session.path === entry.legacyPath || (key && index[key]?.id === entry.session.id)
+          })
+          const historical = source && usageByFile.get(source.path)
+          if (source) {
+            saved.splice(saved.indexOf(source), 1)
+            aliases.set(source.path, entry.session)
+          }
+          saved.push(entry.session)
+          usageByFile.set(
+            entry.session.path,
+            historical
+              ? [...historical, ...entry.events.slice(entry.legacyEventCount)]
+              : entry.events
+          )
+        }
+        // 用户将迁移后的会话移入回收站后，保留的原始备份不会重新出现在历史列表。
+        for (let i = saved.length - 1; i >= 0; i--) {
+          const source = saved[i]
+          const key = importKey(this.sessionDirectory, source.path)
+          const record = key && index[key]
+          const file = this.cache.get(source.path)
+          if (
+            record &&
+            file &&
+            record.id === source.id &&
+            record.bytes === file.size &&
+            record.modified === file.modified
+          )
+            saved.splice(i, 1)
+        }
+      } catch {
+        skipped++
+      }
+    }
+    this.sessions = new Map([
+      ...saved.map((session) => [session.path, session] as const),
+      ...aliases
+    ])
 
     const seen = new Set<string>()
     const aggregates = new Map<string, UsageRecord>()

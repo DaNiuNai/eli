@@ -134,6 +134,10 @@ export class RuntimeInteractions {
     for (const entry of entries) entry.controller.abort()
   }
 
+  async waitPrefetchedApprovals(): Promise<void> {
+    await Promise.all([...this.prefetchedApprovals.values()].map((entry) => entry.outcome))
+  }
+
   approve(
     request: Omit<ToolApprovalRequest, 'id'>,
     readOnly: boolean,

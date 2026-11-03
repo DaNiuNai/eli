@@ -39,8 +39,9 @@ mkdirSync(join(cwd, '.eli', 'extensions'), { recursive: true })
 writeFileSync(
   join(cwd, '.eli', 'extensions', 'probe.ts'),
   `
-  export default function(pi) {
-    pi.registerCommand('probe', { description: 'Package smoke test', handler: async (_args, ctx) => ctx.ui.notify('packaged extension ready') })
+  export const inject = ['commands']
+  export function apply(ctx) {
+    ctx.effect(() => ctx.commands.register({ name: 'probe', description: 'Package smoke test', handler: async () => ({ kind: 'success', text: 'packaged extension ready' }) }))
   }
 `
 )
@@ -113,7 +114,39 @@ app.whenReady().then(async () => {
           `data: ${JSON.stringify({ id: 'electron-test', object: 'chat.completion.chunk', created: 1, model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`
         )
       send({ role: 'assistant', content: '' })
-      if (body.model === 'reviewer') {
+      if (
+        body.messages.some(
+          ({ role, content }) =>
+            role === 'user' && JSON.stringify(content).includes('ELI_PROGRAM_TEST')
+        )
+      ) {
+        if (body.messages.at(-1).role === 'tool') {
+          send({ content: '程序工具执行完成' })
+          send({}, 'stop')
+        } else {
+          assert.deepEqual(
+            body.tools.map(({ function: tool }) => tool.name),
+            ['run_code']
+          )
+          send({
+            tool_calls: [
+              {
+                index: 0,
+                id: 'program-probe',
+                type: 'function',
+                function: {
+                  name: 'run_code',
+                  arguments: JSON.stringify({
+                    code: 'return (await tools.read({path:"program-fixture.txt"})).content[0].text',
+                    description: 'read the program fixture'
+                  })
+                }
+              }
+            ]
+          })
+          send({}, 'tool_calls')
+        }
+      } else if (body.model === 'reviewer') {
         const firstAttempt = !body.messages.some(({ role }) => role === 'assistant')
         if (firstAttempt) {
           // 三个首次审核全部到达才返回，串行审核会卡住此屏障。
@@ -143,7 +176,11 @@ app.whenReady().then(async () => {
           })
           send({}, 'tool_calls')
         }
-      } else if (JSON.stringify(body.messages[0]).includes('context summarization assistant')) {
+      } else if (
+        body.messages.some((message) =>
+          JSON.stringify(message.content).includes('acting as a compaction engine')
+        )
+      ) {
         send({ content: '摘要已生成，保留图片与文档的文字分析。' })
         send({}, 'stop')
       } else if (
@@ -152,7 +189,13 @@ app.whenReady().then(async () => {
             role === 'user' && JSON.stringify(content).includes('ELI_IMAGE_TEST')
         )
       ) {
-        send({ content: '图片已查看' })
+        // dsh 只提交比原文更短的摘要，提供足够的历史分析来覆盖该路径。
+        send({
+          content:
+            '图片分析记录：已核对输入图片的尺寸、比例和内容，保留后续任务需要的文字证据。'.repeat(
+              40
+            )
+        })
         send({}, 'stop')
       } else if (
         JSON.stringify(body.messages.findLast(({ role }) => role === 'user')?.content).includes(
@@ -382,7 +425,7 @@ app.whenReady().then(async () => {
       approvalMode: 'auto',
       terminal: {
         kind: 'powershell',
-        path: (await import('@earendil-works/pi-coding-agent')).getPowerShellConfig().shell
+        path: (await import('./fixtures/terminal.mjs')).getPowerShellConfig().shell
       }
     })
     assert.equal(state.snapshot.connection, 'ready')
@@ -530,14 +573,7 @@ app.whenReady().then(async () => {
       join(cwd, '.eli/extensions/image-input.mjs'),
       `import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-export default function (pi) {
-  pi.on('input', async (event, ctx) => event.text === 'ELI_IMAGE_TEST' ? {
-    action: 'transform', text: event.text, images: [{
-      type: 'image', mimeType: 'image/png',
-      data: (await readFile(join(ctx.cwd, 'electron-large.png'))).toString('base64')
-    }]
-  } : undefined)
-}
+${(await import('./fixtures/plugin-source.mjs')).imageInputPlugin('ELI_IMAGE_TEST', `await readFile(join(ctx.eli.cwd, 'electron-large.png'))`)}
 `
     )
     const imageConfig = structuredClone(savedConfig)
@@ -554,7 +590,7 @@ export default function (pi) {
       approvalMode: 'all',
       terminal: {
         kind: 'powershell',
-        path: (await import('@earendil-works/pi-coding-agent')).getPowerShellConfig().shell
+        path: (await import('./fixtures/terminal.mjs')).getPowerShellConfig().shell
       }
     })
     await request('prompt', 'ELI_IMAGE_TEST')
@@ -601,7 +637,9 @@ export default function (pi) {
       assert.ok(
         body.messages.every(
           ({ content }) =>
-            typeof content === 'string' || content.every(({ type }) => type === 'text')
+            content === null ||
+            typeof content === 'string' ||
+            content.every(({ type }) => type === 'text')
         )
       )
       assert.doesNotMatch(JSON.stringify(body), /image_url|data:image/)
@@ -609,9 +647,41 @@ export default function (pi) {
     assert.deepEqual(readFileSync(imagePath), sourceImage)
     await request('shutdown')
     await imageSession.exited
+    states.length = 0
+    rejectImageRequests = false
+    imageConfig.agent.codemode = { mode: 'only' }
+    writeFileSync(join(data, 'config.json'), JSON.stringify(imageConfig))
+    writeFileSync(join(cwd, 'program-fixture.txt'), 'ELI_PROGRAM_OK')
+    const programSession = await startRuntime()
+    await request('initialize', {
+      kind: 'session',
+      root: data,
+      cwd,
+      sessionKey: '77777777-7777-4777-8777-777777777777',
+      approvalMode: 'all',
+      terminal: {
+        kind: 'powershell',
+        path: (await import('./fixtures/terminal.mjs')).getPowerShellConfig().shell
+      }
+    })
+    await request('prompt', 'ELI_PROGRAM_TEST')
+    while (
+      !states.some(
+        ({ snapshot }) =>
+          !snapshot.running &&
+          (snapshot.error || snapshot.messages.some(({ role }) => role === 'toolResult'))
+      )
+    )
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(states.at(-1).snapshot.error, null)
+    const program = states.at(-1).snapshot.messages.find(({ role }) => role === 'toolResult')
+    assert.equal(program.isError, false, JSON.stringify(program.content))
+    assert.match(JSON.stringify(program.content), /ELI_PROGRAM_OK/)
+    await request('shutdown')
+    await programSession.exited
     assert.ok(directory.startsWith(`${temporary}\\`) || directory.startsWith(`${temporary}/`))
     console.log(
-      `Electron utilityProcess + SDK + MCP / skill management + project extension + auto approval + subagents + image resize / compaction: PASS (${entry})`
+      `Electron utilityProcess + dsh + MCP / skills + Cordis extensions + approvals + subagents + images / compaction + Codemode: PASS (${entry})`
     )
     server.closeAllConnections()
     server.close()

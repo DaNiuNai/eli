@@ -1,10 +1,10 @@
 import { Agent, ProxyAgent, install, setGlobalDispatcher, type Dispatcher } from 'undici'
-import type { SettingsManager } from '@earendil-works/pi-coding-agent'
+import type { RuntimeSettings } from './settings'
 
 let dispatcher: Dispatcher | undefined
 
 /** 网络配置属于当前 Runtime，不读取或改写进程环境变量。 */
-export async function configureNetwork(settings: SettingsManager): Promise<void> {
+export async function configureNetwork(settings: RuntimeSettings): Promise<void> {
   const timeout = settings.getHttpIdleTimeoutMs()
   const proxy = settings.getSettings().httpProxy?.trim()
   const options = {

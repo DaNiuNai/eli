@@ -5,6 +5,7 @@ import { appPreferencesChannels, type AppPreferencesApi } from '../shared/app-pr
 import { agentAuthChannels, type AgentAuthApi, type AgentAuthSnapshot } from '../shared/agent-auth'
 import { providersChannels, type ProvidersApi } from '../shared/providers'
 import { terminalChannels, type TerminalApi } from '../shared/terminal'
+import { pluginsChannels, type PluginsApi } from '../shared/plugins'
 import { mcpAuthChannels, type McpAuthApi, type McpAuthSnapshot } from '../shared/mcp'
 import {
   appUpdatesChannels,
@@ -63,6 +64,8 @@ const api: AgentApi = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+const plugins: PluginsApi = { client: () => ipcRenderer.invoke(pluginsChannels.client) }
+contextBridge.exposeInMainWorld('plugins', plugins)
 
 const mcpAuth: McpAuthApi = {
   get: () => ipcRenderer.invoke(mcpAuthChannels.get),

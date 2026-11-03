@@ -8,7 +8,13 @@ import {
   type ModelsApiStreamOptions,
   type StreamOptions
 } from '@earendil-works/pi-ai'
-import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
+import type { Models as ModelRuntime } from '@earendil-works/pi-ai'
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+const auxiliary = new AsyncLocalStorage<boolean>()
+export function auxiliaryRequest<T>(operation: () => Promise<T>): Promise<T> {
+  return auxiliary.run(true, operation)
+}
 
 const mib = 1024 * 1024
 const guardedRequest = Symbol('eli.requestBodyGuard')
@@ -197,7 +203,8 @@ async function* responseEvents(
 
 function guardStream<T extends StreamOptions>(
   source: Stream<T>,
-  onRequestBody?: RequestBodyListener
+  onRequestBody?: RequestBodyListener,
+  blockImages = false
 ): Stream<T> {
   return (model, context, options) => {
     // 虚拟模型可能再次进入 streamSimple；同一逻辑请求只安装一次恢复层。
@@ -219,9 +226,9 @@ function guardStream<T extends StreamOptions>(
               prepared = prepareRequestBody(
                 transformed === undefined ? payload : transformed,
                 requestBudget(requestModel),
-                attempt > 0
+                blockImages || attempt > 0
               )
-              onRequestBody?.(prepared.bytes, options?.sessionId)
+              if (!auxiliary.getStore()) onRequestBody?.(prepared.bytes, options?.sessionId)
               return prepared.payload
             }
           })
@@ -259,8 +266,9 @@ function guardStream<T extends StreamOptions>(
 
 /** 同时覆盖普通对话、子 Agent、摘要和 complete 调用；不依赖特定 HTTP 适配器。 */
 export function guardModelRequests(
-  runtime: ModelRuntime,
-  onRequestBody?: RequestBodyListener
+  runtime: Pick<ModelRuntime, 'stream' | 'streamSimple'>,
+  onRequestBody?: RequestBodyListener,
+  blockImages = false
 ): void {
   const stream = runtime.stream.bind(runtime)
   runtime.stream = <TApi extends Api>(
@@ -270,7 +278,8 @@ export function guardModelRequests(
   ) =>
     guardStream<ModelsApiStreamOptions<TApi>>(
       (_model, context, options) => stream(model, context, options),
-      onRequestBody
+      onRequestBody,
+      blockImages
     )(model, context, options)
-  runtime.streamSimple = guardStream(runtime.streamSimple.bind(runtime), onRequestBody)
+  runtime.streamSimple = guardStream(runtime.streamSimple.bind(runtime), onRequestBody, blockImages)
 }

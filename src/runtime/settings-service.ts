@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { EliConfigStore } from '../config/store'
 import {
@@ -90,17 +89,44 @@ export class AgentSettingsService {
   constructor(private readonly root: string) {}
   private schema?: Promise<Schema>
   private loadSchema(): Promise<Schema> {
-    this.schema ??= import('@earendil-works/pi-coding-agent').then(async ({ getPackageDir }) => {
-      const schema = JSON.parse(
-        await readFile(join(getPackageDir(), 'schemas/settings.schema.json'), 'utf8')
-      ) as Schema
-      return {
-        ...schema,
-        properties: {
-          ...schema.properties,
-          agentsFiles: { type: 'array', items: { type: 'string' } }
+    this.schema ??= Promise.resolve().then(() => {
+      const schema: Schema = { type: 'object', properties: {} }
+      for (const field of agentSettingDefinitions) {
+        const parts = field.key.split('.')
+        let parent = schema
+        for (const key of parts.slice(0, -1)) {
+          parent.properties ??= {}
+          parent = parent.properties[key] ??= { type: 'object', properties: {} }
         }
+        parent.properties ??= {}
+        parent.properties[parts.at(-1)!] =
+          field.kind === 'lines'
+            ? { type: 'array', items: { type: 'string' } }
+            : field.kind === 'select'
+              ? { enum: field.options }
+              : field.kind === 'json'
+                ? {
+                    type: 'object',
+                    patternProperties: {
+                      '.*':
+                        field.key === 'modelThinkingLevels'
+                          ? { enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] }
+                          : {
+                              type: 'object',
+                              properties: {
+                                reserveTokens: { type: 'integer', minimum: 0 },
+                                keepRecentTokens: { type: 'integer', minimum: 0 }
+                              }
+                            }
+                    }
+                  }
+                : {
+                    type: field.kind === 'number' ? 'integer' : field.kind,
+                    minimum: field.min,
+                    maximum: field.max
+                  }
       }
+      return schema
     })
     return this.schema
   }

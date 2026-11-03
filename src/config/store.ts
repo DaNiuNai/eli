@@ -19,20 +19,23 @@ const { lock } = createRequire(import.meta.url)('proper-lockfile') as {
 }
 
 /** 所有进程按字段更新同一文档，独立于 SDK 存储，并以原子替换避免半写入。 */
-export class EliConfigStore {
-  constructor(readonly path = join(homedir(), '.eli', 'config.json')) {}
+export class JsonStore<TDocument> {
+  constructor(
+    readonly path: string,
+    private readonly parse: (value: unknown) => TDocument
+  ) {}
 
-  async read(): Promise<EliConfig> {
+  async read(): Promise<TDocument> {
     try {
-      return parseEliConfig(JSON.parse((await readFile(this.path, 'utf8')).replace(/^\uFEFF/, '')))
+      return this.parse(JSON.parse((await readFile(this.path, 'utf8')).replace(/^\uFEFF/, '')))
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return parseEliConfig({})
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return this.parse({})
       // 不把原始 JSON 内容或凭据包含在错误消息中。
       throw new Error(`无法读取 Eli 配置，请检查 ${this.path}`, { cause })
     }
   }
 
-  async update<T>(change: (config: EliConfig) => T | Promise<T>, signal?: AbortSignal): Promise<T> {
+  async update<T>(change: (config: TDocument) => T | Promise<T>, signal?: AbortSignal): Promise<T> {
     signal?.throwIfAborted()
     await mkdir(dirname(this.path), { recursive: true })
     let compromised: Error | undefined
@@ -64,14 +67,14 @@ export class EliConfigStore {
       const result = await change(config)
       signal?.throwIfAborted()
       if (compromised) throw compromised
-      await this.write(parseEliConfig(config))
+      await this.write(this.parse(config))
       return result
     } finally {
       await release()
     }
   }
 
-  private async write(config: EliConfig): Promise<void> {
+  private async write(config: TDocument): Promise<void> {
     const temporaryPath = `${this.path}.${randomUUID()}.tmp`
     try {
       await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, {
@@ -97,5 +100,11 @@ export class EliConfigStore {
       await rm(temporaryPath, { force: true }).catch(() => {})
       throw new Error(`无法保存 Eli 配置 ${this.path}`, { cause })
     }
+  }
+}
+
+export class EliConfigStore extends JsonStore<EliConfig> {
+  constructor(path = join(homedir(), '.eli', 'config.json')) {
+    super(path, parseEliConfig)
   }
 }

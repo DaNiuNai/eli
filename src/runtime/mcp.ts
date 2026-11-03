@@ -11,15 +11,16 @@ import type {
   McpServerConfig,
   McpServerDefinition
 } from '../shared/mcp'
-import { sdkMcpRuntime, sdkModules } from './sdk-adapter'
+import * as sdk from './mcp-transport'
 import { configureNetwork } from './network'
 import { createSettings } from './settings'
+import { createEliModels } from './models'
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-type McpConnection = InstanceType<Awaited<ReturnType<typeof sdkMcpRuntime>>['McpServerConnection']>
+type McpConnection = sdk.McpServerConnection
 
 function webUrl(value: unknown): string | undefined {
   if (typeof value !== 'string' || !URL.canParse(value)) return undefined
@@ -32,7 +33,6 @@ function webUrl(value: unknown): string | undefined {
 export async function managedMcpServers(value: unknown): Promise<McpServerDefinition[]> {
   if (value === undefined) return []
   if (!record(value)) throw new Error('MCP 服务配置必须是对象')
-  const sdk = await sdkModules()
   const namespaces = new Set<string>()
   return Object.entries(value).map(([name, raw]) => {
     if (!/^[a-zA-Z0-9_-]+$/.test(name))
@@ -86,12 +86,9 @@ export class McpService {
     )
   }
 
-  private async credentialStore(): Promise<
-    InstanceType<Awaited<ReturnType<typeof sdkModules>>['McpOAuthCredentialStore']>
-  > {
-    const sdk = await sdkModules()
+  private async credentialStore(): Promise<sdk.McpOAuthCredentialStore> {
     return new sdk.McpOAuthCredentialStore(
-      new sdk.FileAuthStorageBackend(join(this.root, 'mcp-auth.json')),
+      join(this.root, 'mcp-auth.json'),
       join(this.root, 'mcp-locks')
     )
   }
@@ -182,19 +179,17 @@ export class McpService {
   }
 
   private async connection(server: McpServerDefinition, cwd: string): Promise<McpConnection> {
-    const [sdk, runtime] = await Promise.all([sdkModules(), sdkMcpRuntime()])
     if (this.closed) throw new Error('MCP 管理已关闭')
-    return new runtime.McpServerConnection({
+    return new sdk.McpServerConnection({
       entry: {
         ...server,
-        config: { ...server.config, timeout: Math.min(server.config.timeout ?? 10, 10) },
-        source: this.store.path,
-        scope: 'global'
+        config: { ...server.config, timeout: Math.min(server.config.timeout ?? 10, 10) }
       },
       cwd,
-      createTransport: runtime.createDefaultTransport,
+      providerToken: async (provider) =>
+        (await (await createEliModels(this.root)).runtime.getAuth(provider))?.auth.apiKey,
       credentials: new sdk.McpOAuthCredentialStore(
-        new sdk.FileAuthStorageBackend(join(this.root, 'mcp-auth.json')),
+        join(this.root, 'mcp-auth.json'),
         join(this.root, 'mcp-locks')
       ),
       onTools: () => {}
@@ -368,12 +363,11 @@ export class McpService {
         })
         controller.signal.throwIfAborted()
         if (connection.state !== 'connected') {
-          const sdk = await sdkModules()
           if (!connection.oauthUrl) throw new Error('MCP_MANUAL_AUTH')
           await sdk.signInMcpServer({
             serverUrl: connection.oauthUrl,
             store: new sdk.McpOAuthCredentialStore(
-              new sdk.FileAuthStorageBackend(join(this.root, 'mcp-auth.json')),
+              join(this.root, 'mcp-auth.json'),
               join(this.root, 'mcp-locks')
             ).forServer(server.name, connection.oauthUrl),
             settings: {
@@ -459,7 +453,7 @@ export class McpService {
     try {
       await store.forServer(server.name, url).withRefreshLock(async () => {
         if (!tokensOnly) {
-          store.remove(server.name, url)
+          await store.remove(server.name, url)
           return
         }
         const entry = store.forServer(server.name, url)

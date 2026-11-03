@@ -1,8 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { crc32, deflateSync } from 'node:zlib'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
-import { getPackageDir } from '@earendil-works/pi-coding-agent'
 
 export function createPng(width = 3000, height = 1000) {
   const chunk = (type, data) => {
@@ -29,15 +27,11 @@ export function createPng(width = 3000, height = 1000) {
   ])
 }
 
-export function imageSize(dataUrl) {
-  const require = createRequire(join(getPackageDir(), 'package.json'))
-  const { PhotonImage } = require('@silvia-odwyer/photon-node')
-  const image = PhotonImage.new_from_byteslice(Buffer.from(dataUrl.split(',')[1], 'base64'))
-  try {
-    return { width: image.get_width(), height: image.get_height() }
-  } finally {
-    image.free()
-  }
+export async function imageSize(dataUrl) {
+  const require = createRequire(import.meta.url)
+  const sharp = createRequire(require.resolve('@deepseek-ai/dsh-attachment-local'))('sharp')
+  const { width, height } = await sharp(Buffer.from(dataUrl.split(',')[1], 'base64')).metadata()
+  return { width, height }
 }
 
 export function requestImages(body) {

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { loadSkills } from '@earendil-works/pi-coding-agent'
+import { loadSkills } from './skill-loader'
 import type { EliConfig } from '../config/schema'
 import { EliConfigStore } from '../config/store'
 import type { UserSkill } from '../shared/skills'

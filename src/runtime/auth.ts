@@ -85,7 +85,6 @@ export class AgentAuthService {
         },
         { getDeviceId: () => deviceId, agentName: 'eli' }
       )
-      await settings.flush()
       await this.providers.authenticated(providerId, type)
       this.snapshot.status = 'success'
       this.snapshot.firstLaunch = false

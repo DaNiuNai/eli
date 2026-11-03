@@ -1,3 +1,4 @@
+import { PluginSlot } from './plugins/slots'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDownIcon, ListTodoIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
@@ -19,18 +20,6 @@ import {
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import { Skeleton } from '@renderer/components/ui/skeleton'
-import { AppTitlebar } from '@renderer/components/AppTitlebar'
-import { AppSettingsDialog } from '@renderer/components/AppSettingsDialog'
-import { WelcomeDialog } from '@renderer/components/WelcomeDialog'
-import { ChatMessage } from '@renderer/components/ChatMessage'
-import { ChatComposer } from '@renderer/components/ChatComposer'
-import { ToolApprovalPanel } from '@renderer/components/ToolApprovalPanel'
-import { BackgroundTasksPanel } from '@renderer/components/BackgroundTasksPanel'
-import { SubagentsPanel } from '@renderer/components/SubagentsPanel'
-import { UserQuestionPanel } from '@renderer/components/UserQuestionPanel'
-import { AgentSidebar } from '@renderer/components/AgentSidebar'
-import { UsageDashboard } from '@renderer/components/UsageDashboard'
-import { WorkspaceLayout } from '@renderer/components/WorkspaceLayout'
 import { useAgent } from '@renderer/hooks/use-agent'
 import { useChatAttachments } from '@renderer/hooks/use-chat-attachments'
 import { useAgentAuth } from '@renderer/hooks/use-agent-auth'
@@ -333,7 +322,8 @@ function App(): React.JSX.Element {
       onOpenChange={(open) => updateAppPreferences({ sidebarOpen: open })}
       className="desktop-shell relative h-dvh min-h-0 flex-col overflow-hidden bg-background"
     >
-      <AppTitlebar
+      <PluginSlot
+        name="shell.titlebar"
         title={visibleMessages.length > 0 ? currentTitle : null}
         snapshot={snapshot}
         busy={busy}
@@ -344,7 +334,8 @@ function App(): React.JSX.Element {
         onReconnect={() => void perform(() => window.api.connect(true))}
         onOpenSettings={openSettings}
       />
-      <AppSettingsDialog
+      <PluginSlot
+        name="settings.dialog"
         key={auth.open ? 'providers' : 'settings'}
         open={settingsOpen || auth.open}
         onOpenChange={(open) => {
@@ -354,12 +345,14 @@ function App(): React.JSX.Element {
         login={auth}
         usage={{ library, loading, error: libraryError, onReload: reloadLibrary }}
       />
-      <WelcomeDialog
+      <PluginSlot
+        name="shell.welcome"
         open={auth.welcomeOpen}
         onOpenChange={auth.onWelcomeOpenChange}
         onOpenSettings={openSettings}
       />
-      <WorkspaceLayout
+      <PluginSlot
+        name="shell.layout"
         tasksOpen={tasksOpen}
         onTasksOpenChange={setTasksOpen}
         tasksPanel={
@@ -384,7 +377,8 @@ function App(): React.JSX.Element {
                     </EmptyHeader>
                   </Empty>
                 )}
-                <SubagentsPanel
+                <PluginSlot
+                  name="tasks.subagents"
                   key={`agents:${draftKey}`}
                   agents={snapshot?.subagents ?? []}
                   disabled={!ready || stopping || workspaceUnavailable}
@@ -392,7 +386,8 @@ function App(): React.JSX.Element {
                     perform(() => window.api.controlSubagent(draftKey, action), draftKey)
                   }
                 />
-                <BackgroundTasksPanel
+                <PluginSlot
+                  name="tasks.background"
                   key={draftKey}
                   tasks={snapshot?.backgroundTasks ?? []}
                   disabled={!ready}
@@ -405,7 +400,8 @@ function App(): React.JSX.Element {
           </aside>
         }
         sidebar={
-          <AgentSidebar
+          <PluginSlot
+            name="shell.sidebar"
             cwd={currentDirectory ?? ''}
             sessionFile={snapshot?.session?.sessionFile}
             sessionKey={draftKey}
@@ -471,7 +467,8 @@ function App(): React.JSX.Element {
                             messageId={entry.id}
                             scrollAnchor={entry.role === 'user'}
                           >
-                            <ChatMessage
+                            <PluginSlot
+                              name="chat.message"
                               entry={entry}
                               results={toolResults}
                               tools={snapshot?.tools ?? {}}
@@ -511,7 +508,8 @@ function App(): React.JSX.Element {
                       })}
                       {snapshot?.userQuestions.map((request) => (
                         <MessageScrollerItem key={request.id} messageId={`question:${request.id}`}>
-                          <UserQuestionPanel
+                          <PluginSlot
+                            name="chat.question"
                             request={request}
                             state={userQuestions.stateFor(request)}
                             disabled={!ready || stopping || workspaceUnavailable}
@@ -535,11 +533,17 @@ function App(): React.JSX.Element {
               </MessageScrollerProvider>
             ) : (
               <ScrollArea className="h-full">
-                <UsageDashboard library={library} loading={loading} error={libraryError} />
+                <PluginSlot
+                  name="usage.dashboard"
+                  library={library}
+                  loading={loading}
+                  error={libraryError}
+                />
               </ScrollArea>
             )}
           </div>
-          <ToolApprovalPanel
+          <PluginSlot
+            name="chat.approvals"
             key={draftKey}
             requests={snapshot?.toolApprovals ?? []}
             autoApproval={snapshot?.autoApproval}
@@ -548,7 +552,8 @@ function App(): React.JSX.Element {
               perform(() => window.api.respondToToolApproval(draftKey, id, approved), draftKey)
             }
           />
-          <ChatComposer
+          <PluginSlot
+            name="chat.composer"
             snapshot={snapshot}
             hasMessages={visibleMessages.length > 0}
             draft={draft}
@@ -576,7 +581,7 @@ function App(): React.JSX.Element {
             onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
           />
         </main>
-      </WorkspaceLayout>
+      </PluginSlot>
     </SidebarProvider>
   )
 }

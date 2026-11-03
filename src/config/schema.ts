@@ -1,5 +1,5 @@
 import type { Credential } from '@earendil-works/pi-ai'
-import type { SettingsManager } from '@earendil-works/pi-coding-agent'
+import type { AgentSettings } from '../shared/agent-config'
 import { parseAppPreferences, type AppPreferences } from '../shared/app-preferences'
 import type { ProviderApi, ProviderModelInput } from '../shared/providers'
 import type { McpServerConfig } from '../shared/mcp'
@@ -17,9 +17,7 @@ export interface ProviderPreferences {
 }
 
 export type ProviderPreferencesMap = Record<string, ProviderPreferences>
-export type AgentSettings = ReturnType<SettingsManager['getGlobalSettings']> & {
-  agentsFiles?: string[]
-}
+export type { AgentSettings } from '../shared/agent-config'
 
 /** Eli 唯一的配置文档；凭据只在主进程和 Runtime 中访问。 */
 export interface EliConfig {

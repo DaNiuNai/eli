@@ -4,3 +4,6 @@ allowBuilds:
   '@google/genai': true
   electron-winstaller: true
   protobufjs: true
+  koffi: true
+  '@deepseek-ai/dsh-subprocess-local': true
+  node-pty: true

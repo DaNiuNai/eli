@@ -1,17 +1,29 @@
-import { stat } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { EliConfigStore } from '../config/store'
+import { readFile } from 'node:fs/promises'
+import { extname, join } from 'node:path'
+import type { Context, Plugin } from '@deepseek-ai/cordis'
+import type { Agent, AgentHandle, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import { parseCommand } from '@deepseek-ai/dsh-commands'
 import {
-  createAgentSession,
-  type ModelRuntime,
-  SessionManager,
-  resolveModelScopeWithDiagnostics,
-  type AgentSession,
-  type AgentSessionEvent,
-  type SettingsManager
-} from '@earendil-works/pi-coding-agent'
-import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
+  Session,
+  SessionId,
+  SessionSeq,
+  SessionLogOffset,
+  buildForkSeed,
+  appendPluginRecord,
+  type SessionEvent
+} from '@deepseek-ai/dsh-session'
+import {
+  BlockAssembler,
+  createUserMessage,
+  createSystemMessage,
+  ReasoningEffortId,
+  type ContentBlock
+} from '@deepseek-ai/dsh-llm'
+import { getSupportedThinkingLevels, clampThinkingLevel } from '@earendil-works/pi-ai'
+import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import { EliConfigStore } from '../config/store'
 import type {
   AgentMessage,
   AgentMessageTarget,
@@ -20,17 +32,8 @@ import type {
 } from '../shared/agent'
 import { emptySessionSnapshot } from '../shared/agent-state'
 import type { RuntimeInit, RuntimeSessionState } from '../shared/runtime'
-import { createSettings } from './settings'
-import { workspaceSessionDirectory } from './paths'
-import { createModels } from './models'
-import { EliResourceLoader } from './resources'
-import { RuntimeInteractions } from './interactions'
-import { hostExtension } from './host-extension'
-import { mapMessageEntryIds } from './history'
-import { configureNetwork } from './network'
-import { desktopExtensionUi } from './extension-ui'
-import { reviewTool } from './auto-approval'
-import { BackgroundTasks } from './background-tasks'
+import type { ToolApprovalMode } from '../shared/tool-approval'
+import type { UserQuestionAnswer } from '../shared/user-question'
 import { isTaskActive } from '../shared/background-tasks'
 import {
   isSubagentActive,
@@ -38,9 +41,28 @@ import {
   type SubagentAction,
   type SubagentMessage
 } from '../shared/subagents'
+import { parseChatAttachmentMessage } from '../shared/chat-attachments'
+import { createSettings, type RuntimeSettings } from './settings'
+import { workspaceSessionDirectory } from './paths'
+import { createEliModels, type EliModels } from './models'
+import { EliResourceLoader } from './resources'
+import { RuntimeInteractions } from './interactions'
+import { configureNetwork } from './network'
+import { reviewTool } from './auto-approval'
+import { BackgroundTasks } from './background-tasks'
 import { SubagentTeam } from './subagents'
-import type { ToolApprovalMode } from '../shared/tool-approval'
-import type { UserQuestionAnswer } from '../shared/user-question'
+import { createEngine } from './dsh/engine'
+import { featurePlugins, featureProfile } from './dsh/features'
+import { importLegacySession, readSessionIdentity } from './dsh/migration'
+import {
+  assistantView,
+  importMessages,
+  legacyTranscript,
+  projectTranscript,
+  saveSessionState,
+  sessionState
+} from './dsh/messages'
+import type { PluginApplication } from '../plugins/kernel'
 
 interface CollaborationBinding {
   team: SubagentTeam
@@ -58,30 +80,46 @@ export function modelInfo({
   return { provider, id, contextWindow, reasoning }
 }
 
-/** 单个 Agent 的 SDK 生命周期；主成员同时持有当前用户会话的协作团队。 */
+/** 桌面会话的投影与命令适配器。模型循环、工具流水线和持久化均由 Cordis 服务实现。 */
 export class RuntimeCoordinator {
   readonly snapshot
   readonly interactions: RuntimeInteractions
-  private agent!: AgentSession
-  private settings!: SettingsManager
-  private models!: ModelRuntime
-  private loader!: EliResourceLoader
-  private unsubscribe?: () => void
+  private application?: PluginApplication
+  private handle?: AgentHandle
+  private settings!: RuntimeSettings
+  private models!: EliModels
+  private readonly efforts = new Map<
+    string,
+    { levels: AgentThinkingLevel[]; fallback: AgentThinkingLevel }
+  >()
+  private resources!: EliResourceLoader
+  private backgroundTasks?: BackgroundTasks
+  private team?: SubagentTeam
   private operation?: Promise<void>
+  private closePromise?: Promise<void>
+  private abortController?: AbortController
   private locked = false
   private disposed = false
   private submitted = false
   private created = Date.now()
   private modified = this.created
   private title = ''
-  private activeMessage = -1
+  private path?: string
+  private approvalCheckpoint = ''
+  private approvalMode: ToolApprovalMode
+  private stream?: BlockAssembler
+  private streamIndex = -1
   private activeTools = new Set<string>()
   private abortRequested = false
-  private approvalCheckpoint = ''
-  private backgroundTasks!: BackgroundTasks
-  private team!: SubagentTeam
-  private approvalMode: ToolApprovalMode
-  private deferredCollaboration: { text: string; wake: boolean; details?: SubagentMessage }[] = []
+  private compacting = false
+  private pendingEdit?: {
+    start: SessionSeq
+    end: SessionSeq
+    sources: SessionSeq[]
+    messages: AgentMessage[]
+    entryIds: (string | null)[]
+  }
+  private deferred: { text: string; wake: boolean; details?: SubagentMessage }[] = []
 
   constructor(
     private readonly options: Extract<RuntimeInit, { kind: 'session' }>,
@@ -93,7 +131,13 @@ export class RuntimeCoordinator {
     this.interactions = new RuntimeInteractions(
       options.approvalMode,
       () => {
-        this.persistApprovalCheckpoint()
+        if (this.agent) {
+          const checkpoint = JSON.stringify(this.interactions.checkpoint)
+          if (checkpoint !== this.approvalCheckpoint) {
+            this.approvalCheckpoint = checkpoint
+            saveSessionState(this.agent.session, 'eli.auto_approval', this.interactions.checkpoint)
+          }
+        }
         this.publish()
       },
       (request, signal) =>
@@ -101,11 +145,9 @@ export class RuntimeCoordinator {
           root: options.root,
           cwd: options.cwd,
           terminal: options.terminal.path,
-          models: this.models,
-          currentModel: this.agent.model,
-          messages: this.agent.sessionManager
-            .getBranch()
-            .flatMap((entry) => (entry.type === 'message' ? [entry.message] : [])),
+          models: this.models.runtime,
+          currentModel: this.selectedModel(),
+          messages: this.snapshot.messages,
           request,
           previousDenial: this.interactions.autoApproval.lastDenied,
           signal
@@ -113,48 +155,33 @@ export class RuntimeCoordinator {
     )
   }
 
-  private persistApprovalCheckpoint(): void {
-    const checkpoint = JSON.stringify(this.interactions.checkpoint)
-    if (this.agent && checkpoint !== this.approvalCheckpoint) {
-      this.agent.sessionManager.appendCustomEntry('eli.auto_approval', this.interactions.checkpoint)
-      this.approvalCheckpoint = checkpoint
-    }
+  private get ctx(): Context {
+    if (!this.application) throw new Error('会话尚未初始化')
+    return this.application.ctx
+  }
+  private get agent(): Agent | undefined {
+    return this.handle?.agent
   }
 
   async initialize(): Promise<void> {
-    const { root, cwd, sessionFile, sessionKey, selection } = this.options
+    const { root, cwd, sessionKey, sessionFile } = this.options
     this.settings = await createSettings(root)
-    // 同一 Runtime 的所有成员共享连接池，创建成员不能关闭其他成员正在使用的连接。
     if (!this.collaboration) await configureNetwork(this.settings)
-    this.models = await createModels(root, (bytes, sessionId) => {
-      // 摘要和独立审批使用其他请求 ID，不能覆盖当前对话的请求体统计。
-      if (this.disposed || !sessionId || sessionId !== this.agent?.sessionId) return
-      this.snapshot.requestBodyBytes = bytes
-      this.publish()
-    })
-    const directory = this.collaboration?.directory ?? workspaceSessionDirectory(root, cwd)
-    const manager = sessionFile
-      ? SessionManager.open(sessionFile, directory)
-      : SessionManager.create(cwd, directory, { id: sessionKey })
-    if (!sessionFile && this.collaboration?.messages) {
-      for (const message of this.collaboration.messages) {
-        if (message.role === 'branchSummary' || message.role === 'compactionSummary') {
-          manager.appendCustomMessageEntry('eli.inherited-context', message.summary, false)
-        } else manager.appendMessage(message)
+    this.models = await createEliModels(root, undefined, (bytes, sessionId) => {
+      if (!this.compacting && sessionId && sessionId === this.agent?.id) {
+        this.snapshot.requestBodyBytes = bytes
+        this.publish()
       }
-    }
-    if (sessionFile) {
-      const info = await stat(sessionFile)
-      this.created = new Date(manager.getHeader()?.timestamp ?? info.birthtimeMs).getTime()
-      this.modified = info.mtimeMs
-      this.submitted = true
-    }
-    this.backgroundTasks = new BackgroundTasks(root, manager.getSessionId(), () => this.publish())
-    if (this.collaboration) this.team = this.collaboration.team
-    else {
-      const memberDirectory = join(directory, 'subagents', manager.getSessionId())
-      this.team = new SubagentTeam(
-        memberDirectory,
+    })
+    this.resources = new EliResourceLoader(root, cwd, this.settings)
+    await this.resources.reload()
+    const directory = this.collaboration?.directory ?? workspaceSessionDirectory(root, cwd)
+    const identity = sessionFile ? await readSessionIdentity(sessionFile) : sessionKey
+    const createTeam = (): SubagentTeam => {
+      if (this.collaboration) return this.collaboration.team
+      const members = join(directory, 'subagents', identity)
+      const team: SubagentTeam = new SubagentTeam(
+        members,
         this,
         (member) =>
           new RuntimeCoordinator(
@@ -166,130 +193,176 @@ export class RuntimeCoordinator {
               selection: member.selection
             },
             (libraryChanged) => this.publish(libraryChanged),
-            {
-              team: this.team,
-              id: member.id,
-              directory: memberDirectory,
-              messages: member.messages
-            }
+            { team, id: member.id, directory: members, messages: member.messages }
           ),
         () => this.publish(true),
-        (members) => manager.appendCustomEntry('eli.subagents', members)
+        (members) => {
+          if (this.agent) saveSessionState(this.agent.session, 'eli.subagents', members)
+        }
       )
+      return team
     }
-    await this.openAgent(manager, selection)
-    if (!this.collaboration) {
-      const checkpoint = manager
-        .getBranch()
-        .findLast((entry) => entry.type === 'custom' && entry.customType === 'eli.subagents')
-      await this.team.restore(checkpoint?.type === 'custom' ? checkpoint.data : undefined)
+    const observer: Plugin = {
+      inject: ['sessions', 'agents', 'tools', 'attachments', 'eliApprovals'],
+      apply: (ctx) => this.observe(ctx)
     }
+    this.application = await createEngine(
+      { root, cwd, models: this.models, settings: this.settings },
+      [
+        ...featureProfile,
+        { id: 'desktop-observer', name: 'eli.desktop-observer' },
+        ...this.resources.getPlugins()
+      ],
+      {
+        ...featurePlugins({
+          interactions: this.interactions,
+          createTasks: () => new BackgroundTasks(root, identity, () => this.publish()),
+          createTeam,
+          ownsTeam: !this.collaboration,
+          caller: this.collaboration?.id ?? rootAgentId,
+          terminal: this.options.terminal,
+          resources: this.resources
+        }),
+        'eli.desktop-observer': observer
+      }
+    )
+    this.team = this.ctx.get('eliTeam')
+    const id = sessionFile
+      ? await importLegacySession(
+          this.ctx,
+          sessionFile,
+          this.collaboration ? 'subagent' : undefined
+        )
+      : SessionId(sessionKey)
+    const stored = await this.ctx.sessionPersistence.stat(id)
+    if (stored) {
+      this.handle = await this.ctx.agents.resume({ resumeSessionId: id })
+      this.created = stored.header.createdAt
+      this.path = stored.location?.path
+      this.submitted = true
+    } else {
+      let seed: readonly SessionEvent[] | undefined
+      if (this.collaboration?.messages?.length) {
+        const inherited = Session.create(id)
+        await importMessages(inherited, this.collaboration.messages, this.ctx.attachments)
+        seed = inherited.snapshotEvents()
+      }
+      this.handle = await this.ctx.agents.create({
+        sessionId: id,
+        ...(seed ? { seed } : {}),
+        meta: { cwd, ...(this.collaboration ? { origin: 'subagent' as const } : {}) }
+      })
+    }
+    this.backgroundTasks = this.ctx.get('eliTasks')
+    const checkpoint = sessionState(this.agent!.session, 'eli.auto_approval')
+    this.interactions.restoreCheckpoint(checkpoint)
+    this.approvalCheckpoint = JSON.stringify(this.interactions.checkpoint)
+    this.title = String(
+      sessionState(this.agent!.session, 'eli.title') ??
+        legacyTranscript(this.agent!.session.snapshotEvents())?.name ??
+        ''
+    )
+    await this.selectInitialModel()
+    if (!this.collaboration)
+      await this.team?.restore(sessionState(this.agent!.session, 'eli.subagents'))
     this.sync()
     this.snapshot.connection = 'ready'
     this.publish()
   }
 
-  private async openAgent(
-    manager: SessionManager,
-    selection = this.options.selection
-  ): Promise<void> {
-    this.snapshot.requestBodyBytes = null
-    const previous = manager.buildSessionProjection()
-    const preferred = selection ??
-      previous.model ?? {
-        provider: this.settings.getDefaultProvider(),
-        modelId: this.settings.getDefaultModel()
-      }
-    this.loader = new EliResourceLoader(
-      this.options.root,
-      this.options.cwd,
-      this.settings,
-      hostExtension(
-        this.interactions,
-        this.options.terminal,
-        () => this.agent.agent,
-        this.backgroundTasks,
-        { team: this.team, id: this.collaboration?.id ?? rootAgentId }
-      )
-    )
-    await this.loader.reload()
-    const { session } = await createAgentSession({
-      cwd: this.options.cwd,
-      agentDir: this.options.root,
-      modelRuntime: this.models,
-      settingsManager: this.settings,
-      sessionManager: manager,
-      resourceLoader: this.loader,
-      model: selection ? this.models.getModel(selection.provider, selection.modelId) : undefined,
-      thinkingLevel: selection?.thinkingLevel
-    })
-    this.agent = session
-    const checkpoint = manager
-      .getBranch()
-      .findLast((entry) => entry.type === 'custom' && entry.customType === 'eli.auto_approval')
-    const saved = checkpoint?.type === 'custom' ? checkpoint.data : undefined
-    this.interactions.restoreCheckpoint(saved)
-    this.approvalCheckpoint = JSON.stringify(saved ?? this.interactions.checkpoint)
-    this.persistApprovalCheckpoint()
-    this.unsubscribe = session.subscribe((event) => this.onEvent(event))
-    await session.bindExtensions({
-      uiContext: desktopExtensionUi(session.extensionRunner.getUIContext(), (message) => {
-        this.snapshot.error = message
-        this.publish()
-      }),
-      onError: ({ error }) => {
-        this.snapshot.error = error
-        this.publish()
-      },
-      abortHandler: () => {
-        void this.abort()
-      },
-      shutdownHandler: () => {
-        void this.abort()
-      }
-    })
-    // 扩展绑定完成后再解析范围，它们可能注册自定义提供商或模型。
-    await this.models.refresh({ allowNetwork: false })
-    const patterns = this.settings.getEnabledModels()
-    const scoped = patterns?.length
-      ? (await resolveModelScopeWithDiagnostics(patterns, this.models)).scopedModels
+  private selectedModel(): ReturnType<EliModels['runtime']['getModel']> {
+    const selection = this.agent?.model.current()
+    return selection && this.ctx.get('eliPiRoutes')?.has(selection.provider)
+      ? this.models.runtime.getModel(selection.provider, selection.model)
       : undefined
-    session.setScopedModels(scoped ?? [])
-    const available = scoped ? scoped.map(({ model }) => model) : await this.models.getAvailable()
-    const preferredModel = available.find(
+  }
+
+  private async selectInitialModel(): Promise<void> {
+    const settings = this.settings.getSettings()
+    const patterns = settings.enabledModels
+    const allowed = (model: { provider: string; id: string }): boolean =>
+      !patterns?.length ||
+      patterns.some((pattern) => {
+        const expression = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')
+        return new RegExp(`^${expression}$`, 'i').test(`${model.provider}/${model.id}`)
+      })
+    const routes = this.ctx.get('eliPiRoutes')
+    const available: AgentModelInfo[] = []
+    if (routes)
+      for (const model of await this.models.runtime.getAvailable()) {
+        if (!routes.has(model.provider) || !allowed(model)) continue
+        available.push(modelInfo(model))
+        this.efforts.set(JSON.stringify([model.provider, model.id]), {
+          levels: getSupportedThinkingLevels(model),
+          fallback: clampThinkingLevel(model, 'medium')
+        })
+      }
+    for (const provider of this.ctx.llm.listProviders()) {
+      if (routes?.has(provider.id)) continue
+      for (const model of await this.ctx.llm.listModels(provider.id)) {
+        if (!allowed(model)) continue
+        const info = await this.ctx.llm.resolveModelInfo(provider.id, model.id)
+        const levels =
+          info.reasoning?.efforts
+            .map(({ id }) => String(id))
+            .filter((level): level is AgentThinkingLevel =>
+              ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(level)
+            ) ?? []
+        const fallback =
+          levels.find((level) => level === info.reasoning?.defaultEffort) ?? levels[0] ?? 'off'
+        this.efforts.set(JSON.stringify([provider.id, model.id]), {
+          levels: levels.length ? levels : ['off'],
+          fallback
+        })
+        available.push({
+          provider: provider.id,
+          id: model.id,
+          contextWindow: info.context?.contextWindow ?? 0,
+          reasoning: levels.some((level) => level !== 'off')
+        })
+      }
+    }
+    this.snapshot.models = available
+    const previous = this.agent!.model.current()
+    const preferred =
+      this.options.selection ??
+      (previous
+        ? {
+            provider: previous.provider,
+            modelId: previous.model,
+            thinkingLevel: previous.reasoningEffort as AgentThinkingLevel
+          }
+        : {
+            provider: settings.defaultProvider,
+            modelId: settings.defaultModel,
+            thinkingLevel: undefined
+          })
+    const requested = available.find(
       (model) => model.provider === preferred.provider && model.id === preferred.modelId
     )
-    const selected =
-      preferredModel ??
-      available.find(
-        (model) => model.provider === session.model?.provider && model.id === session.model.id
-      ) ??
-      available[0]
-    if (
-      selected &&
-      (selected.provider !== session.model?.provider || selected.id !== session.model.id)
-    ) {
-      await session.setModel(selected)
-      session.setThinkingLevel(
-        selection?.thinkingLevel ??
-          (previous.messages.length ? (previous.thinkingLevel as AgentThinkingLevel) : undefined) ??
-          this.settings.getModelThinkingLevel(selected.provider, selected.id) ??
-          this.settings.getDefaultThinkingLevel() ??
-          'medium'
-      )
-    }
-    this.snapshot.models = available.map(modelInfo)
-    if (!selected && previous.messages.length)
+    const selected = requested ?? available[0]
+    if (selected) {
+      const requestedLevel =
+        preferred.thinkingLevel ??
+        this.settings.getModelThinkingLevel(selected.provider, selected.id) ??
+        this.settings.getDefaultThinkingLevel()
+      const effort = this.efforts.get(JSON.stringify([selected.provider, selected.id]))!
+      const level = effort.levels.includes(requestedLevel) ? requestedLevel : effort.fallback
+      this.agent!.model.select({
+        provider: selected.provider,
+        model: selected.id,
+        ...(selected.reasoning ? { reasoningEffort: ReasoningEffortId(level) } : {})
+      })
+      if (previous && !requested)
+        this.snapshot.error = `原模型 ${previous.provider}/${previous.model} 当前不可用，已改用 ${selected.provider}/${selected.id}`
+    } else if (this.submitted)
       this.snapshot.error = '请在模型供应商中配置当前会话可用的模型与凭据。'
-    else if (selected && previous.model && !preferredModel) {
-      this.snapshot.error = `原模型 ${previous.model.provider}/${previous.model.modelId} 当前不可用，已改用 ${selected.provider}/${selected.id}`
-    }
   }
 
   state(): RuntimeSessionState {
-    this.snapshot.toolApprovals = this.interactions.toolApprovals
-    this.snapshot.autoApproval = this.interactions.autoApproval
-    this.snapshot.userQuestions = this.interactions.userQuestions
+    this.snapshot.toolApprovals = [...this.interactions.toolApprovals]
+    this.snapshot.autoApproval = { ...this.interactions.autoApproval }
+    this.snapshot.userQuestions = [...this.interactions.userQuestions]
     this.snapshot.backgroundTasks = this.backgroundTasks?.list() ?? []
     if (!this.collaboration && this.team) {
       this.snapshot.subagents = this.team.list()
@@ -302,17 +375,12 @@ export class RuntimeCoordinator {
           ...member.snapshot.userQuestions.map((request) => ({ ...request, agentId: member.id }))
         )
         this.snapshot.backgroundTasks.push(...member.snapshot.backgroundTasks)
-        this.snapshot.autoApproval = {
-          reviewing: this.snapshot.autoApproval.reviewing + member.snapshot.autoApproval.reviewing,
-          paused: this.snapshot.autoApproval.paused || member.snapshot.autoApproval.paused,
-          lastDenied:
-            member.snapshot.autoApproval.lastDenied ?? this.snapshot.autoApproval.lastDenied
-        }
+        this.snapshot.autoApproval.reviewing += member.snapshot.autoApproval.reviewing
+        this.snapshot.autoApproval.paused ||= member.snapshot.autoApproval.paused
+        this.snapshot.autoApproval.lastDenied =
+          member.snapshot.autoApproval.lastDenied ?? this.snapshot.autoApproval.lastDenied
       }
     }
-    const manager = this.agent?.sessionManager
-    const file = manager?.getSessionFile()
-    const persisted = file && existsSync(file) ? file : undefined
     const firstUser = this.snapshot.messages.find((message) => message.role === 'user')
     const firstText =
       firstUser?.role === 'user'
@@ -323,18 +391,16 @@ export class RuntimeCoordinator {
               .map((part) => part.text)
               .join('\n')
         : ''
-    const title = (manager?.getSessionName() || firstText || this.title || '未命名对话')
-      .replace(/\s+/g, ' ')
-      .slice(0, 160)
+    const title = (this.title || firstText || '未命名对话').replace(/\s+/g, ' ').slice(0, 160)
     return {
       snapshot: this.snapshot,
-      persistedFile: persisted,
+      persistedFile: this.path && existsSync(this.path) ? this.path : undefined,
       summary: this.submitted
         ? {
             key: this.options.sessionKey,
-            path: file ?? this.options.sessionKey,
-            id: manager?.getSessionId() ?? this.options.sessionKey,
-            cwd: this.snapshot.cwd,
+            path: this.path ?? this.options.sessionKey,
+            id: this.agent?.id ?? this.options.sessionKey,
+            cwd: this.options.cwd,
             title,
             created: this.created,
             modified: this.modified,
@@ -351,39 +417,53 @@ export class RuntimeCoordinator {
   }
 
   private sync(): void {
-    const session = this.agent
-    const manager = session.sessionManager
-    this.snapshot.session = {
-      sessionId: manager.getSessionId(),
-      sessionFile: manager.getSessionFile(),
-      sessionName: manager.getSessionName(),
-      thinkingLevel: session.thinkingLevel
-    }
-    this.snapshot.messages = [...session.messages]
-    this.snapshot.messageEntryIds = mapMessageEntryIds(
-      this.snapshot.messages,
-      manager.buildSessionProjection()
+    if (!this.agent) return
+    const projected = projectTranscript(
+      this.agent.session.snapshotEvents(),
+      this.ctx.attachments,
+      this.models.runtime.getModel.bind(this.models.runtime)
     )
-    this.snapshot.model =
-      session.model && this.snapshot.models.length ? modelInfo(session.model) : null
-    this.snapshot.thinkingLevels = session.model
-      ? getSupportedThinkingLevels(session.model)
+    this.snapshot.messages = projected.messages
+    this.snapshot.messageEntryIds = projected.entryIds
+    const choice = this.agent.model.current()
+    const selected = this.snapshot.models.find(
+      (model) => model.provider === choice?.provider && model.id === choice?.model
+    )
+    this.snapshot.model = selected ?? null
+    this.snapshot.thinkingLevels = selected
+      ? this.efforts.get(JSON.stringify([selected.provider, selected.id]))!.levels
       : ['off']
-    this.snapshot.contextUsage = session.getContextUsage() ?? null
+    this.snapshot.session = {
+      sessionId: this.agent.id,
+      sessionFile: this.path,
+      sessionName: this.title,
+      thinkingLevel: (choice?.reasoningEffort ?? 'off') as AgentThinkingLevel
+    }
     this.snapshot.hideThinkingBlock = this.settings.getHideThinkingBlock()
-    this.activeMessage = -1
+    const tokens = this.ctx.tokenMeter.measure(this.agent.session).totalTokens
+    this.snapshot.contextUsage = selected?.contextWindow
+      ? {
+          tokens,
+          contextWindow: selected.contextWindow,
+          percent: (tokens / selected.contextWindow) * 100
+        }
+      : null
   }
 
   private publish(libraryChanged = false): void {
     if (!this.disposed) this.changed(libraryChanged)
   }
-
   private assertIdle(): void {
     if (this.disposed) throw new Error('会话已关闭')
-    if (this.locked || this.operation || this.snapshot.running || this.agent.isStreaming)
+    if (this.locked || this.operation || this.agent?.status === 'running')
       throw new Error('请等待当前操作完成')
   }
-
+  private async flush(): Promise<void> {
+    if (!this.agent || !this.submitted) return
+    await this.ctx.sessionPersistence.flush()
+    this.path = (await this.ctx.sessionPersistence.stat(this.agent.id))?.location?.path
+    if (this.snapshot.session) this.snapshot.session.sessionFile = this.path
+  }
   private async mutate<T>(action: () => Promise<T>): Promise<T> {
     this.assertIdle()
     this.locked = true
@@ -394,96 +474,18 @@ export class RuntimeCoordinator {
     } finally {
       this.locked = false
       this.snapshot.pending = false
+      await this.flush()
       this.sync()
       this.publish(true)
-      for (const message of this.deferredCollaboration.splice(0))
+      for (const message of this.deferred.splice(0))
         this.collaborationMessage(message.text, message.wake, message.details)
     }
   }
 
-  prompt(text: string): void {
-    this.assertIdle()
-    if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
-    if (typeof text !== 'string' || !text.trim() || text.length > 100_000)
-      throw new Error('无效的消息')
-    this.startRun(() => this.agent.prompt(text), text)
-  }
-
-  inheritedMessages(): AgentMessage[] {
-    const messages = [...this.agent.messages]
-    // 创建成员时当前工具批次还未结束，截去未配齐结果的整个批次，避免无效的调用序列。
-    const lastCall = messages.findLastIndex(
-      (message) =>
-        message.role === 'assistant' && message.content.some((part) => part.type === 'toolCall')
-    )
-    if (lastCall >= 0) {
-      const assistant = messages[lastCall]
-      if (assistant.role === 'assistant') {
-        const results = new Set(
-          messages
-            .slice(lastCall + 1)
-            .flatMap((message) => (message.role === 'toolResult' ? [message.toolCallId] : []))
-        )
-        if (assistant.content.some((part) => part.type === 'toolCall' && !results.has(part.id)))
-          messages.splice(lastCall)
-      }
-    }
-    return structuredClone(messages)
-  }
-
-  collaborationMessage(text: string, wake: boolean, details?: SubagentMessage): void {
-    if (this.disposed) return
-    if (this.locked && !this.operation) {
-      this.deferredCollaboration.push({ text, wake, details })
-      return
-    }
-    const message = { customType: 'eli.collaboration', content: text, display: true, details }
-    if (this.operation || this.snapshot.running) {
-      // 不等待当前轮结束；SDK 在工具结果边界递送，不破坏 toolCall / toolResult 顺序。
-      void this.agent.sendCustomMessage(message, { deliverAs: 'steer' }).catch((error: unknown) => {
-        this.snapshot.error = error instanceof Error ? error.message : String(error)
-        this.publish()
-      })
-    } else if (wake) {
-      this.startRun(() => this.agent.sendCustomMessage(message, { triggerTurn: true }))
-    } else {
-      void this.agent.sendCustomMessage(message).catch((error: unknown) => {
-        this.snapshot.error = error instanceof Error ? error.message : String(error)
-        this.publish()
-      })
-    }
-  }
-
-  configure(mode: ToolApprovalMode): void {
-    this.approvalMode = mode
-    this.interactions.setMode(mode)
-    if (!this.collaboration) this.team.configure(mode)
-  }
-
-  respondApproval(id: string, approved: boolean): void {
-    const owner = [this, ...this.team.allRuntimes().map(({ runtime }) => runtime)].find((runtime) =>
-      runtime.interactions.toolApprovals.some((request) => request.id === id)
-    )
-    if (!owner) throw new Error('该工具审批已失效')
-    owner.interactions.respondApproval(id, approved)
-  }
-
-  respondQuestion(id: string, answers: UserQuestionAnswer[]): void {
-    const owner = [this, ...this.team.allRuntimes().map(({ runtime }) => runtime)].find((runtime) =>
-      runtime.interactions.userQuestions.some((request) => request.id === id)
-    )
-    if (!owner) throw new Error('该用户提问已失效')
-    owner.interactions.respondQuestion(id, answers)
-  }
-
-  async controlSubagent(action: SubagentAction): Promise<void> {
-    if (this.collaboration || this.disposed) throw new Error('会话已关闭或不是主会话')
-    await this.team.control(action)
-  }
-
   private startRun(action: () => Promise<void>, title?: string): void {
-    if (!this.collaboration) this.team.begin()
+    if (!this.collaboration) this.team?.begin()
     this.abortRequested = false
+    this.abortController = new AbortController()
     this.interactions.begin()
     this.snapshot.running = true
     this.snapshot.error = null
@@ -496,296 +498,460 @@ export class RuntimeCoordinator {
     }
     if (title) {
       this.submitted = true
-      this.title ||= title
+      this.title ||= title.replace(/\s+/g, ' ').slice(0, 160)
     }
     this.modified = Date.now()
     this.publish(true)
-    // prompt() 直到整轮重试结束才 resolve；接收命令立即返回，运行完成由状态事件确认。
     this.operation = Promise.resolve()
       .then(action)
+      .then(() => this.flush())
       .catch((error: unknown) => {
         if (!this.abortRequested)
           this.snapshot.error = error instanceof Error ? error.message : String(error)
       })
       .finally(() => {
         this.interactions.cancel()
+        this.stream = undefined
         this.sync()
         this.snapshot.running = false
         this.snapshot.response.phase = 'idle'
         this.snapshot.response.toolCallDrafts = {}
         this.snapshot.activeThinking = null
         this.activeTools.clear()
-        this.snapshot.activity = this.abortRequested ? '已停止' : this.snapshot.activity
+        if (this.abortRequested) this.snapshot.activity = '已停止'
         this.modified = Date.now()
         this.operation = undefined
+        this.pendingEdit = undefined
         this.publish(true)
-        if (this.collaboration) this.team.settled(this.collaboration.id)
+        if (this.collaboration) this.team?.settled(this.collaboration.id)
       })
   }
 
-  compact(instructions?: string): void {
-    this.assertIdle()
-    this.startRun(async () => {
-      this.snapshot.activity = '正在整理上下文'
-      this.publish()
-      try {
-        await this.agent.compact(instructions)
-        this.snapshot.activity = '上下文压缩完成'
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (message === 'Nothing to compact (session too small)')
-          this.snapshot.activity = '当前没有可压缩的历史内容，可继续对话'
-        else if (message === 'Already compacted')
-          this.snapshot.activity = '当前上下文已压缩，暂无新的内容需要整理'
-        else throw error
-      }
-    })
+  private async promptContent(text: string): Promise<ContentBlock[]> {
+    const content: ContentBlock[] = [{ type: 'text', text: this.resources.expandPrompt(text) }]
+    const mediaTypes: Record<string, ImageMediaType> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif'
+    }
+    for (const { path } of parseChatAttachmentMessage(text).attachments) {
+      const mediaType = mediaTypes[extname(path).toLowerCase()]
+      if (!mediaType || this.settings.getSettings().images?.blockImages) continue
+      const data = await readFile(path, { signal: this.abortController?.signal })
+      content.push({
+        type: 'image',
+        attachment: await this.ctx.attachments.saveImage({ data, mediaType })
+      })
+    }
+    return content
   }
 
+  prompt(text: string): void {
+    this.assertIdle()
+    if (typeof text !== 'string' || !text.trim() || text.length > 100000)
+      throw new Error('无效的消息')
+    const command = parseCommand(text)
+    if (command && this.ctx.commands.find(this.agent!, command.name)) {
+      this.startRun(async () => {
+        const execution = await this.ctx.commands.execute(
+          this.agent!,
+          text,
+          [],
+          this.abortController!.signal
+        )
+        if (execution?.result.text) this.snapshot.error = execution.result.text
+        await this.agent!.whenIdle()
+      })
+      return
+    }
+    if (!this.snapshot.model) throw new Error('请先配置模型，再重新连接')
+    this.startRun(async () => {
+      const content = await this.promptContent(text)
+      this.abortController?.signal.throwIfAborted()
+      this.agent!.followup(createUserMessage({ content, source: { kind: 'user' } }))
+      await this.agent!.whenIdle()
+    }, text)
+  }
+
+  inheritedMessages(): AgentMessage[] {
+    const messages = structuredClone(this.snapshot.messages)
+    const last = messages.findLastIndex(
+      (message) =>
+        message.role === 'assistant' && message.content.some((part) => part.type === 'toolCall')
+    )
+    const assistant = messages[last]
+    if (assistant?.role === 'assistant') {
+      const results = new Set(
+        messages
+          .slice(last + 1)
+          .flatMap((message) => (message.role === 'toolResult' ? [message.toolCallId] : []))
+      )
+      if (assistant.content.some((part) => part.type === 'toolCall' && !results.has(part.id)))
+        messages.splice(last)
+    }
+    return messages
+  }
+
+  collaborationMessage(text: string, wake: boolean, details?: SubagentMessage): void {
+    if (this.disposed || !this.agent) return
+    if (this.locked) {
+      this.deferred.push({ text, wake, details })
+      return
+    }
+    const message = createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: 'eli-collaboration', form: 'relay' }
+    })
+    appendPluginRecord(
+      this.agent.session,
+      'plugin:eli/collaboration',
+      JSON.parse(JSON.stringify({ messageId: message.id, text, details }))
+    )
+    if (this.operation || this.agent.status === 'running') this.agent.steer(message)
+    else if (wake)
+      this.startRun(async () => {
+        this.agent!.followup(message)
+        await this.agent!.whenIdle()
+      })
+    else this.agent.inject(message)
+    this.sync()
+    this.publish(true)
+  }
+
+  configure(mode: ToolApprovalMode): void {
+    this.approvalMode = mode
+    this.interactions.setMode(mode)
+    if (!this.collaboration) this.team?.configure(mode)
+  }
+  respondApproval(id: string, approved: boolean): void {
+    const owner = [this, ...(this.team?.allRuntimes() ?? []).map(({ runtime }) => runtime)].find(
+      (runtime) => runtime.interactions.toolApprovals.some((request) => request.id === id)
+    )
+    if (!owner) throw new Error('该工具审批已失效')
+    owner.interactions.respondApproval(id, approved)
+  }
+  respondQuestion(id: string, answers: UserQuestionAnswer[]): void {
+    const owner = [this, ...(this.team?.allRuntimes() ?? []).map(({ runtime }) => runtime)].find(
+      (runtime) => runtime.interactions.userQuestions.some((request) => request.id === id)
+    )
+    if (!owner) throw new Error('该用户提问已失效')
+    owner.interactions.respondQuestion(id, answers)
+  }
+  async controlSubagent(action: SubagentAction): Promise<void> {
+    if (this.collaboration || this.disposed) throw new Error('会话已关闭或不是主会话')
+    if (!this.team) throw new Error('协作插件未启用')
+    await this.team.control(action)
+  }
   async abort(): Promise<void> {
     this.abortRequested = true
-    this.deferredCollaboration = []
-    this.snapshot.activity = '正在停止'
+    this.deferred = []
+    this.abortController?.abort()
     this.interactions.cancel()
+    this.agent?.cancel({ kind: 'user' })
     this.publish()
     await Promise.all([
-      this.agent?.abort(),
+      this.agent?.whenIdle(),
       !this.collaboration ? this.team?.abortAll() : undefined
     ])
     await this.operation
   }
-
   stopBackgroundTask(id: string): void {
     if (typeof id !== 'string') throw new Error('无效的后台任务 ID')
     const owner = !this.collaboration
       ? this.team
-          .allRuntimes()
+          ?.allRuntimes()
           .find(({ runtime }) =>
             runtime.state().snapshot.backgroundTasks.some((task) => task.id === id)
           )
       : undefined
     if (owner) owner.runtime.stopBackgroundTask(id)
-    else this.backgroundTasks.stop(id)
+    else if (this.backgroundTasks) this.backgroundTasks.stop(id)
+    else throw new Error('终端插件未启用')
     this.publish()
   }
-
+  compact(instructions?: string): void {
+    this.assertIdle()
+    if (!this.snapshot.messages.length) return
+    this.startRun(async () => {
+      this.compacting = true
+      saveSessionState(this.agent!.session, 'eli.compaction-request', {
+        instructions: instructions ?? '',
+        textOnly: true
+      })
+      this.snapshot.activity = '正在整理上下文'
+      this.publish()
+      try {
+        await this.ctx.compaction.compactNow(this.agent!, this.abortController!.signal)
+      } finally {
+        this.compacting = false
+      }
+      this.snapshot.activity = '上下文压缩完成'
+    })
+  }
   async setModel(provider: string, id: string): Promise<void> {
     await this.mutate(async () => {
-      if (!this.snapshot.models.some((model) => model.provider === provider && model.id === id))
-        throw new Error('请选择可用的模型')
-      const model = this.models.getModel(provider, id)
-      if (!model) throw new Error('模型不存在')
-      await this.agent.setModel(model, { persist: true })
+      const model = this.snapshot.models.find(
+        (model) => model.provider === provider && model.id === id
+      )
+      if (!model) throw new Error('请选择可用的模型')
+      const effort = this.efforts.get(JSON.stringify([provider, id]))!
+      const current = this.snapshot.session?.thinkingLevel ?? 'medium'
+      const level = effort.levels.includes(current) ? current : effort.fallback
+      this.agent!.model.select({
+        provider,
+        model: id,
+        ...(model.reasoning ? { reasoningEffort: ReasoningEffortId(level) } : {})
+      })
       this.snapshot.requestBodyBytes = null
-      await this.settings.flush()
       await new EliConfigStore(join(this.options.root, 'config.json')).update(({ agent }) => {
         agent.defaultProvider = provider
         agent.defaultModel = id
       })
     })
   }
-
   async setThinkingLevel(level: AgentThinkingLevel): Promise<void> {
     await this.mutate(async () => {
       if (!this.snapshot.thinkingLevels.includes(level)) throw new Error('当前模型不支持该思考强度')
-      this.agent.setThinkingLevel(level, { persist: true })
-      await this.settings.flush()
+      const selection = this.agent!.model.current()!
+      this.agent!.model.select({
+        provider: selection.provider,
+        model: selection.model,
+        ...(this.snapshot.model?.reasoning ? { reasoningEffort: ReasoningEffortId(level) } : {})
+      })
       await new EliConfigStore(join(this.options.root, 'config.json')).update(({ agent }) => {
         agent.defaultThinkingLevel = level
       })
     })
   }
-
   getSkills(): import('../shared/agent').AgentSkillCommand[] {
     return this.settings.getEnableSkillCommands()
-      ? this.loader
+      ? this.resources
           .getSkills()
           .skills.map(({ name, description }) => ({ name: `skill:${name}`, description }))
       : []
   }
 
-  private messageTarget(
-    target: AgentMessageTarget,
-    role: 'user' | 'assistant'
-  ): {
-    manager: SessionManager
-    entry: import('@earendil-works/pi-coding-agent').SessionMessageEntry
-    message: import('../shared/agent').AgentMessage
-  } {
-    const manager = this.agent.sessionManager
-    if (target.sessionId !== manager.getSessionId()) throw new Error('会话已变化，请重新选择消息')
-    const projected = manager
-      .buildSessionProjection()
-      .entries.find(({ sourceEntry }) => sourceEntry.id === target.entryId)
-    const entry = projected?.sourceEntry
-    const message = projected?.messages.find((message) => message.role === role)
-    if (!entry || entry.type !== 'message' || !message) throw new Error('该消息已不在当前会话中')
-    return { manager, entry, message }
+  private target(target: AgentMessageTarget, role: 'user' | 'assistant'): number {
+    if (target.sessionId !== this.agent?.id) throw new Error('会话已变化，请重新选择消息')
+    const index = this.snapshot.messageEntryIds.indexOf(target.entryId)
+    if (index < 0 || this.snapshot.messages[index]?.role !== role)
+      throw new Error('该消息已不在当前会话中')
+    return index
   }
-
   async forkMessage(target: AgentMessageTarget): Promise<string> {
     return this.mutate(async () => {
-      const { manager, entry } = this.messageTarget(target, 'assistant')
-      const path = manager.getSessionFile()
-      if (!path) throw new Error('会话尚未保存')
-      const copy = SessionManager.open(path, manager.getSessionDir())
-      const newPath = copy.createBranchedSession(entry.id)
-      if (!newPath) throw new Error('无法创建独立会话文件')
-      copy.appendSessionInfo(`${this.state().summary?.title ?? '新对话'} · 分叉`)
-      return newPath
+      const index = this.target(target, 'assistant')
+      const id = SessionId(randomUUID())
+      let seed: readonly SessionEvent[]
+      let inheritedEventCount: SessionLogOffset
+      if (target.entryId.startsWith('legacy:')) {
+        const imported = Session.create(id)
+        await importMessages(
+          imported,
+          this.snapshot.messages.slice(0, index + 1),
+          this.ctx.attachments
+        )
+        inheritedEventCount = SessionLogOffset(imported.snapshotEvents().length)
+        seed = buildForkSeed(imported.snapshotEvents(), SessionSeq(inheritedEventCount - 1))
+      } else {
+        const boundary = SessionSeq(Number(target.entryId))
+        seed = buildForkSeed(this.agent!.session.snapshotEvents(), boundary)
+        inheritedEventCount = SessionLogOffset(boundary + 1)
+      }
+      const fork = await this.ctx.agents.create({
+        sessionId: id,
+        seed,
+        inheritedEventCount,
+        meta: { cwd: this.options.cwd, isSeeded: true },
+        agentOptions: this.agent!.options
+      })
+      try {
+        saveSessionState(
+          fork.agent.session,
+          'eli.title',
+          `${this.state().summary?.title ?? '新对话'} · 分叉`
+        )
+        await this.ctx.sessionPersistence.flush()
+        const path = (await this.ctx.sessionPersistence.stat(id))?.location?.path
+        if (!path) throw new Error('分叉会话尚未持久化')
+        return path
+      } finally {
+        await fork.dispose()
+      }
     })
   }
 
   async editMessage(target: AgentMessageTarget, text: string): Promise<void> {
+    let images: ContentBlock[] = []
     await this.mutate(async () => {
-      const { manager, entry, message } = this.messageTarget(target, 'user')
-      const previousLeaf = manager.getLeafId()
-      const model = this.agent.model
-      const selection = model
-        ? { provider: model.provider, modelId: model.id, thinkingLevel: this.agent.thinkingLevel }
-        : undefined
-      this.unsubscribe?.()
-      await this.closeAgent('reload')
-      try {
-        if (entry.parentId) manager.branch(entry.parentId)
-        else manager.resetLeaf()
-        manager.appendCustomEntry('eli.message_edit')
-        await this.openAgent(manager, selection)
-        this.snapshot.tools = {}
-        this.sync()
-      } catch (error) {
-        if (previousLeaf) manager.branch(previousLeaf)
-        else manager.resetLeaf()
-        manager.appendCustomEntry('eli.message_edit_rollback')
-        await this.openAgent(manager, selection)
-        throw error
+      const index = this.target(target, 'user')
+      if (target.entryId.startsWith('legacy:'))
+        throw new Error('旧会话的原始消息保留为只读；请先从回复分叉后编辑新消息')
+      const session = this.agent!.session
+      const event = session.snapshotEvents()[Number(target.entryId)]
+      if (event.type !== 'user/message') throw new Error('消息事件无效')
+      images = event.data.content.filter((block) => block.type === 'image')
+      const nodes = session.surface.nodes
+      const start = nodes.findIndex((seq) => seq === event.seq)
+      if (start < 0) throw new Error('该消息已被压缩，无法直接编辑')
+      const replaced = nodes.slice(start)
+      const last = replaced.at(-1)!
+      this.pendingEdit = {
+        start: event.seq,
+        end: last,
+        sources: [...replaced],
+        messages: this.snapshot.messages.slice(0, index),
+        entryIds: this.snapshot.messageEntryIds.slice(0, index)
       }
-      const images =
-        message.role === 'user' && Array.isArray(message.content)
-          ? message.content.filter((part) => part.type === 'image')
-          : []
-      this.startRun(() => this.agent.prompt(text, { images }), text)
+    })
+    this.startRun(async () => {
+      const content = await this.promptContent(text)
+      this.agent!.followup(
+        createUserMessage({ content: [...content, ...images], source: { kind: 'user' } })
+      )
+      await this.agent!.whenIdle()
+    }, text)
+  }
+
+  private observe(ctx: Context): void {
+    ctx.on('agent/request', async ({ agent, turn, step }, next) => {
+      const config = await next()
+      if (agent === this.agent && this.pendingEdit) {
+        const edit = this.pendingEdit
+        this.pendingEdit = undefined
+        const throughSeq = agent.session.snapshotEvents().length - 1
+        agent.session.append(
+          'system/message',
+          { turn, step, message: createSystemMessage('') },
+          {
+            surfaceOp: { op: 'replace', startSeq: edit.start, endSeq: edit.end },
+            sourceEventSeqs: edit.sources
+          }
+        )
+        saveSessionState(agent.session, 'eli.branch', {
+          throughSeq,
+          messages: edit.messages,
+          entryIds: edit.entryIds
+        })
+      }
+      return config
+    })
+    ctx.on('session/event', (session, event) => {
+      if (session !== this.agent?.session) return
+      if (event.type === 'turn/end' && event.data.reason.kind === 'error')
+        this.snapshot.error = event.data.reason.error.message
+      if (event.type === 'tool/call') {
+        this.activeTools.add(event.data.callId)
+        this.snapshot.tools[event.data.callId] = {
+          type: 'tool_execution_start',
+          toolCallId: event.data.callId,
+          toolName: event.data.name,
+          args: (() => {
+            try {
+              return JSON.parse(event.data.arguments)
+            } catch {
+              return {}
+            }
+          })()
+        }
+        this.snapshot.response.phase = 'tool-running'
+      }
+      if (event.type === 'tool/result') {
+        const id = event.data.message.toolCallId
+        this.activeTools.delete(id)
+        const result = projectTranscript(
+          session.snapshotEvents(),
+          ctx.attachments,
+          this.models.runtime.getModel.bind(this.models.runtime)
+        ).messages.findLast((message) => message.role === 'toolResult' && message.toolCallId === id)
+        this.snapshot.tools[id] = {
+          type: 'tool_execution_end',
+          toolCallId: id,
+          toolName: this.snapshot.tools[id]?.toolName ?? '',
+          result: result?.role === 'toolResult' ? result : { content: [] },
+          isError: event.data.message.isError ?? false
+        }
+      }
+      if (
+        ['user/message', 'assistant/message', 'assistant/attempt', 'tool/result'].includes(
+          event.type
+        )
+      )
+        this.sync()
+      if (event.type === 'assistant/message') {
+        const assistant = this.snapshot.messages.findLast((message) => message.role === 'assistant')
+        if (assistant?.role === 'assistant')
+          saveSessionState(session, `eli.usage:${event.seq}`, { cost: assistant.usage.cost.total })
+      }
+      this.modified = Date.now()
+      this.publish(true)
+    })
+    ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      if (agent === this.agent) this.onStream(frame)
+    })
+    ctx.on('agent/error', ({ agent, error }) => {
+      if (agent === this.agent) {
+        this.snapshot.error = error instanceof Error ? error.message : String(error)
+        this.publish()
+      }
     })
   }
 
-  private onEvent(event: AgentSessionEvent): void {
-    switch (event.type) {
-      case 'agent_start':
-        this.snapshot.running = true
-        if (!this.operation && this.snapshot.response.phase === 'idle') {
-          this.abortRequested = false
-          this.interactions.begin()
-          this.snapshot.response.id++
-          this.snapshot.response.messageIndex = this.snapshot.messages.length
-        }
-        if (!this.abortRequested) this.snapshot.response.phase = 'waiting'
-        break
-      case 'turn_start':
-        if (!this.abortRequested) this.snapshot.response.phase = 'waiting'
-        break
-      case 'message_start':
-        this.activeMessage = this.snapshot.messages.length
-        this.snapshot.messages.push(event.message)
-        this.snapshot.messageEntryIds.push(null)
-        this.snapshot.activeThinking = null
-        break
-      case 'message_update': {
-        const update = event.assistantMessageEvent
-        if (this.activeMessage >= 0) this.snapshot.messages[this.activeMessage] = event.message
-        if (!this.abortRequested) {
-          if (update.type === 'thinking_start' || update.type === 'thinking_delta') {
-            this.snapshot.response.phase = 'thinking'
-            this.snapshot.activeThinking = {
-              messageIndex: this.activeMessage,
-              contentIndex: update.contentIndex
-            }
-          } else if (update.type === 'text_start' || update.type === 'text_delta') {
-            this.snapshot.response.phase = 'text'
-            this.snapshot.activeThinking = null
-          } else if (update.type === 'toolcall_start' || update.type === 'toolcall_delta') {
-            this.snapshot.response.phase = 'tool-call'
-            this.snapshot.activeThinking = null
-            const block =
-              event.message.role === 'assistant'
-                ? event.message.content[update.contentIndex]
-                : undefined
-            if (block?.type === 'toolCall')
-              this.snapshot.response.toolCallDrafts[block.id] =
-                update.type === 'toolcall_delta'
-                  ? (this.snapshot.response.toolCallDrafts[block.id] ?? '') + update.delta
-                  : ''
-          } else if (update.type === 'thinking_end') this.snapshot.activeThinking = null
-          else if (update.type === 'toolcall_end')
-            delete this.snapshot.response.toolCallDrafts[update.toolCall.id]
-        }
-        break
+  private onStream(frame: AssistantStreamFrame): void {
+    if (frame.type === 'start') {
+      this.stream = new BlockAssembler()
+      this.streamIndex = this.snapshot.messages.length
+      this.snapshot.response.phase = 'waiting'
+    } else if (frame.type === 'chunk' && this.stream) {
+      const chunk = frame.chunk
+      this.stream.push(chunk)
+      const model = this.selectedModel()
+      const selection = this.agent!.model.current()!
+      this.snapshot.messages[this.streamIndex] = assistantView(
+        this.stream.blocks(),
+        selection,
+        frame.time,
+        model,
+        this.stream.usage,
+        this.stream.finish
+      )
+      this.snapshot.messageEntryIds[this.streamIndex] = null
+      if (chunk.type === 'reasoning-delta') {
+        this.snapshot.response.phase = 'thinking'
+        this.snapshot.activeThinking = { messageIndex: this.streamIndex, contentIndex: chunk.index }
       }
-      case 'message_end':
-        if (this.activeMessage >= 0) this.snapshot.messages[this.activeMessage] = event.message
-        this.activeMessage = -1
+      if (chunk.type === 'text-delta') {
+        this.snapshot.response.phase = 'text'
         this.snapshot.activeThinking = null
-        if (event.message.role === 'assistant') this.snapshot.response.toolCallDrafts = {}
-        this.snapshot.contextUsage = this.agent.getContextUsage() ?? null
-        break
-      case 'tool_execution_start':
-      case 'tool_execution_update':
-      case 'tool_execution_end':
-        this.snapshot.tools[event.toolCallId] = event
-        if (event.type === 'tool_execution_end') this.activeTools.delete(event.toolCallId)
-        else this.activeTools.add(event.toolCallId)
-        if (!this.abortRequested && this.activeMessage < 0)
-          this.snapshot.response.phase = this.activeTools.size ? 'tool-running' : 'waiting'
-        break
-      case 'compaction_start':
-        this.snapshot.activity = '正在整理上下文'
-        this.snapshot.contextUsage = null
+      }
+      if (chunk.type === 'tool-call-delta') {
+        this.snapshot.response.phase = 'tool-call'
         this.snapshot.activeThinking = null
-        break
-      case 'compaction_end':
-        this.snapshot.contextUsage = this.agent.getContextUsage() ?? null
-        if (event.reason !== 'manual') this.snapshot.activity = ''
-        break
-      case 'auto_retry_start':
-        this.snapshot.response.phase = 'waiting'
-        this.snapshot.activeThinking = null
-        this.snapshot.response.toolCallDrafts = {}
-        break
-      case 'auto_retry_end':
-        if (event.finalError) this.snapshot.error = event.finalError
-        break
-      case 'agent_settled':
-        if (!this.operation && !this.locked) {
-          this.interactions.cancel()
-          this.sync()
-          this.snapshot.running = false
-          this.snapshot.response.phase = 'idle'
-          this.snapshot.activeThinking = null
-          this.snapshot.response.toolCallDrafts = {}
-          this.publish(true)
-        }
-        break
+        this.snapshot.response.toolCallDrafts[chunk.id] =
+          (this.snapshot.response.toolCallDrafts[chunk.id] ?? '') + chunk.argumentsDelta
+      }
+      if (chunk.type === 'block-end' && chunk.block.type === 'tool-call')
+        delete this.snapshot.response.toolCallDrafts[chunk.block.id]
+    } else if (frame.type === 'end') {
+      this.stream = undefined
+      this.streamIndex = -1
+      this.snapshot.activeThinking = null
+      this.snapshot.response.toolCallDrafts = {}
+      this.sync()
     }
-    this.publish(event.type === 'message_end')
+    this.publish()
   }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) return
-    this.disposed = true
-    await this.abort()
-    if (!this.collaboration) await this.team?.close()
-    await this.backgroundTasks?.close()
-    this.unsubscribe?.()
-    await this.closeAgent('quit')
-    await this.settings?.flush()
-  }
-
-  private async closeAgent(reason: 'reload' | 'quit'): Promise<void> {
-    if (!this.agent) return
-    try {
-      // AgentSession.dispose() 只释放会话本身；MCP 连接等异步资源由此生命周期事件关闭。
-      await this.agent.extensionRunner.emit({ type: 'session_shutdown', reason })
-    } finally {
-      this.agent.dispose()
-    }
+  dispose(): Promise<void> {
+    this.closePromise ??= (async () => {
+      this.disposed = true
+      await this.abort()
+      if (!this.collaboration) await this.team?.close()
+      await this.backgroundTasks?.close()
+      await this.application?.dispose()
+    })()
+    return this.closePromise
   }
 }

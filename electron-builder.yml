@@ -9,9 +9,12 @@ files:
   - resources/**
 asarUnpack:
   - resources/**
-  # SDK 的 WASM、worker 等运行时资源保持解包，模块仍通过 ASAR 包路径加载。
+  # 模型适配器与 dsh 的原生依赖从解包资源加载。
   - node_modules/@earendil-works/**
-  - node_modules/@silvia-odwyer/**
+  - node_modules/@deepseek-ai/node-addon-system*/**
+  - node_modules/koffi/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
 win:
   executableName: eli
 nsis:

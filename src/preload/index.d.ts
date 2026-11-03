@@ -6,9 +6,11 @@ import type { TerminalApi } from '../shared/terminal'
 import type { ProvidersApi } from '../shared/providers'
 import type { AppUpdatesApi } from '../shared/app-updates'
 import type { McpAuthApi } from '../shared/mcp'
+import type { PluginsApi } from '../shared/plugins'
 
 declare global {
   interface Window {
+    plugins: PluginsApi
     providers: ProvidersApi
     mcpAuth: McpAuthApi
     appUpdates: AppUpdatesApi

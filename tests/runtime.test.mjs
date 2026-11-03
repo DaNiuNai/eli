@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promis
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
-import { getPowerShellConfig, SessionManager } from '@earendil-works/pi-coding-agent'
+import { getPowerShellConfig } from './fixtures/terminal.mjs'
+import { LegacySessionWriter as SessionManager } from './fixtures/legacy-session.mjs'
+import { commandPlugin, imageInputPlugin } from './fixtures/plugin-source.mjs'
 import { RuntimeConnection } from '../src/runtime/connection.ts'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
 import { mcpHttpServer } from './fixtures/mcp-http.mjs'
@@ -159,7 +161,11 @@ async function modelServer(t, data, review, intercept) {
       return
     }
     if (content?.includes('WAIT_FOREVER') && !taskCall) return
-    if (JSON.stringify(body.messages[0]).includes('context summarization assistant')) {
+    if (
+      body.messages.some((message) =>
+        JSON.stringify(message.content).includes('acting as a compaction engine')
+      )
+    ) {
       send({ content: '摘要已生成，保留图片与文档的文字分析。' })
       send({}, 'stop')
       res.end('data: [DONE]\n\n')
@@ -856,7 +862,7 @@ test('停止同轮并行审核会取消全部等待，迟到的允许不能执�
   for (let i = 0; i < 3; i++)
     await assert.rejects(readFile(join(paths.cwd, `approved-${i}.txt`)), { code: 'ENOENT' })
   const tools = Object.values(stopped.snapshot.tools)
-  assert.equal(tools.length, 1)
+  assert.equal(tools.length, 3)
   assert.ok(tools.every((event) => event.type === 'tool_execution_end'))
 })
 
@@ -1064,7 +1070,7 @@ test('独立进程启动、空白会话与 eli 配置隔离', async (t) => {
   assert.equal(state.snapshot.requestBodyBytes, null)
   assert.equal(state.persistedFile, undefined)
   assert.equal(state.summary, null)
-  assert.ok(state.snapshot.session.sessionFile.startsWith(join(fixtureData.data, 'sessions')))
+  assert.equal(state.snapshot.session.sessionFile, undefined)
 })
 
 test('未配置 eli 凭据时不会借用环境凭据，也不会把正常空白页显示为错误', async (t) => {
@@ -1107,7 +1113,18 @@ test('默认模型在启用范围内选择，项目扩展注册的模型也参�
   await mkdir(join(f.cwd, '.eli/extensions'), { recursive: true })
   await writeFile(
     join(f.cwd, '.eli/extensions/provider.ts'),
-    `export default function(pi) { pi.registerProvider('eli-extension', ${JSON.stringify(provider)}) }`
+    `import { createProvider, envApiKeyAuth } from '@earendil-works/pi-ai'
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
+export const inject = ['eli']
+export function apply(ctx) {
+  const config = ${JSON.stringify(provider)}
+  ctx.eli.models.credentials.explicitKeys.set('eli-extension', config.apiKey)
+  ctx.eli.models.runtime.registerNativeProvider(createProvider({ id: 'eli-extension', baseUrl: config.baseUrl,
+    auth: { apiKey: envApiKeyAuth('Fixture', []) }, api: openAICompletionsApi(),
+    models: config.models.map(model => ({ ...model, provider: 'eli-extension', api: config.api, baseUrl: config.baseUrl,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } })) }))
+  ctx.effect(() => () => { ctx.eli.models.runtime.deleteProvider('eli-extension'); ctx.eli.models.credentials.explicitKeys.delete('eli-extension') })
+}`
   )
   config.agent.defaultProvider = 'eli-extension'
   config.agent.enabledModels = ['eli-extension/local']
@@ -1171,7 +1188,7 @@ test('模型扩展思考档位经 Runtime 可选择并发送，切换模型后�
   await assert.rejects(client.connection.call('setThinkingLevel', 'max'), /不支持该思考强度/)
 })
 
-test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
+test('dsh 流式回复、历史恢复、编辑和分叉', async (t) => {
   const f = await fixture(t)
   const requests = await modelServer(t, f.data)
   const first = runtime(t)
@@ -1185,17 +1202,14 @@ test('真实 SDK 流式回复、历史恢复、编辑和分叉', async (t) => {
     )
   )
   const systemPrompt = requests[0].messages.find((message) => message.role === 'system').content
-  assert.match(systemPrompt, /expert coding assistant operating inside pi/)
+  assert.match(systemPrompt, /你是 eli/)
   assert.match(
-    systemPrompt,
-    /<tools>[\s\S]*- powershell: 执行命令；默认最多等待 30 秒后转后台[\s\S]*<\/tools>/
+    requests[0].tools.find(({ function: tool }) => tool.name === 'powershell').function.description,
+    /30 秒/
   )
-  assert.match(systemPrompt, /- get_task: 通过任务 ID 查询后台任务状态与输出/)
-  assert.match(
-    systemPrompt,
-    /<rules>[\s\S]*Use write only for new files or complete rewrites\.[\s\S]*<\/rules>/
-  )
-  assert.match(systemPrompt, /<docs>[\s\S]*Pi documentation[\s\S]*<\/docs>/)
+  assert.ok(requests[0].tools.some(({ function: tool }) => tool.name === 'get_task'))
+  assert.ok(requests[0].tools.some(({ function: tool }) => tool.name === 'edit'))
+  assert.doesNotMatch(systemPrompt, /Pi documentation/)
   assert.equal(finished.snapshot.error, null)
   assert.equal(
     finished.snapshot.messages.findLast((message) => message.role === 'assistant').stopReason,
@@ -1573,15 +1587,16 @@ test('默认加载 .eli 与 .agents 技能，项目同名技能优先且用户�
   )
   await writeFile(
     join(projectData, 'extensions/local.ts'),
-    `
-    import { writeFileSync } from 'node:fs'
-    import { join } from 'node:path'
-    export default function(pi) {
-      pi.on('session_start', () => writeFileSync(join(process.cwd(), 'extension-loaded.txt'), 'loaded'))
-      pi.on('session_shutdown', (event) => writeFileSync(join(process.cwd(), 'extension-closed.txt'), event.reason))
-      pi.registerCommand('local-command', { description: 'Fixture', handler: async (_args, ctx) => ctx.ui.notify('extension command completed') })
-    }
+    `import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+${commandPlugin(
+  'local-command',
+  'extension command completed',
   `
+  ctx.on('agent/created', () => { writeFileSync(join(ctx.eli.cwd, 'extension-loaded.txt'), 'loaded') })
+  ctx.effect(() => () => { writeFileSync(join(ctx.eli.cwd, 'extension-closed.txt'), 'quit') })
+`
+)}`
   )
   const r = runtime(t)
   const state = await initialize(r.connection, f)
@@ -1815,10 +1830,10 @@ test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
   )
   assert.equal(compacted.snapshot.activity, '上下文压缩完成')
   assert.equal(compacted.snapshot.error, null)
-  assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction"'))
+  assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction/end"'))
 })
 
-test('恢复的 DeepSeek 会话按 47 MiB 预算清理旧图片，保留原始历史和文字分析', async (t) => {
+test('迁移 DeepSeek 旧会话时规范化有效图片，保留原始文件、历史和文字分析', async (t) => {
   const f = await fixture(t)
   const requests = await modelServer(t, f.data)
   const config = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
@@ -1832,7 +1847,7 @@ test('恢复的 DeepSeek 会话按 47 MiB 预算清理旧图片，保留原始�
   const history = SessionManager.create('Z:\\another-computer', join(f.data, 'imported'))
   history.appendModelChange('deepseek', 'local')
   // 模拟迁移会话中的内联数据；每张 Base64 4 MiB，均低于 SDK 单图预算。
-  const data = Buffer.alloc(3 * 1024 * 1024, 1).toString('base64')
+  const data = Buffer.concat([createPng(4, 4), Buffer.alloc(3 * 1024 * 1024)]).toString('base64')
   history.appendMessage({
     role: 'user',
     timestamp: Date.now(),
@@ -1880,11 +1895,11 @@ test('恢复的 DeepSeek 会话按 47 MiB 预算清理旧图片，保留原始�
   assert.ok(Buffer.byteLength(JSON.stringify(requests[0])) <= 47 * 1024 * 1024)
   assert.equal(done.snapshot.requestBodyBytes, Buffer.byteLength(JSON.stringify(requests[0])))
   assert.equal(requestImages(requests[0]).length, 11)
+  assert.ok((await readFile(done.persistedFile, 'utf8')).includes('"type":"image/offload"'))
   assert.match(JSON.stringify(requests[0]), /ELI_IMPORTED_IMAGE_ANALYSIS/)
   assert.match(JSON.stringify(requests[0]), /已完成图片文字分析/)
-  assert.match(JSON.stringify(requests[0]), /已省略此处的图片或文档/)
   assert.equal(done.snapshot.messages[0].content.filter((part) => part.type === 'image').length, 12)
-  assert.ok((await readFile(file, 'utf8')).startsWith(original))
+  assert.equal(await readFile(file, 'utf8'), original)
 })
 
 test('真实 SDK 对图片请求的 HTTP 413 清理后重试一次，纯文字超限直接结束', async (t) => {
@@ -1900,12 +1915,7 @@ test('真实 SDK 对图片请求的 HTTP 413 清理后重试一次，纯文字�
   const data = createPng(4, 4).toString('base64')
   await writeFile(
     join(f.cwd, '.eli/extensions/images.mjs'),
-    `export default function(pi) {
-    pi.on('input', event => event.text === 'ELI_413_IMAGE' ? {
-      action: 'transform', text: event.text,
-      images: [{ type: 'image', mimeType: 'image/png', data: '${data}' }]
-    } : undefined)
-  }`
+    imageInputPlugin('ELI_413_IMAGE', `Buffer.from('${data}', 'base64')`)
   )
   const r = runtime(t)
   await initialize(r.connection, f)
@@ -1920,7 +1930,7 @@ test('真实 SDK 对图片请求的 HTTP 413 清理后重试一次，纯文字�
   assert.equal(requestImages(requests[1]).length, 0)
   assert.equal(done.snapshot.requestBodyBytes, Buffer.byteLength(JSON.stringify(requests[1])))
   assert.equal(done.snapshot.messages.filter((message) => message.stopReason === 'error').length, 0)
-  assert.ok((await readFile(done.persistedFile, 'utf8')).includes(data))
+  assert.ok((await readFile(done.persistedFile, 'utf8')).includes('"attachment"'))
   alwaysReject = true
   r.states.length = 0
   const before = requests.length
@@ -1960,33 +1970,20 @@ test('图片附件、read 与扩展工具结果发送前缩放，压缩请求只
     join(f.cwd, '.eli/extensions/images.mjs'),
     `import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-export default function (pi) {
-  const image = async (ctx) => ({
-    type: 'image', mimeType: 'image/png',
-    data: (await readFile(join(ctx.cwd, 'large.png'))).toString('base64')
-  })
-  pi.on('input', async (event, ctx) => event.text === 'ELI_IMAGE_INPUT' ? {
-    action: 'transform', text: event.text, images: [await image(ctx)]
-  } : undefined)
-  pi.registerTool({
+${imageInputPlugin(
+  'ELI_IMAGE_INPUT',
+  `await readFile(join(ctx.eli.cwd, 'large.png'))`,
+  `
+  ctx.eliTools.using(ctx).registerTool({
     name: 'image_fixture', label: 'Image fixture', description: 'Return a large image',
     parameters: { type: 'object', properties: {} },
-    async execute(_id, _params, _signal, _update, ctx) {
-      return { content: [await image(ctx)], details: {} }
-    }
+    async execute() { return { content: [{ type: 'image', mimeType: 'image/png',
+      data: (await readFile(join(ctx.eli.cwd, 'large.png'))).toString('base64') }], details: {} } }
   })
-  pi.on('session_before_compact', (event) => {
-    event.preparation.messagesToSummarize.push({
-      role: 'user', timestamp: Date.now(), content: [
-        { type: 'text', text: 'ELI_PDF_ANALYSIS: keep this document analysis' },
-        { type: 'document', source: {
-          type: 'base64', media_type: 'application/pdf', data: 'RUxJX1BERl9CSU5BUlk='
-        } }
-      ]
-    })
-  })
-}
-`
+`,
+  `{ type: 'file', attachment: await ctx.attachments.saveFile({ name: 'analysis.pdf', data: Buffer.from('RUxJX1BERl9CSU5BUlk=', 'base64') }) },
+   { type: 'text', text: 'ELI_PDF_ANALYSIS: keep this document analysis' }`
+)}`
   )
   const r = runtime(t)
   await initialize(r.connection, f, undefined, undefined, 'all')
@@ -2010,7 +2007,7 @@ export default function (pi) {
     const images = requestImages(requests.at(-1))
     assert.equal(images.length, index + 1)
     for (const image of images) {
-      const size = imageSize(image)
+      const size = await imageSize(image)
       assert.ok(size.width <= 2000 && size.height <= 2000, JSON.stringify(size))
       assert.ok(Math.abs(size.width / size.height - 3) < 0.01)
       assert.ok(image.split(',')[1].length < 4.5 * 1024 * 1024)
@@ -2038,7 +2035,10 @@ export default function (pi) {
   for (const body of summaries) {
     assert.ok(
       body.messages.every(
-        ({ content }) => typeof content === 'string' || content.every(({ type }) => type === 'text')
+        ({ content }) =>
+          content === null ||
+          typeof content === 'string' ||
+          content.every(({ type }) => type === 'text')
       )
     )
     const text = JSON.stringify(body)

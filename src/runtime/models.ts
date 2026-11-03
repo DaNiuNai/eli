@@ -1,19 +1,31 @@
 import { join } from 'node:path'
-import { ModelRuntime, type ProviderConfig } from '@earendil-works/pi-coding-agent'
-import type { Api, AuthContext, AuthType, Provider, Model } from '@earendil-works/pi-ai'
-import { sdkModules } from './sdk-adapter'
+import { builtinModels } from '@earendil-works/pi-ai/providers/all'
+import { createProvider, envApiKeyAuth } from '@earendil-works/pi-ai'
+import type {
+  Api,
+  AuthContext,
+  AuthType,
+  Provider,
+  Model,
+  MutableModels,
+  ProviderStreams
+} from '@earendil-works/pi-ai'
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
+import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
+import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
+import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
 import { EliConfigStore } from '../config/store'
 import { EliCredentials } from './credentials'
-import { readProviderPreferences, type ProviderPreferencesMap } from './provider-store'
+import type { ProviderPreferencesMap } from './provider-store'
 import type { ProviderModelInput } from '../shared/providers'
 import { guardModelRequests, type RequestBodyListener } from './request-body'
+import { FileModelsStore } from './model-store'
 
 export const isolatedAuthContext: AuthContext = {
   env: async () => undefined,
   fileExists: async () => false
 }
 
-/** 将 SDK 提供商的认证解析限定为传入的显式凭据，登录和 OAuth 刷新仍使用原实现。 */
 export function isolateProviderAuth(provider: Provider): void {
   const apiKey = provider.auth.apiKey
   if (!apiKey) return
@@ -59,81 +71,86 @@ export function modelDefinition(
   }
 }
 
+export type EliModelRuntime = MutableModels & {
+  registerNativeProvider(provider: Provider): void
+  hasConfiguredAuth(id: string): boolean
+}
 export interface EliModels {
-  runtime: ModelRuntime
+  runtime: EliModelRuntime
   credentials: EliCredentials
   preferences: ProviderPreferencesMap
   builtinIds: Set<string>
   catalog(id: string): readonly Model<Api>[]
+  subscribe(listener: () => void): () => void
 }
 
+const protocols: Record<string, () => ProviderStreams> = {
+  'openai-completions': openAICompletionsApi,
+  'openai-responses': openAIResponsesApi,
+  'anthropic-messages': anthropicMessagesApi,
+  'google-generative-ai': googleGenerativeAIApi
+}
+
+/** pi-ai 只提供模型与认证适配；会话、工具执行和循环全部由 dsh 插件持有。 */
 export async function createEliModels(
   root: string,
   forcedMode?: AuthType,
   onRequestBody?: RequestBodyListener
 ): Promise<EliModels> {
-  const sdk = await sdkModules()
-  const preferences = await readProviderPreferences(root)
-  const credentials = new EliCredentials(
-    new EliConfigStore(join(root, 'config.json')),
-    preferences,
-    forcedMode
-  )
+  const store = new EliConfigStore(join(root, 'config.json'))
+  const { providers: preferences, agent } = await store.read()
+  const credentials = new EliCredentials(store, preferences, forcedMode)
   await credentials.initialize()
-  // 必须先禁用初始化检查；所有内置认证解析器完成隔离后，才允许枚举可用模型。
-  const runtime = await ModelRuntime.create({
+  const collection = builtinModels({
     credentials,
-    modelsPath: null,
-    modelsStore: new sdk.FileModelsStore(join(root, 'models-store.json')),
-    refreshOnCreate: false
+    authContext: isolatedAuthContext,
+    modelsStore: new FileModelsStore(join(root, 'models-store.json'))
   })
-  guardModelRequests(runtime, onRequestBody)
-  const builtins = new Map(runtime.getProviders().map((provider) => [provider.id, provider]))
-  for (const provider of builtins.values()) isolateProviderAuth(provider)
+  const builtins = new Map(collection.getProviders().map((provider) => [provider.id, provider]))
   const builtinIds = new Set(builtins.keys())
   const modes = new Map<string, AuthType>()
-  const catalogSources = new Map<string, () => readonly Model<Api>[]>()
-  const emptyConfig = await sdk.ModelConfig.load(undefined)
-  const registerNative = runtime.registerNativeProvider.bind(runtime)
-  const unregister = runtime.unregisterProvider.bind(runtime)
-  const extensionConfigs = new Map<string, ProviderConfig>()
-
-  const decorate = (provider: Provider): Provider => {
+  for (const id of new Set([...builtinIds, ...Object.keys(preferences)])) {
+    modes.set(id, forcedMode ?? (await credentials.mode(id)))
+  }
+  const catalogs = new Map<string, () => readonly Model<Api>[]>()
+  const listeners = new Set<() => void>()
+  const register = (provider: Provider): void => {
     isolateProviderAuth(provider)
     const pref = preferences[provider.id] ?? {}
+    const subscription = modes.get(provider.id) === 'oauth'
     const source = provider.getModels.bind(provider)
     const allSource = provider.getAllModels?.bind(provider) ?? source
     const catalog = (): readonly Model<Api>[] => {
-      const subscription = modes.get(provider.id) === 'oauth'
-      const api = (subscription ? undefined : pref.api) ?? source()[0]?.api ?? 'openai-completions'
-      const endpoint = subscription
-        ? (source()[0]?.baseUrl ?? provider.baseUrl ?? '')
-        : (pref.baseUrl ?? provider.baseUrl ?? source()[0]?.baseUrl ?? '')
+      const api = (!subscription && pref.api) || source()[0]?.api || 'openai-completions'
+      const endpoint =
+        (!subscription && pref.baseUrl) || provider.baseUrl || source()[0]?.baseUrl || ''
       const models = new Map(
         source().map((model) => [
           model.id,
-          pref.baseUrl && modes.get(provider.id) !== 'oauth'
-            ? { ...model, baseUrl: endpoint }
-            : model
+          !subscription && pref.baseUrl ? { ...model, baseUrl: endpoint } : model
         ])
       )
-      for (const model of pref.models ?? [])
+      for (const model of pref.models ?? []) {
         models.set(
           model.id,
           modelDefinition(model, api, endpoint, provider.id, models.get(model.id))
         )
+      }
       return [...models.values()]
     }
-    catalogSources.set(provider.id, catalog)
+    catalogs.set(provider.id, catalog)
     const visible = (): readonly Model<Api>[] =>
       pref.enabled === false
         ? []
         : catalog().filter((model) => !pref.disabledModels?.includes(model.id))
-    return {
+    const decorated: Provider = {
       ...provider,
+      stream: (model, context, options) =>
+        provider.stream(model, context, { ...options, ...agent.retry?.provider } as typeof options),
+      streamSimple: (model, context, options) =>
+        provider.streamSimple(model, context, { ...options, ...agent.retry?.provider }),
       name: pref.name ?? provider.name,
-      baseUrl:
-        modes.get(provider.id) === 'oauth' ? provider.baseUrl : (pref.baseUrl ?? provider.baseUrl),
+      baseUrl: subscription ? provider.baseUrl : (pref.baseUrl ?? provider.baseUrl),
       getModels: visible,
       getAllModels: () =>
         pref.enabled === false
@@ -146,77 +163,53 @@ export async function createEliModels(
               )
             ]
     }
+    guardModelRequests(decorated, onRequestBody, agent.images?.blockImages)
+    collection.setProvider(decorated)
+    for (const listener of listeners) listener()
   }
-
-  // SDK 扩展也经过同一入口；其显式字面密钥可用，但没有环境变量／命令回退。
-  runtime.registerNativeProvider = (provider) => registerNative(decorate(provider))
-  runtime.registerProvider = (id, config) => {
-    const merged = { ...extensionConfigs.get(id), ...config }
-    extensionConfigs.set(id, merged)
-    if (merged.apiKey !== undefined) credentials.explicitKeys.set(id, merged.apiKey)
-    const safe = { ...merged }
-    const headers = safe.headers
-    delete safe.apiKey
-    delete safe.headers
-    const provider = sdk.composeModelProvider(id, builtins.get(id), emptyConfig, safe)
-    if (headers && provider.auth.apiKey) {
-      const resolve = provider.auth.apiKey.resolve.bind(provider.auth.apiKey)
-      provider.auth.apiKey.resolve = async (input) => {
-        const result = await resolve(input)
-        return result
-          ? { ...result, auth: { ...result.auth, headers: { ...result.auth.headers, ...headers } } }
-          : undefined
-      }
-    }
-    registerNative(decorate(provider))
-  }
-  runtime.unregisterProvider = (id) => {
-    extensionConfigs.delete(id)
-    credentials.explicitKeys.delete(id)
-    unregister(id)
-    const builtin = builtins.get(id)
-    if (builtin) registerNative(decorate(builtin))
-    else catalogSources.delete(id)
-  }
-
-  const ids = new Set([...builtinIds, ...Object.keys(preferences)])
-  // 凭据模式固定在一次 Runtime 生命周期内，切换后主进程重建空闲会话。
-  for (const id of ids) {
-    modes.set(id, forcedMode ?? (await credentials.mode(id)))
-  }
-  for (const id of ids) {
-    const pref = preferences[id] ?? {}
-    if (pref.custom) {
-      const base = builtins.get(id)
-      const subscription = modes.get(id) === 'oauth' && !!base?.auth.oauth
-      const api = subscription
-        ? (base?.getModels()[0]?.api ?? 'openai-responses')
-        : (pref.api ?? base?.getModels()[0]?.api ?? 'openai-completions')
-      const endpoint = subscription ? (base?.baseUrl ?? '') : (pref.baseUrl ?? base?.baseUrl ?? '')
-      runtime.registerProvider(id, {
-        name: pref.name,
-        baseUrl: endpoint,
-        api: api as Api
+  for (const provider of builtins.values()) register(provider)
+  for (const [id, pref] of Object.entries(preferences)) {
+    const base = builtins.get(id)
+    if (!pref.custom && (!pref.api || pref.api === base?.getModels()[0]?.api)) continue
+    if (base && modes.get(id) === 'oauth') continue
+    const api = pref.api ?? base?.getModels()[0]?.api ?? 'openai-completions'
+    const protocol = protocols[api]
+    if (!protocol) throw new Error(`供应商 ${id} 使用了不支持的 API：${api}`)
+    register(
+      createProvider({
+        id,
+        name: pref.name ?? base?.name ?? id,
+        baseUrl: pref.baseUrl ?? base?.baseUrl,
+        models: base?.getModels() ?? [],
+        auth: { apiKey: base?.auth.apiKey ?? envApiKeyAuth(pref.name ?? id, []) },
+        api: protocol()
       })
-    } else {
-      const builtin = builtins.get(id)
-      if (builtin && Object.keys(pref).length) registerNative(decorate(builtin))
-      else if (builtin) catalogSources.set(id, builtin.getModels.bind(builtin))
-    }
+    )
   }
+  const configured = new Set((await credentials.list()).map(({ providerId }) => providerId))
+  const runtime = Object.assign(collection, {
+    registerNativeProvider: register,
+    hasConfiguredAuth: (id: string): boolean =>
+      preferences[id]?.enabled !== false && configured.has(id)
+  })
+  guardModelRequests(runtime, onRequestBody, agent.images?.blockImages)
   await runtime.refresh({ allowNetwork: false })
   return {
     runtime,
     credentials,
     preferences,
     builtinIds,
-    catalog: (id) => catalogSources.get(id)?.() ?? []
+    catalog: (id) => catalogs.get(id)?.() ?? [],
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }
   }
 }
 
 export async function createModels(
   root: string,
   onRequestBody?: RequestBodyListener
-): Promise<ModelRuntime> {
+): Promise<EliModelRuntime> {
   return (await createEliModels(root, undefined, onRequestBody)).runtime
 }

@@ -72,6 +72,7 @@ export class SubagentTeam {
   private listeners = new Set<() => void>()
   private stopped = false
   private closed = false
+  private closing?: Promise<void>
 
   constructor(
     readonly directory: string,
@@ -480,9 +481,11 @@ wait_agent 等待消息、完成或中断，普通进度更新不唤醒等待。
     for (const { runtime } of this.allRuntimes()) runtime.interactions.setMode(mode)
   }
 
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this.closed = true
-    await this.abortAll()
-    await Promise.allSettled(this.allRuntimes().map(({ runtime }) => runtime.dispose()))
+    return (this.closing ??= Promise.resolve().then(async () => {
+      await this.abortAll()
+      await Promise.allSettled(this.allRuntimes().map(({ runtime }) => runtime.dispose()))
+    }))
   }
 }

@@ -12,7 +12,8 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
-import type { BashOperations } from '@earendil-works/pi-coding-agent'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { ShellOperations as BashOperations } from './shell-operations'
 import { isTaskActive, type BackgroundTask } from '../shared/background-tasks'
 
 const outputLimit = 32 * 1024
@@ -87,6 +88,23 @@ export class BackgroundTasks {
     const file = join(this.directory, `${task.id}.json`)
     writeFileSync(`${file}.tmp`, JSON.stringify(task), 'utf8')
     renameSync(`${file}.tmp`, file)
+  }
+
+  private async persistFinished(task: BackgroundTask): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        this.persist(task)
+        return
+      } catch (error) {
+        if (
+          process.platform !== 'win32' ||
+          attempt === 5 ||
+          !['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')
+        )
+          throw error
+        await delay(10 * 2 ** attempt)
+      }
+    }
   }
 
   private publish(): void {
@@ -221,7 +239,7 @@ export class BackgroundTasks {
             : 'failed'
         task.error = task.status === 'cancelled' ? undefined : message
       })
-      .finally(() => {
+      .finally(async () => {
         append(decoder.end())
         try {
           closeSync(log)
@@ -233,12 +251,12 @@ export class BackgroundTasks {
           task.error = logError
         }
         task.finishedAt = Date.now()
-        this.running.delete(id)
         try {
-          this.persist(task)
+          await this.persistFinished(task)
         } catch (error) {
           task.error = `任务记录保存失败：${String(error)}`
         }
+        this.running.delete(id)
         this.publish()
       })
     this.running.set(id, { controller, done })

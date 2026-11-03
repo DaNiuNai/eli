@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import type { FeatureTools } from './dsh/tools'
 import { Type } from 'typebox'
 import type { SubagentTeam } from './subagents'
 
@@ -11,10 +11,7 @@ export const subagentToolNames = new Set([
   'wait_agent'
 ])
 
-export function registerSubagentTools(pi: ExtensionAPI, team: SubagentTeam, caller: string): void {
-  pi.on('before_agent_start', (event) => ({
-    systemPrompt: `${event.systemPrompt}\n\n${team.instructions(caller)}`
-  }))
+export function registerSubagentTools(pi: FeatureTools, team: SubagentTeam, caller: string): void {
   const target = Type.String({ minLength: 1, maxLength: 4096, description: 'Agent 名称或完整路径' })
   const message = Type.String({ minLength: 1, maxLength: 100000 })
   const result = (

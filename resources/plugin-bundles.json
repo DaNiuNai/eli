@@ -1,0 +1,86 @@
+{
+  "runtime": [
+    { "id": "operations", "name": "eli.runtime-operations" },
+    { "id": "network", "name": "eli.runtime-network" }
+  ],
+  "session-host": [{ "id": "session", "name": "eli.session" }],
+  "control": [
+    { "id": "persistence", "name": "dsh.persistence", "config": { "compression": "none" } },
+    { "id": "providers", "name": "eli.providers" },
+    { "id": "library", "name": "eli.library" },
+    { "id": "settings", "name": "eli.settings" },
+    { "id": "skills", "name": "eli.skills" },
+    { "id": "mcp", "name": "eli.mcp" },
+    { "id": "auth", "name": "eli.auth" }
+  ],
+  "engine": [
+    { "id": "llm", "name": "dsh.llm" },
+    { "id": "sessions", "name": "dsh.sessions" },
+    { "id": "projections", "name": "dsh.projections" },
+    { "id": "persistence", "name": "dsh.persistence", "config": { "compression": "none" } },
+    {
+      "id": "attachments",
+      "name": "dsh.attachments",
+      "config": { "normalizedImageMaxDimension": 2000 }
+    },
+    { "id": "filesystem", "name": "dsh.filesystem" },
+    {
+      "id": "models",
+      "name": "eli.models",
+      "config": {
+        "maxRequestImageBytes": 49283072,
+        "requestImagePixelBudget": 4000000,
+        "requestImageMaxBytes": 4194304
+      }
+    },
+    { "id": "prompt", "name": "dsh.prompt", "config": { "includeHarnessIdentity": false } },
+    { "id": "tools", "name": "dsh.tools" },
+    { "id": "tool-executor", "name": "dsh.native-tools" },
+    { "id": "agents", "name": "dsh.agents" },
+    { "id": "commands", "name": "dsh.commands" },
+    { "id": "token-meter", "name": "dsh.token-meter" },
+    { "id": "retry", "name": "dsh.retry" },
+    { "id": "cache-warming", "name": "eli.cache-warming" },
+    { "id": "compaction", "name": "dsh.compaction" },
+    { "id": "compaction-policy", "name": "eli.compaction-policy" },
+    { "id": "image-offload", "name": "dsh.image-offload" },
+    { "id": "agent-loop", "name": "dsh.agent-loop", "config": { "agents": [] } }
+  ],
+  "features": [
+    { "id": "feature-services", "name": "eli.feature-services" },
+    { "id": "instructions", "name": "eli.instructions" },
+    { "id": "file-tools", "name": "eli.file-tools" },
+    { "id": "terminal", "name": "eli.terminal" },
+    { "id": "questions", "name": "eli.questions" },
+    { "id": "approvals", "name": "eli.approvals" },
+    { "id": "subagents", "name": "eli.subagents" },
+    { "id": "mcp", "name": "eli.mcp" },
+    { "id": "discovery", "name": "eli.discovery" }
+  ],
+  "desktop": [
+    { "id": "config", "name": "eli.desktop-config" },
+    { "id": "window", "name": "eli.desktop-window" },
+    { "id": "agent", "name": "eli.desktop-agent" },
+    { "id": "preferences", "name": "eli.desktop-preferences" },
+    { "id": "terminal", "name": "eli.desktop-terminal" },
+    { "id": "updates", "name": "eli.desktop-updates" },
+    { "id": "client-plugins", "name": "eli.desktop-client-plugins" }
+  ],
+  "client": [
+    { "id": "ui-registry", "name": "eli.ui-registry" },
+    { "id": "ui-providers", "name": "eli.ui-providers" },
+    { "id": "ui-shell", "name": "eli.ui-shell" },
+    { "id": "ui-conversation", "name": "eli.ui-conversation" },
+    { "id": "ui-sidebar", "name": "eli.ui-sidebar" },
+    { "id": "ui-tasks", "name": "eli.ui-tasks" },
+    { "id": "ui-approvals", "name": "eli.ui-approvals" },
+    { "id": "ui-questions", "name": "eli.ui-questions" },
+    { "id": "ui-settings", "name": "eli.ui-settings" },
+    { "id": "ui-general-settings", "name": "eli.ui-general-settings" },
+    { "id": "ui-model-settings", "name": "eli.ui-model-settings" },
+    { "id": "ui-skills", "name": "eli.ui-skills" },
+    { "id": "ui-mcp", "name": "eli.ui-mcp" },
+    { "id": "ui-usage", "name": "eli.ui-usage" },
+    { "id": "ui-about", "name": "eli.ui-about" }
+  ]
+}

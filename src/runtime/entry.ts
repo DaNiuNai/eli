@@ -2,6 +2,9 @@ import { RuntimeHost } from './host'
 import { runtimeProtocolVersion, type RuntimeMessage } from '../shared/runtime'
 import { existsSync } from 'node:fs'
 
+// dsh 的内部 Node 工作进程复用 Electron 可执行文件。此标志只属于 Runtime 子进程。
+if (process.versions.electron) process.env.ELECTRON_RUN_AS_NODE = '1'
+
 // Electron utilityProcess 与 Node 回归测试共用入口，消息不经过 stdout。
 const parent = process.parentPort
 function send(message: RuntimeMessage): void {

@@ -58,7 +58,6 @@ test('Eli 配置集中保存，旧 SDK 配置不加载、不迁移、不修改',
   assert.equal(memory.getDefaultThinkingLevel(), 'high')
   assert.equal(memory.getOrCreateDeviceId(), 'test-stable-device-id')
   memory.setDefaultThinkingLevel('low')
-  await memory.flush()
   assert.equal(await readFile(path, 'utf8'), before)
   await providers.change({ action: 'delete', id: 'config-only' })
   for (const name of legacy)

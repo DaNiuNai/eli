@@ -6,7 +6,7 @@ import { EliConfigStore } from '../src/config/store.ts'
 import { McpService } from '../src/runtime/mcp.ts'
 import { mcpHttpServer } from './fixtures/mcp-http.mjs'
 import { mcpOAuthServer } from './fixtures/mcp-oauth.mjs'
-import { sdkModules } from '../src/runtime/sdk-adapter.ts'
+import { McpOAuthCredentialStore } from '../src/runtime/mcp-transport.ts'
 
 async function fixture(t) {
   const temporary = resolve('.tmp')
@@ -159,11 +159,7 @@ async function until(predicate) {
 }
 
 async function credentialStore(root) {
-  const sdk = await sdkModules()
-  return new sdk.McpOAuthCredentialStore(
-    new sdk.FileAuthStorageBackend(join(root, 'mcp-auth.json')),
-    join(root, 'mcp-locks')
-  )
+  return new McpOAuthCredentialStore(join(root, 'mcp-auth.json'), join(root, 'mcp-locks'))
 }
 
 test('认证状态区分未认证、请求头待验证、已认证、过期和本地服务，状态不包含凭据', async (t) => {
@@ -247,8 +243,8 @@ test('退出认证清除 Authorization 与本服务 OAuth，保留其他请求�
   assert.equal(result[0].config.url, server.url)
   assert.equal(result[0].config.enabled, false)
   assert.equal(result[0].authentication.state, 'unauthenticated')
-  assert.equal(store.tokens('manual', server.url), undefined)
-  assert.equal(store.tokens('other', server.url).access_token, 'sign-out-test-other')
+  assert.equal(await store.tokens('manual', server.url), undefined)
+  assert.equal((await store.tokens('other', server.url)).access_token, 'sign-out-test-other')
   assert.equal(f.service.getAuth().status, 'signed-out')
   await f.service.change({
     action: 'create',
