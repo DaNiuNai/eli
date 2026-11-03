@@ -57,6 +57,7 @@ const pending = new Map()
 const states = []
 const requests = []
 const reviewReplies = []
+let rejectImageRequests = false
 
 function request(method, ...args) {
   const id = String(++nextId)
@@ -101,6 +102,11 @@ app.whenReady().then(async () => {
       for await (const chunk of req) text += chunk
       const body = JSON.parse(text)
       requests.push(body)
+      if (rejectImageRequests && JSON.stringify(body).includes('data:image/')) {
+        res.writeHead(413, { 'content-type': 'text/plain' })
+        res.end('Failed to buffer the request body: length limit exceeded')
+        return
+      }
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       const send = (delta, finish_reason = null) =>
         res.write(
@@ -137,6 +143,9 @@ app.whenReady().then(async () => {
           })
           send({}, 'tool_calls')
         }
+      } else if (JSON.stringify(body.messages[0]).includes('context summarization assistant')) {
+        send({ content: '摘要已生成，保留图片与文档的文字分析。' })
+        send({}, 'stop')
       } else if (
         body.messages.some(
           ({ role, content }) =>
@@ -559,6 +568,23 @@ export default function (pi) {
       .getSize()
     assert.ok(resized.width > 0 && resized.width <= 2000)
     assert.ok(resized.height > 0 && resized.height <= 2000)
+    const beforeRecovery = requests.length
+    rejectImageRequests = true
+    states.length = 0
+    await request('prompt', 'ELI_413_RECOVERY')
+    while (states.at(-1)?.snapshot.running || !states.at(-1)?.snapshot.messages.length)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(states.at(-1).snapshot.error, null)
+    assert.equal(states.at(-1).snapshot.messages.at(-1).stopReason, 'stop')
+    assert.equal(requests.length - beforeRecovery, 2)
+    assert.equal(requestImages(requests[beforeRecovery]).length, 1)
+    assert.equal(requestImages(requests[beforeRecovery + 1]).length, 0)
+    assert.equal(
+      states.at(-1).snapshot.requestBodyBytes,
+      Buffer.byteLength(JSON.stringify(requests[beforeRecovery + 1]))
+    )
+    assert.match(JSON.stringify(requests[beforeRecovery + 1]), /已省略此处的图片或文档/)
+    rejectImageRequests = false
     const beforeCompaction = requests.length
     states.length = 0
     await request('compact')

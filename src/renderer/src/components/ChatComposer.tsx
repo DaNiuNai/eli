@@ -297,6 +297,7 @@ export function ChatComposer({
           )}
           <ContextUsageIndicator
             usage={snapshot?.contextUsage ?? null}
+            requestBodyBytes={snapshot?.requestBodyBytes ?? null}
             contextWindow={snapshot?.model?.contextWindow}
           />
         </div>

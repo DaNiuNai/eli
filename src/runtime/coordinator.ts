@@ -126,7 +126,12 @@ export class RuntimeCoordinator {
     this.settings = await createSettings(root)
     // 同一 Runtime 的所有成员共享连接池，创建成员不能关闭其他成员正在使用的连接。
     if (!this.collaboration) await configureNetwork(this.settings)
-    this.models = await createModels(root)
+    this.models = await createModels(root, (bytes, sessionId) => {
+      // 摘要和独立审批使用其他请求 ID，不能覆盖当前对话的请求体统计。
+      if (this.disposed || !sessionId || sessionId !== this.agent?.sessionId) return
+      this.snapshot.requestBodyBytes = bytes
+      this.publish()
+    })
     const directory = this.collaboration?.directory ?? workspaceSessionDirectory(root, cwd)
     const manager = sessionFile
       ? SessionManager.open(sessionFile, directory)
@@ -188,6 +193,7 @@ export class RuntimeCoordinator {
     manager: SessionManager,
     selection = this.options.selection
   ): Promise<void> {
+    this.snapshot.requestBodyBytes = null
     const previous = manager.buildSessionProjection()
     const preferred = selection ??
       previous.model ?? {
@@ -570,6 +576,7 @@ export class RuntimeCoordinator {
       const model = this.models.getModel(provider, id)
       if (!model) throw new Error('模型不存在')
       await this.agent.setModel(model, { persist: true })
+      this.snapshot.requestBodyBytes = null
       await this.settings.flush()
       await new EliConfigStore(join(this.options.root, 'config.json')).update(({ agent }) => {
         agent.defaultProvider = provider

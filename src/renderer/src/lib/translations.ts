@@ -756,6 +756,9 @@ const english: Record<string, string> = {
   暂不可用: 'Unavailable',
   上下文容量: 'Context capacity',
   剩余容量: 'Remaining capacity',
+  请求体大小: 'Request body size',
+  '最近一次模型请求处理后的大小，包含图片、消息和工具定义。':
+    'Size of the latest processed model request, including images, messages, and tool definitions.',
   调整思考强度: 'Adjust reasoning effort',
   恢复默认思考强度: 'Reset reasoning effort',
   '恢复默认：{level}': 'Reset to default: {level}',

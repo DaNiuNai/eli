@@ -11,6 +11,7 @@ export function emptySessionSnapshot(
     session: id ? { sessionId: id, sessionFile, thinkingLevel: 'medium' } : null,
     thinkingLevels: [],
     contextUsage: null,
+    requestBodyBytes: null,
     model: null,
     models: [],
     messages: [],

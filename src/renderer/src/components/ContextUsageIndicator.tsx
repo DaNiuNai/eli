@@ -12,11 +12,19 @@ import { compactNumber } from '@renderer/lib/agent-display'
 import { useLanguage } from '@renderer/hooks/use-language'
 import type { AgentSnapshot } from '../../../shared/agent'
 
+function formatRequestBytes(bytes: number, locale: string): string {
+  const [divisor, unit]: [number, string] =
+    bytes >= 1024 * 1024 ? [1024 * 1024, 'MiB'] : bytes >= 1024 ? [1024, 'KiB'] : [1, 'B']
+  return `${(bytes / divisor).toLocaleString(locale, { maximumFractionDigits: 2 })} ${unit}`
+}
+
 export function ContextUsageIndicator({
   usage,
+  requestBodyBytes,
   contextWindow
 }: {
   usage: AgentSnapshot['contextUsage']
+  requestBodyBytes: AgentSnapshot['requestBodyBytes']
   contextWindow: number | undefined
 }): React.JSX.Element {
   const { t, locale } = useLanguage()
@@ -88,6 +96,17 @@ export function ContextUsageIndicator({
             {tokens === null || !capacity
               ? t('暂不可用')
               : Math.max(0, capacity - tokens).toLocaleString(locale)}
+          </dd>
+          <dt
+            className="text-muted-foreground"
+            title={t('最近一次模型请求处理后的大小，包含图片、消息和工具定义。')}
+          >
+            {t('请求体大小')}
+          </dt>
+          <dd className="text-right tabular-nums">
+            {requestBodyBytes === null
+              ? t('等待更新')
+              : formatRequestBytes(requestBodyBytes, locale)}
           </dd>
         </dl>
       </PopoverContent>

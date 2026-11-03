@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile, readFile, readdir } from 'node:fs/promis
 import { resolve, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
-import { getPowerShellConfig } from '@earendil-works/pi-coding-agent'
+import { getPowerShellConfig, SessionManager } from '@earendil-works/pi-coding-agent'
 import { RuntimeConnection } from '../src/runtime/connection.ts'
 import { RuntimeInteractions } from '../src/runtime/interactions.ts'
 import { mcpHttpServer } from './fixtures/mcp-http.mjs'
@@ -84,13 +84,14 @@ async function until(predicate, timeout = 10000) {
   throw new Error('等待 Runtime 状态超时')
 }
 
-async function modelServer(t, data, review) {
+async function modelServer(t, data, review, intercept) {
   const requests = []
   const server = createServer(async (req, res) => {
     let text = ''
     for await (const chunk of req) text += chunk
     const body = JSON.parse(text)
     requests.push(body)
+    if (await intercept?.(body, res)) return
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     const last = body.messages.at(-1)
     const lastIsToolResult =
@@ -1060,6 +1061,7 @@ test('独立进程启动、空白会话与 eli 配置隔离', async (t) => {
   assert.notEqual(child.pid, process.pid)
   assert.equal(state.snapshot.connection, 'ready')
   assert.equal(state.snapshot.model.provider, 'eli-test')
+  assert.equal(state.snapshot.requestBodyBytes, null)
   assert.equal(state.persistedFile, undefined)
   assert.equal(state.summary, null)
   assert.ok(state.snapshot.session.sessionFile.startsWith(join(fixtureData.data, 'sessions')))
@@ -1816,6 +1818,134 @@ test('手动压缩可中止；空历史压缩保持就绪', async (t) => {
   assert.ok((await readFile(compacted.persistedFile, 'utf8')).includes('"type":"compaction"'))
 })
 
+test('恢复的 DeepSeek 会话按 47 MiB 预算清理旧图片，保留原始历史和文字分析', async (t) => {
+  const f = await fixture(t)
+  const requests = await modelServer(t, f.data)
+  const config = JSON.parse(await readFile(join(f.data, 'config.json'), 'utf8'))
+  config.agent.defaultProvider = 'deepseek'
+  config.agent.enabledModels = ['deepseek/local']
+  config.agent.compaction = { enabled: false }
+  config.providers.deepseek = config.providers['eli-test']
+  config.providers.deepseek.models[0].contextWindow = 1_000_000
+  config.credentials['api_key:deepseek'] = { type: 'api_key', key: 'test-only' }
+  await writeFile(join(f.data, 'config.json'), JSON.stringify(config))
+  const history = SessionManager.create('Z:\\another-computer', join(f.data, 'imported'))
+  history.appendModelChange('deepseek', 'local')
+  // 模拟迁移会话中的内联数据；每张 Base64 4 MiB，均低于 SDK 单图预算。
+  const data = Buffer.alloc(3 * 1024 * 1024, 1).toString('base64')
+  history.appendMessage({
+    role: 'user',
+    timestamp: Date.now(),
+    content: [
+      { type: 'text', text: 'ELI_IMPORTED_IMAGE_ANALYSIS：保留先前分析及用户要求' },
+      ...Array.from({ length: 12 }, () => ({ type: 'image', mimeType: 'image/png', data }))
+    ]
+  })
+  history.appendMessage({
+    role: 'assistant',
+    api: 'openai-completions',
+    provider: 'deepseek',
+    model: 'local',
+    timestamp: Date.now(),
+    content: [{ type: 'text', text: '已完成图片文字分析' }],
+    stopReason: 'stop',
+    usage: {
+      input: 12000,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 12001,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    }
+  })
+  const file = history.getSessionFile()
+  const original = await readFile(file, 'utf8')
+  const r = runtime(t)
+  await initialize(r.connection, f, undefined, file)
+  r.states.length = 0
+  await r.connection.call('prompt', '继续分析，沿用历史结论')
+  const done = await until(
+    () =>
+      r.states.findLast(
+        (state) =>
+          !state.snapshot.running &&
+          state.snapshot.messages.length >= 4 &&
+          state.snapshot.messages.at(-1)?.role === 'assistant'
+      ),
+    30000
+  )
+  assert.equal(done.snapshot.error, null)
+  assert.equal(done.snapshot.messages.at(-1).stopReason, 'stop')
+  assert.equal(requests.length, 1)
+  assert.ok(Buffer.byteLength(JSON.stringify(requests[0])) <= 47 * 1024 * 1024)
+  assert.equal(done.snapshot.requestBodyBytes, Buffer.byteLength(JSON.stringify(requests[0])))
+  assert.equal(requestImages(requests[0]).length, 11)
+  assert.match(JSON.stringify(requests[0]), /ELI_IMPORTED_IMAGE_ANALYSIS/)
+  assert.match(JSON.stringify(requests[0]), /已完成图片文字分析/)
+  assert.match(JSON.stringify(requests[0]), /已省略此处的图片或文档/)
+  assert.equal(done.snapshot.messages[0].content.filter((part) => part.type === 'image').length, 12)
+  assert.ok((await readFile(file, 'utf8')).startsWith(original))
+})
+
+test('真实 SDK 对图片请求的 HTTP 413 清理后重试一次，纯文字超限直接结束', async (t) => {
+  const f = await fixture(t)
+  let alwaysReject = false
+  const requests = await modelServer(t, f.data, undefined, (body, res) => {
+    if (!alwaysReject && !requestImages(body).length) return false
+    res.writeHead(413, { 'content-type': 'text/plain' })
+    res.end('Failed to buffer the request body: length limit exceeded')
+    return true
+  })
+  await mkdir(join(f.cwd, '.eli/extensions'), { recursive: true })
+  const data = createPng(4, 4).toString('base64')
+  await writeFile(
+    join(f.cwd, '.eli/extensions/images.mjs'),
+    `export default function(pi) {
+    pi.on('input', event => event.text === 'ELI_413_IMAGE' ? {
+      action: 'transform', text: event.text,
+      images: [{ type: 'image', mimeType: 'image/png', data: '${data}' }]
+    } : undefined)
+  }`
+  )
+  const r = runtime(t)
+  await initialize(r.connection, f)
+  await r.connection.call('prompt', 'ELI_413_IMAGE')
+  const done = await until(() =>
+    r.states.findLast((state) => !state.snapshot.running && state.snapshot.messages.length)
+  )
+  assert.equal(done.snapshot.error, null)
+  assert.equal(done.snapshot.messages.at(-1).stopReason, 'stop')
+  assert.equal(requests.length, 2)
+  assert.equal(requestImages(requests[0]).length, 1)
+  assert.equal(requestImages(requests[1]).length, 0)
+  assert.equal(done.snapshot.requestBodyBytes, Buffer.byteLength(JSON.stringify(requests[1])))
+  assert.equal(done.snapshot.messages.filter((message) => message.stopReason === 'error').length, 0)
+  assert.ok((await readFile(done.persistedFile, 'utf8')).includes(data))
+  alwaysReject = true
+  r.states.length = 0
+  const before = requests.length
+  await r.connection.call('prompt', '服务端持续拒绝')
+  const failed = await until(() =>
+    r.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.at(-1)?.stopReason === 'error'
+    )
+  )
+  assert.equal(requests.length - before, 2)
+  assert.match(failed.snapshot.messages.at(-1).errorMessage, /HTTP 413.*移除.*仍超过/)
+
+  const textOnly = runtime(t)
+  await initialize(textOnly.connection, f, '22222222-2222-4222-8222-222222222222')
+  const textBefore = requests.length
+  await textOnly.connection.call('prompt', '只有文字')
+  const textFailed = await until(() =>
+    textOnly.states.findLast(
+      (state) => !state.snapshot.running && state.snapshot.messages.at(-1)?.stopReason === 'error'
+    )
+  )
+  assert.equal(requests.length - textBefore, 1)
+  assert.match(textFailed.snapshot.messages.at(-1).errorMessage, /HTTP 413.*请压缩会话/)
+})
+
 test('图片附件、read 与扩展工具结果发送前缩放，压缩请求只保留文字', async (t) => {
   const f = await fixture(t)
   const requests = await modelServer(t, f.data)
@@ -1890,6 +2020,7 @@ export default function (pi) {
   assert.ok(system.indexOf('大量图片') > system.indexOf('eli 协作团队'))
   assert.match(system, /小于 1 MB 的 JPG/)
   const before = requests.length
+  const requestBodyBytes = r.states.at(-1).snapshot.requestBodyBytes
   r.states.length = 0
   await r.connection.call('compact')
   const compacted = await until(() =>
@@ -1901,6 +2032,7 @@ export default function (pi) {
   )
   assert.equal(compacted.snapshot.error, null)
   assert.equal(compacted.snapshot.activity, '上下文压缩完成')
+  assert.equal(compacted.snapshot.requestBodyBytes, requestBodyBytes)
   const summaries = requests.slice(before)
   assert.ok(summaries.length > 0)
   for (const body of summaries) {

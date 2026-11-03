@@ -6,6 +6,7 @@ import { EliConfigStore } from '../config/store'
 import { EliCredentials } from './credentials'
 import { readProviderPreferences, type ProviderPreferencesMap } from './provider-store'
 import type { ProviderModelInput } from '../shared/providers'
+import { guardModelRequests, type RequestBodyListener } from './request-body'
 
 export const isolatedAuthContext: AuthContext = {
   env: async () => undefined,
@@ -66,7 +67,11 @@ export interface EliModels {
   catalog(id: string): readonly Model<Api>[]
 }
 
-export async function createEliModels(root: string, forcedMode?: AuthType): Promise<EliModels> {
+export async function createEliModels(
+  root: string,
+  forcedMode?: AuthType,
+  onRequestBody?: RequestBodyListener
+): Promise<EliModels> {
   const sdk = await sdkModules()
   const preferences = await readProviderPreferences(root)
   const credentials = new EliCredentials(
@@ -82,6 +87,7 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
     modelsStore: new sdk.FileModelsStore(join(root, 'models-store.json')),
     refreshOnCreate: false
   })
+  guardModelRequests(runtime, onRequestBody)
   const builtins = new Map(runtime.getProviders().map((provider) => [provider.id, provider]))
   for (const provider of builtins.values()) isolateProviderAuth(provider)
   const builtinIds = new Set(builtins.keys())
@@ -208,6 +214,9 @@ export async function createEliModels(root: string, forcedMode?: AuthType): Prom
   }
 }
 
-export async function createModels(root: string): Promise<ModelRuntime> {
-  return (await createEliModels(root)).runtime
+export async function createModels(
+  root: string,
+  onRequestBody?: RequestBodyListener
+): Promise<ModelRuntime> {
+  return (await createEliModels(root, undefined, onRequestBody)).runtime
 }

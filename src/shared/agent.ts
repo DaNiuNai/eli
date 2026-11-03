@@ -56,6 +56,8 @@ export interface AgentSessionSnapshot {
   session: AgentSessionInfo | null
   thinkingLevels: AgentThinkingLevel[]
   contextUsage: ContextUsage | null
+  /** 最近一次对话请求清理媒体后的 JSON 字节数；尚未构建请求时为空。 */
+  requestBodyBytes: number | null
   model: AgentModelInfo | null
   models: AgentModelInfo[]
   messages: AgentMessage[]
