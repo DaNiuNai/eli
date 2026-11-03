@@ -8,18 +8,21 @@ import {
   GlobeIcon,
   InfoIcon,
   PlugIcon,
+  PuzzleIcon,
   ServerIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
   TerminalIcon
 } from 'lucide-react'
 import { UiRegistry } from './registry'
+import { dshChatSlots } from './dsh-chat'
 import type { SettingsPageProps } from './contracts'
 import {
   GeneralPage,
   ProvidersPage,
   SkillsPage,
   McpPage,
+  PluginsPage,
   UsagePage,
   AboutPage
 } from './settings-pages'
@@ -63,6 +66,7 @@ const modelComponents = modelPages.map(
 )
 
 export const clientPlugins: Readonly<Record<string, Plugin>> = {
+  'eli.dsh-chat-slots': dshChatSlots,
   'eli.ui-registry': {
     apply(ctx) {
       ctx.provide('ui', new UiRegistry())
@@ -208,6 +212,20 @@ export const clientPlugins: Readonly<Record<string, Plugin>> = {
         order: 70,
         keywords: ['MCP 管理', 'MCP 服务', 'stdio', 'HTTP'],
         component: McpPage
+      })
+    }
+  },
+  'eli.ui-plugins': {
+    inject: ['ui'],
+    apply(ctx) {
+      ctx.ui.registerSettings(ctx, {
+        id: 'plugins',
+        label: '插件管理',
+        description: '查看插件、安装组合包和管理版本。',
+        icon: PuzzleIcon,
+        order: 75,
+        keywords: ['插件管理', '组合包', 'plugins', 'npm', 'Git'],
+        component: PluginsPage
       })
     }
   },

@@ -7,6 +7,14 @@ files:
   - out/preload/**
   - out/renderer/**
   - resources/**
+extraResources:
+  - from: node_modules/pnpm
+    to: plugin-pnpm
+    filter:
+      - bin/**
+      - dist/**
+      - package.json
+      - LICENSE
 asarUnpack:
   - resources/**
   # 模型适配器与 dsh 的原生依赖从解包资源加载。

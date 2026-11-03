@@ -6,42 +6,44 @@ import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/ale
 import { loadAppPreferences } from '@renderer/lib/app-preferences'
 import { PluginApplication } from '../../plugins/kernel'
 import { clientPlugins } from './plugins/builtins'
-import { PluginContext } from './plugins/context'
-import { PluginProviders, PluginSlot } from './plugins/slots'
-import type { Plugin } from '@deepseek-ai/cordis'
+import { ClientApplication, PluginContext } from './plugins/context'
+import { clientModuleResolver } from './plugins/dsh-modules'
+import { defaultClientPlugins } from '../../shared/plugins'
 
 async function start(): Promise<void> {
   const root = createRoot(document.getElementById('root')!)
-  const application = new PluginApplication()
+  let application = new PluginApplication()
   try {
     await loadAppPreferences()
-    await application.start(await window.plugins.client(), async (name) => {
-      if (Object.hasOwn(clientPlugins, name)) return clientPlugins[name]
-      if (!name.startsWith('eli-plugin://')) throw new Error(`界面插件模块无效：${name}`)
-      const module = await import(/* @vite-ignore */ name)
-      const plugin: unknown = module.default ?? module
-      if (
-        typeof plugin !== 'function' &&
-        (!plugin ||
-          typeof plugin !== 'object' ||
-          !('apply' in plugin) ||
-          typeof plugin.apply !== 'function')
+    try {
+      const entries = await window.plugins.client()
+      await application.start(entries, await clientModuleResolver(entries, clientPlugins))
+    } catch (error) {
+      await application.dispose()
+      application = new PluginApplication()
+      application.ctx.provide('clientStartupError', String(error))
+      await application.start(
+        defaultClientPlugins,
+        await clientModuleResolver(defaultClientPlugins, clientPlugins)
       )
-        throw new Error(`界面插件未导出 Cordis 插件：${name}`)
-      return plugin as Plugin
+    }
+    const unsubscribe = window.plugins.onClientReload(async () => {
+      const next = await window.plugins.client()
+      await application.reload(next, await clientModuleResolver(next, clientPlugins))
     })
     const registry = application.ctx.get('ui')
     if (!registry || !registry.read('shell').length) throw new Error('界面插件配置未提供应用界面')
     root.render(
       <StrictMode>
-        <PluginContext value={registry}>
-          <PluginProviders>
-            <PluginSlot name="shell" />
-          </PluginProviders>
-        </PluginContext>
+        <ClientApplication value={application}>
+          <PluginContext value={registry}>
+            {application.ctx.slots.renderSlot('root', {})}
+          </PluginContext>
+        </ClientApplication>
       </StrictMode>
     )
     const close = (): void => {
+      unsubscribe()
       root.unmount()
       void application.dispose()
     }

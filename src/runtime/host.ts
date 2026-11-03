@@ -1,6 +1,7 @@
 import type { RuntimeInit, RuntimeRequest, RuntimeMessage } from '../shared/runtime'
 import { mainAgentId, runtimeProtocolVersion } from '../shared/runtime'
 import { PluginApplication } from '../plugins/kernel'
+import type { PluginEntry } from '../shared/plugins'
 import { pluginProfile, pluginResolver } from '../plugins/config'
 import { runtimePlugins, runtimeProfile } from './plugins/profile'
 
@@ -47,12 +48,13 @@ export class RuntimeHost {
       const application = new PluginApplication()
       this.application = application
       application.ctx.provide('eliRuntime', { options, emit: this.emit, publish: this.publish })
-      const entries = await pluginProfile(
-        options.root,
-        options.kind === 'control' ? 'control' : 'session-host',
-        runtimeProfile(options)
-      )
-      await application.start(entries, pluginResolver(options.root, runtimePlugins))
+      const source = (): Promise<PluginEntry[]> =>
+        pluginProfile(
+          options.root,
+          options.kind === 'control' ? 'control' : 'session-host',
+          runtimeProfile(options)
+        )
+      await application.startProfile(source, pluginResolver(options.root, runtimePlugins))
       this.initialized = true
     })()
     await this.init
@@ -89,6 +91,18 @@ export class RuntimeHost {
       return this.application?.ctx.get('sessionView')?.state() ?? null
     }
     if (!this.initialized || !this.application) throw new Error('Runtime 尚未初始化')
+    if (request.method === 'pluginInventory') {
+      const view = this.application.ctx.get('sessionView')
+      return view
+        ? { 'session-host': this.application.status(), session: view.pluginStatus() }
+        : { control: this.application.status() }
+    }
+    if (request.method === 'reloadPlugins') {
+      if (request.args[0] === 'session')
+        await this.application.ctx.get('sessionView')?.reloadPlugins()
+      else await this.application.refresh()
+      return
+    }
     return this.application.ctx.operations.dispatch(request)
   }
 

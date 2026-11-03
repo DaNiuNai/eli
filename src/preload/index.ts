@@ -64,7 +64,27 @@ const api: AgentApi = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
-const plugins: PluginsApi = { client: () => ipcRenderer.invoke(pluginsChannels.client) }
+const plugins: PluginsApi = {
+  projection: (sessionKey, key) => ipcRenderer.invoke(pluginsChannels.projection, sessionKey, key),
+  client: () => ipcRenderer.invoke(pluginsChannels.client),
+  inventory: () => ipcRenderer.invoke(pluginsChannels.inventory),
+  change: (change) => ipcRenderer.invoke(pluginsChannels.change, change),
+  versions: (name) => ipcRenderer.invoke(pluginsChannels.versions, name),
+  chooseDirectory: () => ipcRenderer.invoke(pluginsChannels.choose),
+  onClientReload: (handler) => {
+    const reload = async (_event: Electron.IpcRendererEvent, id: string): Promise<void> => {
+      let error: string | undefined
+      try {
+        await handler()
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : String(cause)
+      }
+      await ipcRenderer.invoke(pluginsChannels.applied, id, error)
+    }
+    ipcRenderer.on(pluginsChannels.reload, reload)
+    return () => ipcRenderer.removeListener(pluginsChannels.reload, reload)
+  }
+}
 contextBridge.exposeInMainWorld('plugins', plugins)
 
 const mcpAuth: McpAuthApi = {

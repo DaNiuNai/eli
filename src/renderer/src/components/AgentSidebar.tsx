@@ -1,3 +1,4 @@
+import { DshSlot } from '../plugins/dsh-slots'
 import { memo, useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { DragDropProvider, KeyboardSensor, PointerSensor } from '@dnd-kit/react'
 import { isSortable } from '@dnd-kit/react/sortable'
@@ -456,6 +457,7 @@ export const AgentSidebar = memo(function AgentSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <DshSlot name="sidebar.footer.action" />
     </Sidebar>
   )
 })

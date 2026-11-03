@@ -4,6 +4,9 @@ import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { PluginPackages } from '../plugins/packages'
+import { PluginManager } from '../plugins/manager'
+import type { PluginChange } from '../shared/plugins'
 import { is } from '@electron-toolkit/utils'
 import type { Context, Plugin } from '@deepseek-ai/cordis'
 import { PluginApplication } from '../plugins/kernel'
@@ -26,6 +29,8 @@ interface DesktopEnvironment {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     desktop: DesktopEnvironment
+    desktopApplication: PluginApplication
+    desktopStartupError: string
     desktopConfig: AppConfig
     desktopWindow: BrowserWindow
     desktopAgent: AgentService
@@ -185,6 +190,7 @@ export const desktopPlugins: Readonly<Record<string, Plugin>> = {
     inject: ['desktop', 'desktopWindow'],
     apply(ctx) {
       const roots = new Map<string, string>()
+      const directories = new Map<string, string>()
       protocol.handle('eli-plugin', async (request) => {
         const url = new URL(request.url)
         const root = roots.get(url.hostname)
@@ -218,8 +224,10 @@ export const desktopPlugins: Readonly<Record<string, Plugin>> = {
             if (!/\.(m?js)$/.test(path))
               throw new Error(`界面插件必须提供 JavaScript ESM 文件：${entry.id}`)
             const canonical = await realpath(path)
-            const id = randomUUID()
-            roots.set(id, dirname(canonical))
+            const dir = dirname(canonical)
+            const id = directories.get(dir) ?? randomUUID()
+            roots.set(id, dir)
+            directories.set(dir, id)
             return {
               ...entry,
               name: `eli-plugin://${id}/${encodeURIComponent(basename(canonical))}`
@@ -228,16 +236,132 @@ export const desktopPlugins: Readonly<Record<string, Plugin>> = {
         )
       })
     }
+  },
+  'eli.desktop-plugin-manager': {
+    inject: ['desktop', 'desktopWindow', 'desktopApplication', 'desktopAgent', 'desktopConfig'],
+    async apply(ctx) {
+      const window = ctx.desktopWindow
+      const pnpm = app.isPackaged
+        ? join(process.resourcesPath, 'plugin-pnpm', 'bin', 'pnpm.cjs')
+        : join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
+      const waiting = new Map<string, (error?: string) => void>()
+      ipc(ctx, pluginsChannels.applied, (id, error) => {
+        if (typeof id === 'string' && (error === undefined || typeof error === 'string'))
+          waiting.get(id)?.(error)
+      })
+      const clientReload = (): Promise<void> =>
+        new Promise((resolve, reject) => {
+          const id = randomUUID()
+          const finish = (error?: string): void => {
+            clearTimeout(timer)
+            waiting.delete(id)
+            if (error) reject(new Error(error))
+            else resolve()
+          }
+          const timer = setTimeout(() => finish('界面插件热重载超时'), 20000)
+          waiting.set(id, finish)
+          window.webContents.send(pluginsChannels.reload, id)
+        })
+      const service = new PluginManager(
+        ctx.desktop.root,
+        new PluginPackages(ctx.desktop.root, pnpm),
+        async (profiles, rebuild) => {
+          let applied = true
+          for (const profile of profiles) {
+            if (profile === 'client') await clientReload()
+            else if (profile === 'desktop') await ctx.desktopApplication.refresh()
+            else if (
+              ctx.get('desktopAgent') &&
+              !(await ctx.desktopAgent.reloadPlugins(profile, rebuild))
+            )
+              applied = false
+          }
+          return applied ? '插件配置已生效' : '配置已保存，正在工作的会话将在空闲后应用'
+        }
+      )
+      await service.collect()
+      ipc(ctx, pluginsChannels.inventory, async () => {
+        const [inventory, runtime] = await Promise.all([
+          service.list(),
+          ctx.desktopAgent.pluginInventory()
+        ])
+        runtime.desktop = ctx.desktopApplication.status()
+        inventory.startupError = ctx.desktopApplication.ctx.get('desktopStartupError')
+        for (const profile of ['desktop', 'control', 'session-host', 'session'] as const) {
+          for (const entry of runtime[profile] ?? []) {
+            const row = inventory.entries.find((it) => it.profile === profile && it.id === entry.id)
+            if (row) row.state = entry.state
+            else inventory.entries.push({ ...entry, profile, protected: true })
+          }
+        }
+        return inventory
+      })
+      ipc(ctx, pluginsChannels.projection, (sessionKey, key) =>
+        ctx.desktopAgent.readPluginProjection(sessionKey, key)
+      )
+      ipc(ctx, pluginsChannels.change, async (value) => {
+        const change = value as PluginChange
+        if (change?.kind === 'install' || change?.kind === 'update') {
+          const english = ctx.desktopConfig.get().language === 'en'
+          const source =
+            change.kind === 'install' ? change.source : change.name + '@' + change.version
+          const scope =
+            change.kind === 'install'
+              ? change.profile
+              : (await service.list()).packages.find((pkg) => pkg.name === change.name)?.target
+          const answer = await dialog.showMessageBox(window, {
+            type: 'question',
+            title: english ? 'Install plugin code' : '安装插件代码',
+            message: english ? 'Allow this plugin to run in eli?' : '允许这个插件在 eli 中运行吗？',
+            detail: String(source) + '\n' + (english ? 'Scope: ' : '作用域：') + scope,
+            buttons: english ? ['Cancel', 'Install'] : ['取消', '安装'],
+            defaultId: 0,
+            cancelId: 0,
+            noLink: true
+          })
+          if (answer.response !== 1)
+            return { inventory: await service.list(), notice: '已取消安装' }
+        }
+        return service.change(change)
+      })
+      ipc(ctx, pluginsChannels.versions, (name) => service.versions(String(name)))
+      ipc(ctx, pluginsChannels.choose, async () => {
+        const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] })
+        return result.canceled ? null : result.filePaths[0]
+      })
+      ctx.effect(() => () => {
+        service.close()
+        for (const finish of waiting.values()) finish('窗口已关闭')
+      })
+    }
   }
 }
 
 export async function createDesktop(environment: DesktopEnvironment): Promise<PluginApplication> {
-  const application = new PluginApplication()
-  application.ctx.provide('desktop', environment)
-  await application.start(
-    await pluginProfile(environment.root, 'desktop', desktopProfile),
-    pluginResolver(environment.root, desktopPlugins)
-  )
+  const source = (): Promise<PluginEntry[]> =>
+    pluginProfile(environment.root, 'desktop', desktopProfile)
+  const resolver = pluginResolver(environment.root, desktopPlugins)
+  const initialize = (): PluginApplication => {
+    const application = new PluginApplication()
+    application.ctx.provide('desktop', environment)
+    application.ctx.provide('desktopApplication', application)
+    return application
+  }
+  let application = initialize()
+  try {
+    await application.startProfile(source, resolver)
+  } catch (error) {
+    await application.dispose()
+    application = initialize()
+    application.ctx.provide('desktopStartupError', String(error))
+    // Start with the shipped window and management bridge so a broken external plugin can be removed.
+    let recovery = true
+    await application.startProfile(async () => {
+      if (!recovery) return source()
+      recovery = false
+      return desktopProfile
+    }, resolver)
+  }
   const window = application.ctx.get('desktopWindow')
   if (!window) {
     await application.dispose()

@@ -1,3 +1,4 @@
+import { DshSlot } from '../plugins/dsh-slots'
 import { SidebarTrigger, useSidebar } from '@renderer/components/ui/sidebar'
 import { PanelRightIcon } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -41,6 +42,8 @@ export function AppTitlebar({
         )}
       >
         <div className="window-titlebar-actions flex shrink-0 items-center gap-1">
+          <DshSlot name="conversation.header.leading" />
+          <DshSlot name="conversation.session.header.actions" />
           <AppMenu
             snapshot={snapshot}
             busy={busy}
@@ -74,6 +77,7 @@ export function AppTitlebar({
           </div>
         )}
         <div className="window-titlebar-actions ml-auto flex shrink-0 items-center gap-1">
+          <DshSlot name="conversation.session.header.utilities" />
           <Button
             variant={tasksOpen ? 'secondary' : 'ghost'}
             size="icon-sm"
@@ -85,6 +89,7 @@ export function AppTitlebar({
           >
             <PanelRightIcon />
           </Button>
+          <DshSlot name="conversation.session.header.corner" />
         </div>
       </div>
     </header>

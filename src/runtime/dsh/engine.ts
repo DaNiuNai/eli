@@ -267,8 +267,8 @@ export async function createEngine(
       ].includes(name)
   )
   const optional = needsPrograms ? (await import('./programs')).programPlugins : {}
-  await application.start(
-    entries,
+  await application.startProfile(
+    () => pluginProfile(environment.root, 'session', [...base, ...extra]),
     pluginResolver(environment.root, { ...enginePlugins, ...optional, ...plugins })
   )
   return application

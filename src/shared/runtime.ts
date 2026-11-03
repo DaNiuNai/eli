@@ -42,6 +42,9 @@ export interface RuntimeSessionState {
 
 /** Electron 只访问主会话；成员路由和团队调度由 Runtime 管理。 */
 export interface RuntimeMethods {
+  pluginInventory: { args: []; result: import('./plugins').RuntimePluginInventory }
+  pluginProjection: { args: [string]; result: unknown }
+  reloadPlugins: { args: ['control' | 'session-host' | 'session']; result: void }
   getProviders: { args: []; result: ProvidersSnapshot }
   changeProvider: { args: [ProviderChange]; result: ProvidersSnapshot }
   initialize: { args: [RuntimeInit]; result: RuntimeSessionState | null }

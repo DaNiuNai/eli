@@ -1,4 +1,5 @@
 import { PluginSlot } from './plugins/slots'
+import { DshSlot } from './plugins/dsh-slots'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDownIcon, ListTodoIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
@@ -322,6 +323,7 @@ function App(): React.JSX.Element {
       onOpenChange={(open) => updateAppPreferences({ sidebarOpen: open })}
       className="desktop-shell relative h-dvh min-h-0 flex-col overflow-hidden bg-background"
     >
+      <DshSlot name="shell.leading" />
       <PluginSlot
         name="shell.titlebar"
         title={visibleMessages.length > 0 ? currentTitle : null}
@@ -580,8 +582,11 @@ function App(): React.JSX.Element {
             }
             onApprovalMode={(toolApprovalMode) => updateAppPreferences({ toolApprovalMode })}
           />
+          <DshSlot name="conversation.composer.dock" />
         </main>
       </PluginSlot>
+      <DshSlot name="shell.bottom" />
+      <DshSlot name="shell.overlay" />
     </SidebarProvider>
   )
 }

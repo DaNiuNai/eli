@@ -40,6 +40,11 @@ declare module '@deepseek-ai/cordis' {
     eliRuntime: RuntimeEnvironment
     operations: RuntimeOperations
     runtimeNetwork: object
-    sessionView: { state(): RuntimeSessionState; abort(): Promise<void> }
+    sessionView: {
+      pluginStatus(): import('../../shared/plugins').PluginStatus[]
+      state(): RuntimeSessionState
+      abort(): Promise<void>
+      reloadPlugins(): Promise<void>
+    }
   }
 }

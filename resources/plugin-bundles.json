@@ -64,10 +64,14 @@
     { "id": "preferences", "name": "eli.desktop-preferences" },
     { "id": "terminal", "name": "eli.desktop-terminal" },
     { "id": "updates", "name": "eli.desktop-updates" },
-    { "id": "client-plugins", "name": "eli.desktop-client-plugins" }
+    { "id": "client-plugins", "name": "eli.desktop-client-plugins" },
+    { "id": "plugin-manager", "name": "eli.desktop-plugin-manager" }
   ],
   "client": [
     { "id": "ui-registry", "name": "eli.ui-registry" },
+    { "id": "dsh-ui-renderer", "name": "dsh.ui-renderer" },
+    { "id": "dsh-locale", "name": "eli.dsh-locale" },
+    { "id": "dsh-chat-slots", "name": "eli.dsh-chat-slots" },
     { "id": "ui-providers", "name": "eli.ui-providers" },
     { "id": "ui-shell", "name": "eli.ui-shell" },
     { "id": "ui-conversation", "name": "eli.ui-conversation" },
@@ -80,6 +84,7 @@
     { "id": "ui-model-settings", "name": "eli.ui-model-settings" },
     { "id": "ui-skills", "name": "eli.ui-skills" },
     { "id": "ui-mcp", "name": "eli.ui-mcp" },
+    { "id": "ui-plugins", "name": "eli.ui-plugins" },
     { "id": "ui-usage", "name": "eli.ui-usage" },
     { "id": "ui-about", "name": "eli.ui-about" }
   ]

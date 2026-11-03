@@ -605,6 +605,32 @@ export class AgentService {
     }
   }
 
+  readPluginProjection(sessionKey: unknown, key: unknown): Promise<unknown> {
+    if (typeof key !== 'string' || !key || key.length > 200) throw new Error('无效的投影键')
+    return this.session(sessionKey).pluginProjection(key)
+  }
+  async pluginInventory(): Promise<import('../shared/plugins').RuntimePluginInventory> {
+    const [control, session] = await Promise.all([
+      this.control?.call('pluginInventory').catch(() => undefined),
+      this.current?.pluginInventory().catch(() => undefined)
+    ])
+    return { ...control, ...session }
+  }
+  async reloadPlugins(
+    profile: 'session' | 'session-host' | 'control',
+    rebuild: boolean
+  ): Promise<boolean> {
+    if (profile === 'control') {
+      await (await this.controller()).call('reloadPlugins', profile)
+      return true
+    }
+    const results = await Promise.allSettled(
+      [...this.sessions.values()].map((session) => session.reloadPlugins(profile, rebuild))
+    )
+    for (const result of results) if (result.status === 'rejected') throw result.reason
+    return results.every((result) => result.status === 'fulfilled' && result.value)
+  }
+
   refreshApprovalMode(): void {
     for (const session of this.sessions.values()) session.refreshApprovalMode()
     this.publish()

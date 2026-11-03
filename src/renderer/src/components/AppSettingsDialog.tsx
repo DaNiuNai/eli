@@ -70,7 +70,7 @@ export function AppSettingsDialog({
         >
           <aside
             data-orientation="vertical"
-            className="group/tabs settings-navigation flex w-52 shrink-0 flex-col gap-7 border-r bg-muted/30 p-3 pt-5"
+            className="group/tabs settings-navigation flex w-52 shrink-0 flex-col gap-7 overflow-y-auto border-r bg-muted/30 p-3 pt-5"
           >
             <InputGroup className="shrink-0">
               <InputGroupAddon>

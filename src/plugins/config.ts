@@ -6,6 +6,7 @@ import { JsonStore } from '../config/store'
 import {
   composePlugins,
   parsePluginConfiguration,
+  type PluginConfiguration,
   type PluginEntry,
   type PluginProfile
 } from '../shared/plugins'
@@ -17,7 +18,28 @@ export async function pluginProfile(
   base: readonly PluginEntry[]
 ): Promise<PluginEntry[]> {
   const config = await new JsonStore(join(root, 'plugins.json'), parsePluginConfiguration).read()
-  return composePlugins(base, config.profiles[profile] ?? [])
+  return composedProfile(config, profile, base)
+}
+
+export function composedProfile(
+  config: PluginConfiguration,
+  profile: PluginProfile,
+  base: readonly PluginEntry[]
+): PluginEntry[] {
+  let entries = [...base]
+  const inactive = new Set<string>()
+  for (const pkg of config.packages ?? []) {
+    const rows = pkg.entries[profile] ?? []
+    if (pkg.enabled) entries = composePlugins(entries, rows)
+    else for (const row of rows) inactive.add(row.id)
+  }
+  const ids = new Set(entries.map(({ id }) => id))
+  return composePlugins(
+    entries,
+    (config.profiles[profile] ?? []).filter(
+      (row) => ids.has(row.id) || !inactive.has(row.id) || row.name !== undefined
+    )
+  )
 }
 
 export function pluginModulePath(root: string, name: string): string {
@@ -34,6 +56,7 @@ export function pluginResolver(
 ): PluginResolver {
   return async (name) => {
     if (Object.hasOwn(builtins, name)) return builtins[name]
+    if (name === 'eli.dsh-tree') return (await import('./dsh-tree')).dshTree(root)
     const path = pluginModulePath(root, name)
     const loaded = await import(pathToFileURL(path).href)
     const plugin: unknown = loaded.default ?? loaded

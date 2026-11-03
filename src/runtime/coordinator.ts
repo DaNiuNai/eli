@@ -270,6 +270,22 @@ export class RuntimeCoordinator {
     this.publish()
   }
 
+  async reloadPlugins(): Promise<void> {
+    await this.application?.refresh()
+    this.sync()
+    this.publish()
+  }
+  pluginStatus(): import('../shared/plugins').PluginStatus[] {
+    return this.application?.status() ?? []
+  }
+  projection(key: string): unknown {
+    if (!this.agent || typeof key !== 'string' || !key || key.length > 200) return undefined
+    const values = this.ctx.sessionProjections.snapshot(this.agent.session, [
+      key as keyof import('@deepseek-ai/dsh-session-projection/types').SessionProjectionMap
+    ]).values
+    return Object.hasOwn(values, key) ? (values as Record<string, unknown>)[key] : undefined
+  }
+
   private selectedModel(): ReturnType<EliModels['runtime']['getModel']> {
     const selection = this.agent?.model.current()
     return selection && this.ctx.get('eliPiRoutes')?.has(selection.provider)

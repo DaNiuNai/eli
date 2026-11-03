@@ -255,6 +255,26 @@ export class SessionProcess {
   invalidateSettings(): void {
     this.version++
   }
+  async pluginProjection(key: string): Promise<unknown> {
+    return this.client?.call('pluginProjection', key)
+  }
+  async pluginInventory(): Promise<import('../shared/plugins').RuntimePluginInventory> {
+    return (await this.client?.call('pluginInventory')) ?? {}
+  }
+  async reloadPlugins(profile: 'session' | 'session-host', rebuild: boolean): Promise<boolean> {
+    if (this.busy || this.hasRunningTasks || this.starting) {
+      this.invalidateSettings()
+      this.providerRefreshPending = true
+      return false
+    }
+    if (!this.client) return true
+    if (rebuild) await this.refreshProviders()
+    else
+      await this.exclusive(async () => {
+        await this.client?.call('reloadPlugins', profile)
+      })
+    return true
+  }
   async refreshProviders(): Promise<void> {
     this.invalidateSettings()
     if (this.busy || this.starting || this.hasRunningTasks) {

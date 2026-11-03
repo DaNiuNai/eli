@@ -1,3 +1,4 @@
+import { DshSlot } from '../plugins/dsh-slots'
 import type { RefObject } from 'react'
 import {
   ChevronDownIcon,
@@ -195,6 +196,7 @@ export function ChatComposer({
         onSend={onSend}
       >
         <InputGroupAddon align="inline-start" className="composer-add-addon self-end">
+          <DshSlot name="conversation.input.left" owner={{ locked: busy }} />
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<InputGroupButton variant="ghost" size="icon-sm" />}
@@ -215,6 +217,7 @@ export function ChatComposer({
           </DropdownMenu>
         </InputGroupAddon>
         <InputGroupAddon align="inline-end" className="self-end px-2 py-2">
+          <DshSlot name="conversation.input.right" owner={{ locked: busy }} />
           {snapshot?.running && !command ? (
             <InputGroupButton
               variant="ghost"
@@ -247,45 +250,51 @@ export function ChatComposer({
         </InputGroupAddon>
       </SlashCommandInput>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
-        <ToolApprovalControl
-          value={snapshot?.toolApprovalMode ?? 'request'}
-          disabled={!snapshot}
-          onChange={onApprovalMode}
-        />
+        <DshSlot name="conversation.input.permission" owner={{ locked: !snapshot }}>
+          <ToolApprovalControl
+            value={snapshot?.toolApprovalMode ?? 'request'}
+            disabled={!snapshot}
+            onChange={onApprovalMode}
+          />
+        </DshSlot>
+        <DshSlot name="conversation.input.plan" owner={{ locked: !ready || busy }} />
+        {!hasMessages && <DshSlot name="conversation.hero.options" />}
         <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="sm" className="min-w-0 max-w-64" />}
-              aria-label={t('选择模型')}
-              disabled={!ready || busy || !snapshot?.models.length}
-            >
-              <span className="truncate">{snapshot?.model?.id || t('选择模型')}</span>
-              <ChevronDownIcon data-icon="inline-end" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="top" className="max-h-80 w-80">
-              <DropdownMenuRadioGroup
-                value={modelKey}
-                onValueChange={(value) => {
-                  const model = snapshot?.models.find(
-                    (entry) => JSON.stringify([entry.provider, entry.id]) === value
-                  )
-                  if (model) onModel(model.provider, model.id)
-                }}
+          <DshSlot name="conversation.input.model" owner={{ locked: !ready || busy }}>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="sm" className="min-w-0 max-w-64" />}
+                aria-label={t('选择模型')}
+                disabled={!ready || busy || !snapshot?.models.length}
               >
-                {snapshot?.models.map((model) => (
-                  <DropdownMenuRadioItem
-                    key={JSON.stringify([model.provider, model.id])}
-                    value={JSON.stringify([model.provider, model.id])}
-                  >
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate">{model.id}</span>
-                      <span className="text-xs text-muted-foreground">{model.provider}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <span className="truncate">{snapshot?.model?.id || t('选择模型')}</span>
+                <ChevronDownIcon data-icon="inline-end" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="max-h-80 w-80">
+                <DropdownMenuRadioGroup
+                  value={modelKey}
+                  onValueChange={(value) => {
+                    const model = snapshot?.models.find(
+                      (entry) => JSON.stringify([entry.provider, entry.id]) === value
+                    )
+                    if (model) onModel(model.provider, model.id)
+                  }}
+                >
+                  {snapshot?.models.map((model) => (
+                    <DropdownMenuRadioItem
+                      key={JSON.stringify([model.provider, model.id])}
+                      value={JSON.stringify([model.provider, model.id])}
+                    >
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="truncate">{model.id}</span>
+                        <span className="text-xs text-muted-foreground">{model.provider}</span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </DshSlot>
           {snapshot?.session && snapshot.thinkingLevels.length > 1 && (
             <ThinkingControl
               key={modelKey}
