@@ -75,6 +75,7 @@
     { "id": "ui-providers", "name": "eli.ui-providers" },
     { "id": "ui-shell", "name": "eli.ui-shell" },
     { "id": "ui-conversation", "name": "eli.ui-conversation" },
+    { "id": "ui-trajectory", "name": "eli.ui-trajectory" },
     { "id": "ui-sidebar", "name": "eli.ui-sidebar" },
     { "id": "ui-tasks", "name": "eli.ui-tasks" },
     { "id": "ui-approvals", "name": "eli.ui-approvals" },

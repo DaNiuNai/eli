@@ -36,6 +36,8 @@ const api: AgentApi = {
   deleteSession: (path) => ipcRenderer.invoke(agentChannels.deleteSession, path),
   getLibrary: () => ipcRenderer.invoke(agentChannels.getLibrary),
   getSkills: (sessionKey) => ipcRenderer.invoke(agentChannels.getSkills, sessionKey),
+  readTrajectory: (sessionKey, query) =>
+    ipcRenderer.invoke(agentChannels.readTrajectory, sessionKey, query),
   getUserSkills: () => ipcRenderer.invoke(agentChannels.getUserSkills),
   installCommonSkills: () => ipcRenderer.invoke(agentChannels.installCommonSkills),
   getMcpServers: () => ipcRenderer.invoke(agentChannels.getMcpServers),

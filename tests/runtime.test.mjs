@@ -379,9 +379,12 @@ test('子 Agent 经真实 Runtime 并行运行，复用模型与工具，审批�
   assert.equal(requests.length, count)
   assert.equal(r.states.at(-1).snapshot.subagents[0].status, 'completed')
   const file = done.persistedFile
+  const originalTrajectory = await r.connection.call('readTrajectory', {})
+  assert.ok(originalTrajectory.rows.some((row) => row.kind === 'assistant' && row.usage))
   await r.connection.stop()
   const reopened = runtime(t)
   const restored = await initialize(reopened.connection, f, 'reopened-subagents', file)
+  assert.deepEqual(await reopened.connection.call('readTrajectory', {}), originalTrajectory)
   assert.equal(restored.snapshot.subagents[0].id, '/root/writer')
   assert.equal(restored.snapshot.subagents[0].status, 'completed')
   assert.ok(

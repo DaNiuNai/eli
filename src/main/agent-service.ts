@@ -307,6 +307,7 @@ export class AgentService {
       this.publish(true)
       return result
     })
+    handle(agentChannels.readTrajectory, (key, query) => this.session(key).readTrajectory(query))
     handle(agentChannels.getSkills, async (key) => {
       const session = this.session(key)
       await this.requireWorkspace(session.snapshot.cwd)

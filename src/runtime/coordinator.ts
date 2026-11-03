@@ -52,6 +52,8 @@ import { reviewTool } from './auto-approval'
 import { BackgroundTasks } from './background-tasks'
 import { SubagentTeam } from './subagents'
 import { createEngine } from './dsh/engine'
+import { TrajectoryIndex } from './dsh/trajectory'
+import type { TrajectoryPage, TrajectoryQuery } from '../shared/trajectory'
 import { featurePlugins, featureProfile } from './dsh/features'
 import { importLegacySession, readSessionIdentity } from './dsh/migration'
 import {
@@ -86,6 +88,7 @@ export class RuntimeCoordinator {
   readonly interactions: RuntimeInteractions
   private application?: PluginApplication
   private handle?: AgentHandle
+  private trajectory?: TrajectoryIndex
   private settings!: RuntimeSettings
   private models!: EliModels
   private readonly efforts = new Map<
@@ -278,6 +281,11 @@ export class RuntimeCoordinator {
   pluginStatus(): import('../shared/plugins').PluginStatus[] {
     return this.application?.status() ?? []
   }
+  readTrajectory(query: TrajectoryQuery): TrajectoryPage {
+    if (!this.agent) throw new Error('会话尚未初始化')
+    this.trajectory ??= new TrajectoryIndex(this.agent.session)
+    return this.trajectory.read(query)
+  }
   projection(key: string): unknown {
     if (!this.agent || typeof key !== 'string' || !key || key.length > 200) return undefined
     const values = this.ctx.sessionProjections.snapshot(this.agent.session, [
@@ -467,6 +475,7 @@ export class RuntimeCoordinator {
   }
 
   private publish(libraryChanged = false): void {
+    this.snapshot.trajectoryRevision = this.agent?.session.seq ?? 0
     if (!this.disposed) this.changed(libraryChanged)
   }
   private assertIdle(): void {

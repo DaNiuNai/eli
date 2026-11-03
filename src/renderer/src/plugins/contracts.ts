@@ -5,6 +5,9 @@ import type { UsageSettingsPanelProps } from '../components/UsageSettingsPanel'
 
 /** 插件通过声明合并扩展插槽；各插槽的调用参数由拥有该界面的模块定义。 */
 export interface UiSlots {
+  'session.trajectory': ComponentProps<
+    typeof import('../components/SessionTrajectory').SessionTrajectory
+  >
   shell: { children?: never }
   providers: { children: ReactNode }
   'shell.titlebar': ComponentProps<typeof import('../components/AppTitlebar').AppTitlebar>

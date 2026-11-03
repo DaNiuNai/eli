@@ -2,6 +2,7 @@ import type { InventoryEntry } from '../../../shared/plugins'
 
 // Built-in module ids are stable across languages and can appear in more than one profile.
 const titles: Record<string, readonly [string, string]> = {
+  'eli.ui-trajectory': ['会话执行轨迹', 'Session trajectory'],
   'eli.runtime-operations': ['Runtime 操作分发', 'Runtime operations'],
   'eli.runtime-network': ['Runtime 网络', 'Runtime networking'],
   'eli.session': ['会话协调器', 'Session coordinator'],

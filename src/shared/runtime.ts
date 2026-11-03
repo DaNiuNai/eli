@@ -15,6 +15,7 @@ import type { ProviderChange, ProvidersSnapshot } from './providers'
 import type { UserSkill } from './skills'
 import type { ManagedMcpServer, McpAuthSnapshot, McpConnectionTest, McpServerChange } from './mcp'
 import type { SubagentAction } from './subagents'
+import type { TrajectoryPage, TrajectoryQuery } from './trajectory'
 
 export const runtimeProtocolVersion = 1
 export const mainAgentId = 'main'
@@ -42,6 +43,7 @@ export interface RuntimeSessionState {
 
 /** Electron 只访问主会话；成员路由和团队调度由 Runtime 管理。 */
 export interface RuntimeMethods {
+  readTrajectory: { args: [TrajectoryQuery]; result: TrajectoryPage }
   pluginInventory: { args: []; result: import('./plugins').RuntimePluginInventory }
   pluginProjection: { args: [string]; result: unknown }
   reloadPlugins: { args: ['control' | 'session-host' | 'session']; result: void }

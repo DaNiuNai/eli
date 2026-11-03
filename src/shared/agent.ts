@@ -13,6 +13,7 @@ import type { UserQuestionAnswer, UserQuestionRequest } from './user-question'
 import type { CommonSkillsInstallResult, UserSkill } from './skills'
 import type { BackgroundTask } from './background-tasks'
 import type { SubagentAction, SubagentSnapshot } from './subagents'
+import type { TrajectoryPage, TrajectoryQuery } from './trajectory'
 
 // 应用协议与 SDK 的 CLI / RPC 类型无关；消息内容复用引擎的会话类型。
 export type { AgentMessage, AgentThinkingLevel, AgentToolEvent } from './agent-messages'
@@ -51,6 +52,7 @@ export interface AgentMessageTarget {
 }
 
 export interface AgentSessionSnapshot {
+  trajectoryRevision: number
   connection: 'connecting' | 'ready' | 'error'
   cwd: string
   session: AgentSessionInfo | null
@@ -97,6 +99,7 @@ export interface AgentSnapshot extends AgentSessionSnapshot {
 }
 
 export interface AgentApi {
+  readTrajectory(sessionKey: string, query: TrajectoryQuery): Promise<TrajectoryPage>
   connect(restart?: boolean): Promise<AgentSnapshot>
   prompt(sessionKey: string, message: string, attachmentPaths?: string[]): Promise<void>
   compact(sessionKey: string, instructions?: string): Promise<void>
@@ -136,6 +139,7 @@ export interface AgentApi {
 }
 
 export const agentChannels = {
+  readTrajectory: 'agent:read-trajectory',
   connect: 'agent:connect',
   prompt: 'agent:prompt',
   compact: 'agent:compact',

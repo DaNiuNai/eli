@@ -5,6 +5,7 @@ import type { RuntimeMessage, RuntimeSessionState } from '../shared/runtime'
 import type { RuntimeConnection } from '../runtime/connection'
 import type { ToolApprovalMode } from '../shared/tool-approval'
 import type { TerminalPreference } from '../shared/terminal'
+import { isTrajectoryQuery, type TrajectoryPage } from '../shared/trajectory'
 import type { UserQuestionAnswer } from '../shared/user-question'
 import { isTaskActive } from '../shared/background-tasks'
 import { isSubagentActive, type SubagentAction } from '../shared/subagents'
@@ -257,6 +258,16 @@ export class SessionProcess {
   }
   async pluginProjection(key: string): Promise<unknown> {
     return this.client?.call('pluginProjection', key)
+  }
+  async readTrajectory(query: unknown): Promise<TrajectoryPage> {
+    if (!isTrajectoryQuery(query)) throw new Error('无效的轨迹位置')
+    const client = await (this.starting ?? this.client ?? this.ensureClient())
+    clearTimeout(this.idleTimer)
+    try {
+      return await client.call('readTrajectory', query)
+    } finally {
+      this.scheduleIdle()
+    }
   }
   async pluginInventory(): Promise<import('../shared/plugins').RuntimePluginInventory> {
     return (await this.client?.call('pluginInventory')) ?? {}

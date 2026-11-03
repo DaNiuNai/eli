@@ -31,6 +31,7 @@ import { LanguageProvider } from '../components/LanguageProvider'
 import { ThemeProvider } from '../components/ThemeProvider'
 import { TooltipProvider } from '../components/ui/tooltip'
 import { AppTitlebar } from '../components/AppTitlebar'
+import { SessionTrajectory } from '../components/SessionTrajectory'
 import { WorkspaceLayout } from '../components/WorkspaceLayout'
 import { WelcomeDialog } from '../components/WelcomeDialog'
 import { AgentSidebar } from '../components/AgentSidebar'
@@ -66,6 +67,12 @@ const modelComponents = modelPages.map(
 )
 
 export const clientPlugins: Readonly<Record<string, Plugin>> = {
+  'eli.ui-trajectory': {
+    inject: ['ui'],
+    apply(ctx) {
+      ctx.ui.register(ctx, 'session.trajectory', SessionTrajectory)
+    }
+  },
   'eli.dsh-chat-slots': dshChatSlots,
   'eli.ui-registry': {
     apply(ctx) {

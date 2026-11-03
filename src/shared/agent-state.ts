@@ -6,6 +6,7 @@ export function emptySessionSnapshot(
   sessionFile?: string
 ): AgentSessionSnapshot {
   return {
+    trajectoryRevision: 0,
     connection: id ? 'connecting' : 'ready',
     cwd,
     session: id ? { sessionId: id, sessionFile, thinkingLevel: 'medium' } : null,

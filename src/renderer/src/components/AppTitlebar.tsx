@@ -1,4 +1,5 @@
 import { DshSlot } from '../plugins/dsh-slots'
+import { PluginSlot } from '../plugins/slots'
 import { SidebarTrigger, useSidebar } from '@renderer/components/ui/sidebar'
 import { PanelRightIcon } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -78,6 +79,15 @@ export function AppTitlebar({
         )}
         <div className="window-titlebar-actions ml-auto flex shrink-0 items-center gap-1">
           <DshSlot name="conversation.session.header.utilities" />
+          {snapshot?.session && (
+            <PluginSlot
+              name="session.trajectory"
+              key={snapshot.sessionKey + ':' + snapshot.session.sessionId}
+              sessionKey={snapshot.sessionKey}
+              revision={snapshot.trajectoryRevision}
+              disabled={snapshot.connection !== 'ready'}
+            />
+          )}
           <Button
             variant={tasksOpen ? 'secondary' : 'ghost'}
             size="icon-sm"

@@ -92,6 +92,14 @@ async function run() {
     )
   }
   await wait("document.querySelector('.desktop-shell') !== null")
+  await wait('!!document.querySelector(\'[aria-label="执行轨迹"]:not(:disabled)\')')
+  await contents.executeJavaScript('document.querySelector(\'[aria-label="执行轨迹"]\').click()')
+  await wait(
+    '[...document.querySelectorAll(\'[role="dialog"]\')].some(el => el.innerText.includes("执行轨迹") && /暂无轨迹|轮次 \\/ 步骤/.test(el.innerText))'
+  )
+  await contents.executeJavaScript(
+    '[...document.querySelectorAll(\'[role="dialog"]\')].find(el => el.innerText.includes("执行轨迹")).querySelector(\'[data-slot="dialog-close"]\').click()'
+  )
   await contents.executeJavaScript(
     "window.dispatchEvent(new KeyboardEvent('keydown',{key:',',ctrlKey:true}))"
   )

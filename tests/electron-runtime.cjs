@@ -447,6 +447,15 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     assert.equal(reviewReplies.length, 3)
+    const trajectory = await request('readTrajectory', {})
+    const writes = trajectory.rows.filter((row) => row.kind === 'tool' && row.label === 'write')
+    assert.equal(writes.length, 3)
+    const inspection = await request('readTrajectory', { selected: writes[0].seq })
+    assert.deepEqual(
+      inspection.detail.map((event) => event.type),
+      ['tool/call', 'tool/result']
+    )
+    assert.match(inspection.detail[0].value.arguments.path, /approved-\d\.txt$/)
     for (let index = 0; index < 3; index++)
       assert.equal(readFileSync(join(cwd, `approved-${index}.txt`), 'utf8'), 'electron-approved')
     const reviews = requests.filter((body) => body.model === 'reviewer')

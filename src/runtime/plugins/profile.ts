@@ -64,6 +64,7 @@ export const runtimePlugins: Readonly<Record<string, Plugin>> = {
       ctx.effect(() => () => session.dispose())
       await session.initialize()
       ctx.provide('sessionView', session)
+      ctx.operations.register(ctx, 'readTrajectory', (query) => session.readTrajectory(query))
       ctx.operations.register(ctx, 'pluginProjection', (key) => session.projection(key))
       ctx.operations.register(ctx, 'prompt', (text) => {
         session.prompt(text)
